@@ -72,7 +72,17 @@
   "decision_by",
   "decision_at",
   "decision_notes",
-  "payment_readiness"
+  "payment_readiness",
+  "mock_payment_section",
+  "payment_entry",
+  "payment_lifecycle_status",
+  "mock_payment_provider",
+  "mock_payment_reference",
+  "column_break_mock_payment",
+  "mock_payment_status",
+  "mock_payment_amount",
+  "mock_payment_issued_at",
+  "mock_payment_response"
  ],
  "fields": [
   {
@@ -538,11 +548,82 @@
    "label": "Payment Readiness",
    "options": "Not Ready\nReady for Payment\nBlocked",
    "read_only": 1
+  },
+  {
+   "description": "Deterministic mock payment writeback. This section uses native Payment Entry and must never imply real funds or bank reconciliation.",
+   "fieldname": "mock_payment_section",
+   "fieldtype": "Section Break",
+   "label": "Mock Payment"
+  },
+  {
+   "description": "Native ERPNext Payment Entry created for the mock payment.",
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "default": "Not Requested",
+   "description": "Derived payment lifecycle status for the pilot.",
+   "fieldname": "payment_lifecycle_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Payment Lifecycle Status",
+   "options": "Not Requested\nConfirmed\nClosed\nBlocked",
+   "read_only": 1
+  },
+  {
+   "description": "Mock/null payment provider identifier.",
+   "fieldname": "mock_payment_provider",
+   "fieldtype": "Data",
+   "label": "Mock Payment Provider",
+   "read_only": 1
+  },
+  {
+   "description": "Deterministic mock provider transaction/reference id.",
+   "fieldname": "mock_payment_reference",
+   "fieldtype": "Data",
+   "label": "Mock Payment Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_mock_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Mock provider status returned for this payment.",
+   "fieldname": "mock_payment_status",
+   "fieldtype": "Data",
+   "label": "Mock Payment Status",
+   "read_only": 1
+  },
+  {
+   "description": "Amount confirmed by the deterministic mock provider.",
+   "fieldname": "mock_payment_amount",
+   "fieldtype": "Float",
+   "label": "Mock Payment Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the deterministic mock payment was issued.",
+   "fieldname": "mock_payment_issued_at",
+   "fieldtype": "Datetime",
+   "label": "Mock Payment Issued At",
+   "read_only": 1
+  },
+  {
+   "description": "Raw deterministic mock provider response for audit.",
+   "fieldname": "mock_payment_response",
+   "fieldtype": "Long Text",
+   "label": "Mock Payment Response",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-13 18:00:00",
+ "modified": "2026-05-13 19:00:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",
