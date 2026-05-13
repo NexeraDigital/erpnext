@@ -46,7 +46,22 @@
   "column_break_review",
   "reviewed_by",
   "reviewed_at",
-  "review_notes"
+  "review_notes",
+  "validation_section",
+  "matched_supplier",
+  "supplier_match_status",
+  "purchase_order_reference",
+  "purchase_receipt_reference",
+  "column_break_validation",
+  "purchase_reference_status",
+  "validation_status",
+  "validation_result",
+  "validated_by",
+  "validated_at",
+  "validation_source",
+  "promotion_section",
+  "purchase_invoice",
+  "promotion_status"
  ],
  "fields": [
   {
@@ -319,6 +334,119 @@
    "fieldname": "review_notes",
    "fieldtype": "Small Text",
    "label": "Review Notes"
+  },
+  {
+   "description": "Validation outcome of the AP-reviewed capture against existing ERPNext records prior to Purchase Invoice promotion.",
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Validation & Match"
+  },
+  {
+   "description": "Existing ERPNext Supplier matched from the reviewed final_supplier value. Unknown suppliers are not auto-created.",
+   "fieldname": "matched_supplier",
+   "fieldtype": "Link",
+   "label": "Matched Supplier",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "default": "Not Validated",
+   "description": "Outcome of the supplier match step.",
+   "fieldname": "supplier_match_status",
+   "fieldtype": "Select",
+   "label": "Supplier Match Status",
+   "options": "Not Validated\nMatched\nUnknown\nAmbiguous",
+   "read_only": 1
+  },
+  {
+   "description": "Optional explicit reference to an existing Purchase Order.",
+   "fieldname": "purchase_order_reference",
+   "fieldtype": "Link",
+   "label": "Purchase Order Reference",
+   "options": "Purchase Order"
+  },
+  {
+   "description": "Optional explicit reference to an existing Purchase Receipt.",
+   "fieldname": "purchase_receipt_reference",
+   "fieldtype": "Link",
+   "label": "Purchase Receipt Reference",
+   "options": "Purchase Receipt"
+  },
+  {
+   "fieldname": "column_break_validation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Not Validated",
+   "description": "Explicit classification of how the capture references prior purchasing documents.",
+   "fieldname": "purchase_reference_status",
+   "fieldtype": "Select",
+   "label": "Purchase Reference Status",
+   "options": "Not Validated\nNon-PO / Not Applicable\nPurchase Order\nPurchase Receipt",
+   "read_only": 1
+  },
+  {
+   "default": "Not Validated",
+   "description": "Overall validation outcome. 'Validated' is required before promotion to Purchase Invoice.",
+   "fieldname": "validation_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Validation Status",
+   "options": "Not Validated\nValidated\nBlocked",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable validation outcome detail (e.g. list of blocking issues, or a success summary).",
+   "fieldname": "validation_result",
+   "fieldtype": "Small Text",
+   "label": "Validation Result",
+   "read_only": 1
+  },
+  {
+   "description": "User (or system actor) who recorded the validation outcome.",
+   "fieldname": "validated_by",
+   "fieldtype": "Link",
+   "label": "Validated By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the validation outcome was recorded.",
+   "fieldname": "validated_at",
+   "fieldtype": "Datetime",
+   "label": "Validated At",
+   "read_only": 1
+  },
+  {
+   "description": "Identifier of the validation routine / source (e.g. 'ap-validation-v1').",
+   "fieldname": "validation_source",
+   "fieldtype": "Data",
+   "label": "Validation Source",
+   "read_only": 1
+  },
+  {
+   "description": "Promotion of the validated capture into the native Purchase Invoice lifecycle.",
+   "fieldname": "promotion_section",
+   "fieldtype": "Section Break",
+   "label": "Purchase Invoice Promotion"
+  },
+  {
+   "description": "Native ERPNext Purchase Invoice created from this capture (header-only Phase 1).",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "default": "Not Promoted",
+   "description": "Whether this capture has been promoted into the native Purchase Invoice lifecycle.",
+   "fieldname": "promotion_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Promotion Status",
+   "options": "Not Promoted\nPromoted",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

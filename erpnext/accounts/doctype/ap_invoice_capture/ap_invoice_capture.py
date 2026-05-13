@@ -29,7 +29,7 @@ from datetime import date, timedelta
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, now_datetime
+from frappe.utils import getdate, now_datetime, today
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"pdf", "png", "jpg", "jpeg"})
 
@@ -44,6 +44,25 @@ OCR_STATUS_NOT_EXTRACTED = "Not Extracted"
 OCR_STATUS_PROPOSED = "Proposed"
 OCR_STATUS_CONFIRMED = "Confirmed"
 OCR_STATUS_NEEDS_CORRECTION = "Needs Correction"
+
+SUPPLIER_MATCH_NOT_VALIDATED = "Not Validated"
+SUPPLIER_MATCH_MATCHED = "Matched"
+SUPPLIER_MATCH_UNKNOWN = "Unknown"
+SUPPLIER_MATCH_AMBIGUOUS = "Ambiguous"
+
+PURCHASE_REF_NOT_VALIDATED = "Not Validated"
+PURCHASE_REF_NON_PO = "Non-PO / Not Applicable"
+PURCHASE_REF_PURCHASE_ORDER = "Purchase Order"
+PURCHASE_REF_PURCHASE_RECEIPT = "Purchase Receipt"
+
+VALIDATION_STATUS_NOT_VALIDATED = "Not Validated"
+VALIDATION_STATUS_VALIDATED = "Validated"
+VALIDATION_STATUS_BLOCKED = "Blocked"
+
+PROMOTION_STATUS_NOT_PROMOTED = "Not Promoted"
+PROMOTION_STATUS_PROMOTED = "Promoted"
+
+VALIDATION_SOURCE_DEFAULT = "ap-validation-v1"
 
 INTAKE_MANUAL_UPLOAD = "Manual ERPNext Upload"
 
@@ -78,6 +97,14 @@ class AmbiguousSourceError(frappe.ValidationError):
 
 class OCRExtractionError(frappe.ValidationError):
 	"""Raised when OCR extraction cannot proceed (e.g. unsupported source)."""
+
+
+class CaptureValidationError(frappe.ValidationError):
+	"""Raised when AP-reviewed capture cannot enter the validation step."""
+
+
+class CapturePromotionError(frappe.ValidationError):
+	"""Raised when a capture cannot be promoted to a Purchase Invoice."""
 
 
 class APInvoiceCapture(Document):
@@ -127,6 +154,25 @@ class APInvoiceCapture(Document):
 			"Confirmed",
 		]
 		validation_message: DF.SmallText | None
+		matched_supplier: DF.Link | None
+		supplier_match_status: DF.Literal[
+			"Not Validated", "Matched", "Unknown", "Ambiguous"
+		]
+		purchase_order_reference: DF.Link | None
+		purchase_receipt_reference: DF.Link | None
+		purchase_reference_status: DF.Literal[
+			"Not Validated",
+			"Non-PO / Not Applicable",
+			"Purchase Order",
+			"Purchase Receipt",
+		]
+		validation_status: DF.Literal["Not Validated", "Validated", "Blocked"]
+		validation_result: DF.SmallText | None
+		validated_by: DF.Link | None
+		validated_at: DF.Datetime | None
+		validation_source: DF.Data | None
+		purchase_invoice: DF.Link | None
+		promotion_status: DF.Literal["Not Promoted", "Promoted"]
 	# end: auto-generated types
 
 	def validate(self):
@@ -570,3 +616,273 @@ def confirm_extracted_fields_for(
 		parsed = corrections or None
 	doc = confirm_extracted_fields(capture, corrections=parsed, notes=notes)
 	return doc.name
+
+
+# ---------------------------------------------------------------------------
+# Validation against existing ERPNext records + Purchase Invoice promotion
+# ---------------------------------------------------------------------------
+
+
+def _match_supplier(supplier_name: str | None) -> tuple[str | None, str]:
+	"""Match an AP-reviewed supplier name against existing Supplier records.
+
+	Returns ``(matched_name, status)``. Suppliers are never auto-created;
+	an unknown name yields ``(None, Unknown)`` so AP correction is required.
+	"""
+
+	if not supplier_name:
+		return None, SUPPLIER_MATCH_UNKNOWN
+
+	candidate = supplier_name.strip()
+	if not candidate:
+		return None, SUPPLIER_MATCH_UNKNOWN
+
+	if frappe.db.exists("Supplier", candidate):
+		return candidate, SUPPLIER_MATCH_MATCHED
+
+	by_supplier_name = frappe.get_all(
+		"Supplier",
+		filters={"supplier_name": candidate},
+		pluck="name",
+	)
+	if len(by_supplier_name) == 1:
+		return by_supplier_name[0], SUPPLIER_MATCH_MATCHED
+	if len(by_supplier_name) > 1:
+		return None, SUPPLIER_MATCH_AMBIGUOUS
+
+	return None, SUPPLIER_MATCH_UNKNOWN
+
+
+def _classify_purchase_reference(po_ref: str | None, pr_ref: str | None) -> str:
+	"""Explicit classification of purchase reference handling for AC-V3.
+
+	A Purchase Receipt reference dominates a Purchase Order reference because
+	a PR already implies an upstream PO in ERPNext; both being absent is
+	explicitly recorded as Non-PO so it cannot be silently inferred.
+	"""
+
+	if pr_ref:
+		return PURCHASE_REF_PURCHASE_RECEIPT
+	if po_ref:
+		return PURCHASE_REF_PURCHASE_ORDER
+	return PURCHASE_REF_NON_PO
+
+
+def validate_for_purchase_invoice(
+	capture: "APInvoiceCapture | str",
+	actor: str | None = None,
+	source: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Validate an AP-reviewed capture against existing ERPNext records.
+
+	Behavior:
+	* Requires AP-reviewed/final fields confirmed (status == Confirmed).
+	* Matches ``final_supplier`` to an existing Supplier by ``name`` or
+	  ``supplier_name``. Unknown suppliers are flagged, never auto-created.
+	* Classifies purchase reference handling explicitly (PO / PR / Non-PO).
+	* Records auditable outcome: ``validation_status``, ``validation_result``,
+	  ``validated_by``, ``validated_at``, ``validation_source``.
+	* Does NOT create a Purchase Invoice; that is a separate promotion call.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.status != STATUS_CONFIRMED:
+		raise CaptureValidationError(
+			_(
+				"AP Invoice Capture must be AP-reviewed (status Confirmed) before validation; "
+				"current status is {0}."
+			).format(capture.status)
+		)
+
+	final_supplier_value = (capture.final_supplier or "").strip() or None
+	matched_supplier, match_status = _match_supplier(final_supplier_value)
+	capture.matched_supplier = matched_supplier
+	capture.supplier_match_status = match_status
+
+	purchase_ref_status = _classify_purchase_reference(
+		capture.purchase_order_reference, capture.purchase_receipt_reference
+	)
+	capture.purchase_reference_status = purchase_ref_status
+
+	issues: list[str] = []
+
+	for logical_name, _proposed_field, final_field in MANDATORY_HEADER_FIELDS:
+		value = capture.get(final_field)
+		if value in (None, "", 0, 0.0):
+			issues.append(_("Missing reviewed {0}").format(logical_name))
+
+	if match_status == SUPPLIER_MATCH_UNKNOWN:
+		issues.append(
+			_("Supplier '{0}' is unknown — AP correction required (no auto-create).").format(
+				final_supplier_value or ""
+			)
+		)
+	elif match_status == SUPPLIER_MATCH_AMBIGUOUS:
+		issues.append(
+			_("Supplier '{0}' is ambiguous — multiple existing Suppliers share this name.").format(
+				final_supplier_value or ""
+			)
+		)
+
+	capture.validated_by = actor or frappe.session.user
+	capture.validated_at = now_datetime()
+	capture.validation_source = source or VALIDATION_SOURCE_DEFAULT
+
+	if issues:
+		capture.validation_status = VALIDATION_STATUS_BLOCKED
+		capture.validation_result = "; ".join(issues)
+		capture.action_required = 1
+		capture.action_required_reason = _("Validation blocked: {0}").format(
+			capture.validation_result
+		)
+	else:
+		capture.validation_status = VALIDATION_STATUS_VALIDATED
+		capture.validation_result = _(
+			"Supplier matched: {0}. Purchase reference: {1}."
+		).format(matched_supplier, purchase_ref_status)
+		# Confirmed -> Validated does NOT clear action_required by itself;
+		# the next required action is promotion to Purchase Invoice.
+		capture.action_required = 1
+		capture.action_required_reason = _("Ready for promotion to Purchase Invoice")
+
+	if save:
+		capture.save()
+	return capture
+
+
+def _coalesce_defaults(defaults: dict | None) -> dict:
+	"""Allowed keys for ``promote_to_purchase_invoice`` defaults overrides.
+
+	Phase 1 is header-only. Tests pass the standard ERPNext ``_Test ...``
+	values; production wiring of company-level defaults is deliberately
+	out of scope for this slice.
+	"""
+
+	allowed = {
+		"company",
+		"item_code",
+		"qty",
+		"uom",
+		"warehouse",
+		"expense_account",
+		"cost_center",
+	}
+	if not defaults:
+		return {}
+	return {k: v for k, v in defaults.items() if k in allowed and v is not None}
+
+
+def promote_to_purchase_invoice(
+	capture: "APInvoiceCapture | str",
+	actor: str | None = None,
+	defaults: dict | None = None,
+	save: bool = True,
+) -> "Document":
+	"""Promote a validated capture into the native Purchase Invoice lifecycle.
+
+	Preconditions:
+	* ``validation_status`` must be ``Validated``.
+	* ``matched_supplier`` must be set (unknown suppliers cannot promote).
+	* Capture must not already be promoted.
+
+	A draft Purchase Invoice is created with a single header-level item row
+	(deterministic default item / cost center / warehouse). Any explicit
+	purchase reference remains on the capture for Phase 1 auditability;
+	line-level PO/PR matching is out of scope for this slice.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.validation_status != VALIDATION_STATUS_VALIDATED:
+		raise CapturePromotionError(
+			_(
+				"Capture must be successfully validated before promotion; "
+				"current validation_status is {0}."
+			).format(capture.validation_status or VALIDATION_STATUS_NOT_VALIDATED)
+		)
+	if not capture.matched_supplier:
+		raise CapturePromotionError(
+			_("Capture cannot be promoted without a matched Supplier.")
+		)
+	if capture.promotion_status == PROMOTION_STATUS_PROMOTED and capture.purchase_invoice:
+		raise CapturePromotionError(
+			_("Capture has already been promoted to Purchase Invoice {0}.").format(
+				capture.purchase_invoice
+			)
+		)
+
+	d = _coalesce_defaults(defaults)
+
+	pi = frappe.new_doc("Purchase Invoice")
+	pi.supplier = capture.matched_supplier
+	pi.bill_no = capture.final_supplier_invoice_no
+	pi.bill_date = capture.final_invoice_date
+	pi.posting_date = capture.final_invoice_date or today()
+	if capture.final_currency:
+		pi.currency = capture.final_currency
+	pi.conversion_rate = 1.0
+	if d.get("company"):
+		pi.company = d["company"]
+
+	rate = float(capture.final_total_amount or 0.0)
+	qty = float(d.get("qty", 1) or 1)
+	item_row: dict = {
+		"item_code": d.get("item_code", "_Test Item"),
+		"qty": qty,
+		"rate": rate,
+	}
+	if d.get("uom"):
+		item_row["uom"] = d["uom"]
+		item_row["stock_uom"] = d["uom"]
+	if d.get("warehouse"):
+		item_row["warehouse"] = d["warehouse"]
+	if d.get("expense_account"):
+		item_row["expense_account"] = d["expense_account"]
+	if d.get("cost_center"):
+		item_row["cost_center"] = d["cost_center"]
+	# Phase 1 deliberately does NOT attach the capture's PO/PR reference onto
+	# the Purchase Invoice item row — line-level PO/PR matching is out of scope
+	# for this slice. The references remain auditable on the capture itself.
+	pi.append("items", item_row)
+
+	pi.insert(ignore_permissions=True)
+
+	capture.purchase_invoice = pi.name
+	capture.promotion_status = PROMOTION_STATUS_PROMOTED
+	# Promotion clears action-required: the capture has now handed off to
+	# the native Purchase Invoice lifecycle. Approval/payment is out of scope.
+	capture.action_required = 0
+	capture.action_required_reason = None
+	if actor:
+		capture.validated_by = actor
+
+	if save:
+		capture.save()
+	return pi
+
+
+@frappe.whitelist()
+def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -> str:
+	"""Whitelisted entrypoint for the validation step."""
+
+	doc = validate_for_purchase_invoice(capture, source=source)
+	return doc.name
+
+
+@frappe.whitelist()
+def promote_to_purchase_invoice_for(
+	capture: str, defaults: str | dict | None = None
+) -> str:
+	"""Whitelisted entrypoint for promotion to Purchase Invoice."""
+
+	parsed: dict | None
+	if isinstance(defaults, str) and defaults:
+		parsed = json.loads(defaults)
+	else:
+		parsed = defaults or None
+	pi = promote_to_purchase_invoice(capture, defaults=parsed)
+	return pi.name
