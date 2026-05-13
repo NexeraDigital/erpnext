@@ -1181,6 +1181,176 @@ def issue_mock_payment(
 	return pe
 
 
+# ---------------------------------------------------------------------------
+# Closure evidence / lifecycle visibility
+# ---------------------------------------------------------------------------
+
+
+def _gl_entries_for_vouchers(voucher_names: list[str]) -> list[dict]:
+	if not voucher_names:
+		return []
+	return frappe.db.get_all(
+		"GL Entry",
+		filters={"voucher_no": ["in", voucher_names], "is_cancelled": 0},
+		fields=["voucher_type", "voucher_no", "account", "debit", "credit"],
+		order_by="voucher_no, account",
+	)
+
+
+def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
+	"""Build audit evidence for a capture from ERPNext-native state."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	pi_state = None
+	pe_state = None
+	if capture.purchase_invoice:
+		pi_state = frappe.db.get_value(
+			"Purchase Invoice",
+			capture.purchase_invoice,
+			["name", "docstatus", "status", "grand_total", "outstanding_amount"],
+			as_dict=True,
+		)
+	if capture.payment_entry:
+		pe_state = frappe.db.get_value(
+			"Payment Entry",
+			capture.payment_entry,
+			["name", "docstatus", "paid_amount", "reference_no", "remarks"],
+			as_dict=True,
+		)
+
+	voucher_names = [
+		name for name in (capture.purchase_invoice, capture.payment_entry) if name
+	]
+	gl_entries = _gl_entries_for_vouchers(voucher_names)
+	bank_transaction_count = _bank_transaction_count_for_payment_entry(capture.payment_entry)
+	closed = bool(
+		pi_state
+		and pe_state
+		and int(pi_state.docstatus) == 1
+		and int(pe_state.docstatus) == 1
+		and flt(pi_state.outstanding_amount) == 0
+		and pi_state.status == "Paid"
+	)
+
+	return {
+		"capture": {
+			"name": capture.name,
+			"source_file": capture.source_file,
+			"source_file_url": capture.source_file_url,
+			"source_filename": capture.source_filename,
+			"received_at": capture.received_at,
+			"status": capture.status,
+			"action_required": capture.action_required,
+			"action_required_reason": capture.action_required_reason,
+		},
+		"ocr": {
+			"provider": capture.ocr_provider,
+			"status": capture.ocr_status,
+			"extracted_at": capture.ocr_extracted_at,
+			"proposal": {
+				"supplier": capture.proposed_supplier,
+				"supplier_invoice_no": capture.proposed_supplier_invoice_no,
+				"invoice_date": capture.proposed_invoice_date,
+				"total_amount": capture.proposed_total_amount,
+				"currency": capture.proposed_currency,
+			},
+			"final": {
+				"supplier": capture.final_supplier,
+				"supplier_invoice_no": capture.final_supplier_invoice_no,
+				"invoice_date": capture.final_invoice_date,
+				"total_amount": capture.final_total_amount,
+				"currency": capture.final_currency,
+			},
+		},
+		"validation": {
+			"status": capture.validation_status,
+			"result": capture.validation_result,
+			"matched_supplier": capture.matched_supplier,
+			"purchase_reference_status": capture.purchase_reference_status,
+			"validated_by": capture.validated_by,
+			"validated_at": capture.validated_at,
+			"source": capture.validation_source,
+		},
+		"approval": {
+			"status": capture.approval_status,
+			"routing_reason": capture.routing_reason,
+			"assigned_approver_role": capture.assigned_approver_role,
+			"decision_by": capture.decision_by,
+			"decision_at": capture.decision_at,
+			"decision_notes": capture.decision_notes,
+			"payment_readiness": capture.payment_readiness,
+		},
+		"payment": {
+			"entry": capture.payment_entry,
+			"provider": capture.mock_payment_provider,
+			"reference": capture.mock_payment_reference,
+			"status": capture.mock_payment_status,
+			"amount": capture.mock_payment_amount,
+			"issued_at": capture.mock_payment_issued_at,
+			"lifecycle_status": _derive_payment_lifecycle_status(capture),
+			"response": json.loads(capture.mock_payment_response or "{}"),
+		},
+		"native": {
+			"purchase_invoice": dict(pi_state or {}),
+			"payment_entry": dict(pe_state or {}),
+			"gl_entries": gl_entries,
+			"gl_entry_count": len(gl_entries),
+			"bank_transaction_count": bank_transaction_count,
+		},
+		"closed": closed,
+		"closure_basis": (
+			"Closed is derived from native ERPNext state: submitted Purchase Invoice, "
+			"submitted Payment Entry, Purchase Invoice outstanding_amount=0, and status Paid. "
+			"No custom closed flag is stored; Bank Transaction count must remain 0."
+		),
+	}
+
+
+def get_ap_lifecycle_rows() -> list[dict]:
+	"""List AP captures with the fields AP clerks need for next action visibility."""
+
+	return frappe.get_all(
+		"AP Invoice Capture",
+		fields=[
+			"name",
+			"source_filename",
+			"status",
+			"action_required",
+			"action_required_reason",
+			"validation_status",
+			"approval_status",
+			"payment_readiness",
+			"payment_lifecycle_status",
+			"purchase_invoice",
+			"payment_entry",
+			"modified",
+		],
+		order_by="modified desc",
+	)
+
+
+def get_manager_approval_queue() -> list[dict]:
+	"""Return only captures currently waiting for manager approval."""
+
+	return frappe.get_all(
+		"AP Invoice Capture",
+		filters={"approval_status": APPROVAL_STATUS_PENDING_MANAGER},
+		fields=[
+			"name",
+			"source_filename",
+			"final_supplier",
+			"final_total_amount",
+			"final_currency",
+			"routing_reason",
+			"assigned_approver_role",
+			"purchase_invoice",
+		],
+		order_by="modified asc",
+	)
+
+
 @frappe.whitelist()
 def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -> str:
 	"""Whitelisted entrypoint for the validation step."""
@@ -1237,3 +1407,18 @@ def issue_mock_payment_for(capture: str, paid_from: str | None = None) -> str:
 
 	pe = issue_mock_payment(capture, paid_from=paid_from)
 	return pe.name
+
+
+@frappe.whitelist()
+def build_closure_evidence_for(capture: str) -> dict:
+	return build_closure_evidence(capture)
+
+
+@frappe.whitelist()
+def get_ap_lifecycle_rows_for() -> list[dict]:
+	return get_ap_lifecycle_rows()
+
+
+@frappe.whitelist()
+def get_manager_approval_queue_for() -> list[dict]:
+	return get_manager_approval_queue()
