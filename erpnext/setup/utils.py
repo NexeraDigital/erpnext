@@ -202,9 +202,9 @@ def enable_all_roles_and_domains():
 def _enable_all_roles_for_admin():
 	from frappe.desk.page.setup_wizard.setup_wizard import add_all_roles_to
 
-	all_roles = set(frappe.db.get_values("Role", pluck="name"))
+	all_roles = set(frappe.get_all("Role", pluck="name"))
 	admin_roles = set(
-		frappe.db.get_values("Has Role", {"parent": "Administrator"}, fieldname="role", pluck="role")
+		frappe.get_all("Has Role", filters={"parent": "Administrator"}, pluck="role")
 	)
 
 	if all_roles.difference(admin_roles):
