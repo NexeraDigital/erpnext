@@ -29,7 +29,7 @@ from datetime import date, timedelta
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, now_datetime, today
+from frappe.utils import flt, getdate, now_datetime, today
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"pdf", "png", "jpg", "jpeg"})
 
@@ -78,6 +78,18 @@ APPROVAL_SOURCE_DEFAULT = "ap-approval-v1"
 AUTO_APPROVAL_THRESHOLD_DEFAULT = 1000.0
 MANAGER_APPROVAL_ROLE_DEFAULT = "Accounts Manager"
 
+MOCK_PAYMENT_PROVIDER = "mock_payment_provider"
+MOCK_PAYMENT_PREFIX = "MOCK-PAY"
+MOCK_CLEARING_ACCOUNT_DEFAULT = "_Test Bank - _TC"
+MOCK_PAYMENT_REMARK = (
+	"MOCK PAYMENT - AP Closed Loop pilot. Not bank reconciled. No real banking integration."
+)
+
+PAYMENT_LIFECYCLE_NOT_REQUESTED = "Not Requested"
+PAYMENT_LIFECYCLE_CONFIRMED = "Confirmed"
+PAYMENT_LIFECYCLE_CLOSED = "Closed"
+PAYMENT_LIFECYCLE_BLOCKED = "Blocked"
+
 INTAKE_MANUAL_UPLOAD = "Manual ERPNext Upload"
 
 FAKE_OCR_PROVIDER = "fake-deterministic-v1"
@@ -123,6 +135,10 @@ class CapturePromotionError(frappe.ValidationError):
 
 class CaptureApprovalError(frappe.ValidationError):
 	"""Raised when approval routing or decision recording is invalid."""
+
+
+class CapturePaymentError(frappe.ValidationError):
+	"""Raised when mock payment issuance is invalid."""
 
 
 class APInvoiceCapture(Document):
@@ -206,6 +222,16 @@ class APInvoiceCapture(Document):
 		decision_at: DF.Datetime | None
 		decision_notes: DF.SmallText | None
 		payment_readiness: DF.Literal["Not Ready", "Ready for Payment", "Blocked"]
+		payment_entry: DF.Link | None
+		mock_payment_provider: DF.Data | None
+		mock_payment_reference: DF.Data | None
+		mock_payment_status: DF.Data | None
+		mock_payment_amount: DF.Float
+		mock_payment_issued_at: DF.Datetime | None
+		mock_payment_response: DF.LongText | None
+		payment_lifecycle_status: DF.Literal[
+			"Not Requested", "Confirmed", "Closed", "Blocked"
+		]
 	# end: auto-generated types
 
 	def validate(self):
@@ -1043,6 +1069,118 @@ def is_payment_blocked(capture: "APInvoiceCapture | str") -> bool:
 	)
 
 
+# ---------------------------------------------------------------------------
+# Mock payment issuance / Payment Entry writeback
+# ---------------------------------------------------------------------------
+
+
+def _bank_transaction_count_for_payment_entry(payment_entry: str | None) -> int:
+	if not payment_entry or not frappe.db.exists("DocType", "Bank Transaction"):
+		return 0
+	return frappe.db.count(
+		"Bank Transaction Payments",
+		filters={"payment_document": "Payment Entry", "payment_entry": payment_entry},
+	)
+
+
+def _derive_payment_lifecycle_status(capture: "APInvoiceCapture") -> str:
+	if is_payment_blocked(capture):
+		return PAYMENT_LIFECYCLE_BLOCKED
+	if not capture.payment_entry:
+		return PAYMENT_LIFECYCLE_NOT_REQUESTED
+
+	pi_state = frappe.db.get_value(
+		"Purchase Invoice",
+		capture.purchase_invoice,
+		["docstatus", "status", "outstanding_amount"],
+		as_dict=True,
+	)
+	pe_docstatus = frappe.db.get_value("Payment Entry", capture.payment_entry, "docstatus")
+	if (
+		pi_state
+		and int(pi_state.docstatus) == 1
+		and int(pe_docstatus or 0) == 1
+		and flt(pi_state.outstanding_amount) == 0
+		and pi_state.status == "Paid"
+	):
+		return PAYMENT_LIFECYCLE_CLOSED
+	return PAYMENT_LIFECYCLE_CONFIRMED
+
+
+def issue_mock_payment(
+	capture: "APInvoiceCapture | str",
+	actor: str | None = None,
+	paid_from: str | None = None,
+	save: bool = True,
+) -> "Document":
+	"""Issue a deterministic mock Payment Entry for an approved capture."""
+
+	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if not is_ready_for_payment(capture):
+		raise CapturePaymentError(
+			_("Capture is not approved and ready for mock payment issuance.")
+		)
+	if not capture.purchase_invoice:
+		raise CapturePaymentError(_("Capture has no Purchase Invoice to pay."))
+	if capture.payment_entry:
+		raise CapturePaymentError(
+			_("Capture already has mock Payment Entry {0}.").format(capture.payment_entry)
+		)
+
+	pi = frappe.get_doc("Purchase Invoice", capture.purchase_invoice)
+	if pi.docstatus == 0:
+		pi.submit()
+	elif pi.docstatus != 1:
+		raise CapturePaymentError(
+			_("Purchase Invoice {0} must be draft or submitted before mock payment.").format(
+				pi.name
+			)
+		)
+
+	mock_account = paid_from or MOCK_CLEARING_ACCOUNT_DEFAULT
+	pe = get_payment_entry("Purchase Invoice", pi.name, bank_account=mock_account)
+	pe.paid_from = mock_account
+	pe.reference_no = f"{MOCK_PAYMENT_PREFIX}-{capture.name}"
+	pe.reference_date = today()
+	pe.custom_remarks = 1
+	pe.remarks = MOCK_PAYMENT_REMARK
+	pe.insert(ignore_permissions=True)
+	pe.submit()
+
+	issued_at = now_datetime()
+	response = {
+		"provider": MOCK_PAYMENT_PROVIDER,
+		"reference": pe.reference_no,
+		"status": "confirmed-mock",
+		"amount": flt(pe.paid_amount),
+		"issued_at": issued_at.isoformat() if hasattr(issued_at, "isoformat") else str(issued_at),
+		"is_mock": True,
+		"payment_entry": pe.name,
+		"purchase_invoice": pi.name,
+		"bank_transaction_count": _bank_transaction_count_for_payment_entry(pe.name),
+		"issued_by": actor or frappe.session.user,
+	}
+
+	capture.payment_entry = pe.name
+	capture.mock_payment_provider = MOCK_PAYMENT_PROVIDER
+	capture.mock_payment_reference = pe.reference_no
+	capture.mock_payment_status = response["status"]
+	capture.mock_payment_amount = response["amount"]
+	capture.mock_payment_issued_at = issued_at
+	capture.mock_payment_response = json.dumps(response, sort_keys=True, default=str)
+	capture.payment_lifecycle_status = _derive_payment_lifecycle_status(capture)
+	capture.action_required = 0
+	capture.action_required_reason = None
+
+	if save:
+		capture.save()
+	return pe
+
+
 @frappe.whitelist()
 def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -> str:
 	"""Whitelisted entrypoint for the validation step."""
@@ -1091,3 +1229,11 @@ def record_manager_decision_for(
 		approve = approve.strip().lower() in ("1", "true", "yes", "approve", "approved")
 	doc = record_manager_decision(capture, approve=bool(approve), notes=notes)
 	return doc.name
+
+
+@frappe.whitelist()
+def issue_mock_payment_for(capture: str, paid_from: str | None = None) -> str:
+	"""Whitelisted entrypoint for deterministic mock payment issuance."""
+
+	pe = issue_mock_payment(capture, paid_from=paid_from)
+	return pe.name

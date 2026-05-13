@@ -2,10 +2,11 @@
 # License: GNU General Public License v3. See license.txt
 
 from io import BytesIO
+import json
 
 import frappe
 from frappe.tests import IntegrationTestCase
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 from pypdf import PdfWriter
 
 from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
@@ -20,6 +21,10 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	INTAKE_MANUAL_UPLOAD,
 	MANDATORY_HEADER_FIELDS,
 	MANAGER_APPROVAL_ROLE_DEFAULT,
+	MOCK_CLEARING_ACCOUNT_DEFAULT,
+	MOCK_PAYMENT_PREFIX,
+	MOCK_PAYMENT_PROVIDER,
+	MOCK_PAYMENT_REMARK,
 	OCR_STATUS_CONFIRMED,
 	OCR_STATUS_NEEDS_CORRECTION,
 	OCR_STATUS_NOT_EXTRACTED,
@@ -27,6 +32,8 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	PAYMENT_READINESS_BLOCKED,
 	PAYMENT_READINESS_NOT_READY,
 	PAYMENT_READINESS_READY,
+	PAYMENT_LIFECYCLE_CLOSED,
+	PAYMENT_LIFECYCLE_NOT_REQUESTED,
 	PROMOTION_STATUS_NOT_PROMOTED,
 	PROMOTION_STATUS_PROMOTED,
 	PURCHASE_REF_NON_PO,
@@ -47,6 +54,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	VALIDATION_STATUS_VALIDATED,
 	AmbiguousSourceError,
 	CaptureApprovalError,
+	CapturePaymentError,
 	CapturePromotionError,
 	CaptureValidationError,
 	OCRExtractionError,
@@ -54,6 +62,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	create_capture_from_file,
 	is_payment_blocked,
 	is_ready_for_payment,
+	issue_mock_payment,
 	promote_to_purchase_invoice,
 	record_manager_decision,
 	request_approval,
@@ -1001,3 +1010,140 @@ class TestAPInvoiceCaptureApproval(IntegrationTestCase):
 		self.assertTrue(row.decision_at)
 		self.assertEqual(row.decision_notes, "Reviewed.")
 		self.assertEqual(row.payment_readiness, PAYMENT_READINESS_READY)
+
+
+class TestAPInvoiceCaptureMockPayment(IntegrationTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _approved_capture(
+		self,
+		filename: str = "mock-payment.pdf",
+		total_amount: str = "250.00",
+		approve: bool = True,
+	):
+		f = _make_file(filename)
+		capture = create_capture_from_file(file_doc=f, source_context="Mock payment test")
+		run_fake_extraction(capture)
+		capture.reload()
+		confirm_extracted_fields(
+			capture,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": total_amount,
+				"currency": "INR",
+			},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		request_approval(capture, threshold=1000)
+		capture.reload()
+		if capture.approval_status == APPROVAL_STATUS_PENDING_MANAGER:
+			record_manager_decision(capture, approve=approve)
+			capture.reload()
+		return capture
+
+	# AC-P1 / AC-P2 / AC-P3 / AC-P4 / AC-R2: approved capture issues mock PE.
+	def test_issue_mock_payment_creates_labeled_payment_entry_and_writeback(self):
+		capture = self._approved_capture("mock-payment-happy.pdf", total_amount="250.00")
+
+		pe = issue_mock_payment(capture)
+		capture.reload()
+
+		self.assertEqual(pe.doctype, "Payment Entry")
+		self.assertEqual(pe.docstatus, 1)
+		self.assertEqual(capture.payment_entry, pe.name)
+		self.assertEqual(capture.mock_payment_provider, MOCK_PAYMENT_PROVIDER)
+		self.assertTrue(capture.mock_payment_reference.startswith(MOCK_PAYMENT_PREFIX))
+		self.assertEqual(capture.mock_payment_reference, pe.reference_no)
+		self.assertEqual(capture.mock_payment_status, "confirmed-mock")
+		self.assertEqual(capture.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+		self.assertAlmostEqual(flt(capture.mock_payment_amount), flt(pe.paid_amount), places=2)
+
+		response = json.loads(capture.mock_payment_response)
+		self.assertTrue(response["is_mock"])
+		self.assertEqual(response["provider"], MOCK_PAYMENT_PROVIDER)
+		self.assertEqual(response["payment_entry"], pe.name)
+		self.assertEqual(response["purchase_invoice"], capture.purchase_invoice)
+		self.assertEqual(response["bank_transaction_count"], 0)
+
+		pe.reload()
+		self.assertEqual(pe.remarks, MOCK_PAYMENT_REMARK)
+		self.assertIn("MOCK PAYMENT", pe.remarks)
+		self.assertEqual(pe.paid_from, MOCK_CLEARING_ACCOUNT_DEFAULT)
+		self.assertEqual(pe.references[0].reference_doctype, "Purchase Invoice")
+		self.assertEqual(pe.references[0].reference_name, capture.purchase_invoice)
+
+	# AC-P5 / AC-R1: native PI state shows the mock payment closed the invoice.
+	def test_issue_mock_payment_updates_native_invoice_state(self):
+		capture = self._approved_capture("mock-payment-state.pdf", total_amount="375.00")
+		issue_mock_payment(capture)
+		capture.reload()
+
+		pi_state = frappe.db.get_value(
+			"Purchase Invoice",
+			capture.purchase_invoice,
+			["docstatus", "status", "outstanding_amount"],
+			as_dict=True,
+		)
+		self.assertEqual(pi_state.docstatus, 1)
+		self.assertEqual(pi_state.status, "Paid")
+		self.assertEqual(flt(pi_state.outstanding_amount), 0.0)
+		self.assertEqual(capture.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+
+	def test_issue_mock_payment_requires_approved_ready_capture(self):
+		capture = self._approved_capture(
+			"mock-payment-rejected.pdf", total_amount="1500.00", approve=False
+		)
+		self.assertTrue(is_payment_blocked(capture))
+
+		with self.assertRaises(CapturePaymentError):
+			issue_mock_payment(capture)
+
+		capture.reload()
+		self.assertFalse(capture.payment_entry)
+		self.assertNotEqual(capture.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+
+	def test_issue_mock_payment_is_idempotent_guard(self):
+		capture = self._approved_capture("mock-payment-idempotent.pdf", total_amount="250.00")
+		issue_mock_payment(capture)
+		capture.reload()
+
+		with self.assertRaises(CapturePaymentError):
+			issue_mock_payment(capture)
+
+	# AC-P2: no Bank Transaction or reconciliation row is created.
+	def test_issue_mock_payment_does_not_create_bank_transaction(self):
+		bt_before = (
+			frappe.db.count("Bank Transaction")
+			if frappe.db.exists("DocType", "Bank Transaction")
+			else 0
+		)
+		capture = self._approved_capture("mock-payment-no-bank.pdf", total_amount="250.00")
+		issue_mock_payment(capture)
+		capture.reload()
+
+		if frappe.db.exists("DocType", "Bank Transaction"):
+			self.assertEqual(frappe.db.count("Bank Transaction"), bt_before)
+		bt_rows = frappe.db.get_all(
+			"Bank Transaction Payments",
+			filters={
+				"payment_document": "Payment Entry",
+				"payment_entry": capture.payment_entry,
+			},
+		)
+		self.assertEqual(bt_rows, [])
+
+	def test_unpaid_approved_capture_reports_not_requested(self):
+		capture = self._approved_capture(
+			"mock-payment-not-requested.pdf", total_amount="250.00"
+		)
+		self.assertFalse(capture.payment_entry)
+		self.assertEqual(
+			capture.payment_lifecycle_status or PAYMENT_LIFECYCLE_NOT_REQUESTED,
+			PAYMENT_LIFECYCLE_NOT_REQUESTED,
+		)
