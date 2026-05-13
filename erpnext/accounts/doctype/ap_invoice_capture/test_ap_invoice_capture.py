@@ -8,12 +8,24 @@ from frappe.tests import IntegrationTestCase
 from pypdf import PdfWriter
 
 from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+	FAKE_OCR_PROVIDER,
 	INTAKE_MANUAL_UPLOAD,
+	MANDATORY_HEADER_FIELDS,
+	OCR_STATUS_CONFIRMED,
+	OCR_STATUS_NEEDS_CORRECTION,
+	OCR_STATUS_NOT_EXTRACTED,
+	OCR_STATUS_PROPOSED,
+	STATUS_CONFIRMED,
+	STATUS_NEEDS_CORRECTION,
 	STATUS_PENDING_REVIEW,
+	STATUS_PROPOSED,
 	STATUS_UNSUPPORTED,
 	SUPPORTED_EXTENSIONS,
 	AmbiguousSourceError,
+	OCRExtractionError,
+	confirm_extracted_fields,
 	create_capture_from_file,
+	run_fake_extraction,
 )
 
 MINIMAL_PNG = (
@@ -196,3 +208,269 @@ class TestAPInvoiceCapture(IntegrationTestCase):
 		self.assertEqual(row.intake_channel, INTAKE_MANUAL_UPLOAD)
 		self.assertEqual(row.is_supported_format, 1)
 		self.assertTrue(row.received_at)
+
+
+class TestAPInvoiceCaptureOCRReview(IntegrationTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _fresh_capture(self, filename: str = "ocr-invoice.pdf"):
+		f = _make_file(filename)
+		return create_capture_from_file(file_doc=f, source_context="OCR test")
+
+	# AC-O1 / AC-E2E5: extraction proposes all mandatory header fields for a
+	# clean invoice and the proposal is deterministic across runs.
+	def test_fake_extraction_proposes_all_mandatory_fields(self):
+		capture = self._fresh_capture("clean-invoice.pdf")
+
+		run_fake_extraction(capture)
+		capture.reload()
+
+		self.assertEqual(capture.ocr_provider, FAKE_OCR_PROVIDER)
+		self.assertEqual(capture.ocr_status, OCR_STATUS_PROPOSED)
+		self.assertEqual(capture.status, STATUS_PROPOSED)
+		self.assertTrue(capture.ocr_extracted_at)
+		self.assertTrue(capture.proposed_supplier)
+		self.assertTrue(capture.proposed_supplier_invoice_no)
+		self.assertTrue(capture.proposed_invoice_date)
+		self.assertGreater(capture.proposed_total_amount or 0, 0)
+		self.assertTrue(capture.proposed_currency)
+		self.assertFalse(capture.proposed_missing_fields)
+		# Raw response is preserved verbatim for auditability.
+		self.assertIn("fake-deterministic", capture.ocr_raw_response)
+
+	def test_fake_extraction_is_deterministic_across_runs(self):
+		a = self._fresh_capture("deterministic-a.pdf")
+
+		run_fake_extraction(a)
+		a.reload()
+		first = (
+			a.proposed_supplier,
+			a.proposed_supplier_invoice_no,
+			a.proposed_invoice_date,
+			a.proposed_total_amount,
+			a.proposed_currency,
+		)
+
+		run_fake_extraction(a)
+		a.reload()
+
+		# Same capture/source reference -> same proposal values.
+		self.assertEqual(
+			first,
+			(
+				a.proposed_supplier,
+				a.proposed_supplier_invoice_no,
+				a.proposed_invoice_date,
+				a.proposed_total_amount,
+				a.proposed_currency,
+			),
+		)
+
+		# A different filename yields a different proposal.
+		c = self._fresh_capture("deterministic-b.pdf")
+		run_fake_extraction(c)
+		c.reload()
+		self.assertNotEqual(
+			(a.proposed_supplier, a.proposed_supplier_invoice_no, a.proposed_total_amount),
+			(c.proposed_supplier, c.proposed_supplier_invoice_no, c.proposed_total_amount),
+		)
+
+	# AC-O1 / AC-O4: missing mandatory fields are flagged and block silent progression.
+	def test_missing_mandatory_field_via_filename_marker_is_flagged(self):
+		capture = self._fresh_capture("scan_missing_supplier.pdf")
+
+		run_fake_extraction(capture)
+		capture.reload()
+
+		self.assertIsNone(capture.proposed_supplier)
+		self.assertIn("supplier", capture.proposed_missing_fields)
+		# Still flagged for AP action; not auto-confirmed.
+		self.assertEqual(capture.ocr_status, OCR_STATUS_PROPOSED)
+		self.assertEqual(capture.action_required, 1)
+
+	def test_missing_mandatory_field_via_explicit_arg_is_flagged(self):
+		capture = self._fresh_capture("explicit-missing.pdf")
+
+		run_fake_extraction(capture, simulate_missing=["total_amount", "currency"])
+		capture.reload()
+
+		self.assertIsNone(capture.proposed_currency)
+		# proposed_total_amount may be 0.0 when stripped; missing_fields is authoritative.
+		self.assertIn("total_amount", capture.proposed_missing_fields)
+		self.assertIn("currency", capture.proposed_missing_fields)
+
+	def test_extraction_refuses_unsupported_source(self):
+		f = _make_file("not-an-invoice.docx")
+		capture = create_capture_from_file(file_doc=f)
+		self.assertEqual(capture.status, STATUS_UNSUPPORTED)
+		with self.assertRaises(OCRExtractionError):
+			run_fake_extraction(capture)
+
+	# AC-O3: proposal must be visible but NOT authoritative; final_* stays empty.
+	def test_proposal_does_not_populate_final_fields(self):
+		capture = self._fresh_capture("non-authoritative.pdf")
+
+		run_fake_extraction(capture)
+		capture.reload()
+
+		self.assertTrue(capture.proposed_supplier)
+		# Final / authoritative fields remain empty until AP review.
+		self.assertFalse(capture.final_supplier)
+		self.assertFalse(capture.final_supplier_invoice_no)
+		self.assertFalse(capture.final_invoice_date)
+		self.assertFalse(capture.final_total_amount)
+		self.assertFalse(capture.final_currency)
+		self.assertFalse(capture.reviewed_by)
+		self.assertFalse(capture.reviewed_at)
+
+	# AC-O2 / AC-E2E5: AP review confirms proposed values into final_* fields.
+	def test_confirm_copies_proposal_into_final_fields(self):
+		capture = self._fresh_capture("confirm-clean.pdf")
+
+		run_fake_extraction(capture)
+		capture.reload()
+		proposed_snapshot = {
+			"supplier": capture.proposed_supplier,
+			"supplier_invoice_no": capture.proposed_supplier_invoice_no,
+			"invoice_date": capture.proposed_invoice_date,
+			"total_amount": capture.proposed_total_amount,
+			"currency": capture.proposed_currency,
+		}
+
+		confirm_extracted_fields(capture, reviewer="Administrator", notes="Looks good.")
+		capture.reload()
+
+		self.assertEqual(capture.final_supplier, proposed_snapshot["supplier"])
+		self.assertEqual(
+			capture.final_supplier_invoice_no, proposed_snapshot["supplier_invoice_no"]
+		)
+		self.assertEqual(capture.final_invoice_date, proposed_snapshot["invoice_date"])
+		self.assertEqual(capture.final_total_amount, proposed_snapshot["total_amount"])
+		self.assertEqual(capture.final_currency, proposed_snapshot["currency"])
+		self.assertEqual(capture.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertEqual(capture.status, STATUS_CONFIRMED)
+		self.assertEqual(capture.action_required, 0)
+		self.assertEqual(capture.reviewed_by, "Administrator")
+		self.assertTrue(capture.reviewed_at)
+		self.assertEqual(capture.review_notes, "Looks good.")
+
+	# AC-E2E5: AP corrections override the proposal.
+	def test_confirm_applies_corrections_over_proposal(self):
+		capture = self._fresh_capture("with-corrections.pdf")
+		run_fake_extraction(capture)
+		capture.reload()
+
+		corrections = {
+			"supplier": "Manually Keyed Supplier Co.",
+			"total_amount": "1234.56",
+			"invoice_date": "2026-02-15",
+		}
+		confirm_extracted_fields(
+			capture, corrections=corrections, reviewer="Administrator"
+		)
+		capture.reload()
+
+		self.assertEqual(capture.final_supplier, "Manually Keyed Supplier Co.")
+		self.assertEqual(capture.final_total_amount, 1234.56)
+		self.assertEqual(str(capture.final_invoice_date), "2026-02-15")
+		# Untouched fields fall back to proposal.
+		self.assertEqual(capture.final_currency, capture.proposed_currency)
+		self.assertEqual(capture.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertEqual(capture.status, STATUS_CONFIRMED)
+
+	# AC-O4: missing mandatory fields at review time must block silent progression.
+	def test_confirm_with_missing_mandatory_field_blocks_progression(self):
+		capture = self._fresh_capture("missing_currency-blocker.pdf")
+		# Filename marker drops currency from the proposal.
+		run_fake_extraction(capture)
+		capture.reload()
+		self.assertIn("currency", capture.proposed_missing_fields or "")
+
+		# AP confirms without supplying the missing currency.
+		confirm_extracted_fields(capture, reviewer="Administrator")
+		capture.reload()
+
+		self.assertEqual(capture.ocr_status, OCR_STATUS_NEEDS_CORRECTION)
+		self.assertEqual(capture.status, STATUS_NEEDS_CORRECTION)
+		self.assertEqual(capture.action_required, 1)
+		self.assertTrue(capture.action_required_reason)
+		self.assertIn("currency", capture.action_required_reason)
+		# Final currency is empty because nothing filled it.
+		self.assertFalse(capture.final_currency)
+
+	def test_confirm_resolves_block_when_correction_supplies_missing_field(self):
+		capture = self._fresh_capture("missing_supplier-fixable.pdf")
+		run_fake_extraction(capture)
+		capture.reload()
+
+		# First pass without correction -> blocked.
+		confirm_extracted_fields(capture, reviewer="Administrator")
+		capture.reload()
+		self.assertEqual(capture.status, STATUS_NEEDS_CORRECTION)
+
+		# Second pass supplying the missing field -> confirmed.
+		confirm_extracted_fields(
+			capture,
+			corrections={"supplier": "Late-Added Supplier LLC"},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		self.assertEqual(capture.status, STATUS_CONFIRMED)
+		self.assertEqual(capture.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertEqual(capture.final_supplier, "Late-Added Supplier LLC")
+		self.assertEqual(capture.action_required, 0)
+
+	def test_confirm_requires_extraction_first(self):
+		capture = self._fresh_capture("never-extracted.pdf")
+		self.assertEqual(capture.ocr_status, OCR_STATUS_NOT_EXTRACTED)
+		with self.assertRaises(OCRExtractionError):
+			confirm_extracted_fields(capture, reviewer="Administrator")
+
+	# AC-O3: AI attribution is visible.
+	def test_ocr_attribution_metadata_is_visible(self):
+		capture = self._fresh_capture("attribution.pdf")
+		run_fake_extraction(capture)
+		capture.reload()
+
+		row = frappe.get_all(
+			"AP Invoice Capture",
+			filters={"name": capture.name},
+			fields=[
+				"ocr_provider",
+				"ocr_status",
+				"ocr_extracted_at",
+				"proposed_supplier",
+			],
+		)[0]
+		self.assertEqual(row.ocr_provider, FAKE_OCR_PROVIDER)
+		self.assertEqual(row.ocr_status, OCR_STATUS_PROPOSED)
+		self.assertTrue(row.ocr_extracted_at)
+		self.assertTrue(row.proposed_supplier)
+
+	# AC-I4 carryover: review/confirm must not create any accounting/payment object.
+	def test_review_does_not_create_accounting_artifacts(self):
+		pi_before = frappe.db.count("Purchase Invoice")
+		pe_before = frappe.db.count("Payment Entry")
+		bt_before = (
+			frappe.db.count("Bank Transaction")
+			if frappe.db.exists("DocType", "Bank Transaction")
+			else 0
+		)
+
+		capture = self._fresh_capture("no-accounting-side-effects.pdf")
+		run_fake_extraction(capture)
+		confirm_extracted_fields(capture, reviewer="Administrator")
+
+		self.assertEqual(frappe.db.count("Purchase Invoice"), pi_before)
+		self.assertEqual(frappe.db.count("Payment Entry"), pe_before)
+		if frappe.db.exists("DocType", "Bank Transaction"):
+			self.assertEqual(frappe.db.count("Bank Transaction"), bt_before)
+
+	def test_mandatory_header_fields_constant_covers_pilot_scope(self):
+		# Guard against accidental scope drift on the AP closed-loop pilot:
+		# the mandatory header set must remain exactly the five pilot fields.
+		self.assertEqual(
+			{name for name, _, _ in MANDATORY_HEADER_FIELDS},
+			{"supplier", "supplier_invoice_no", "invoice_date", "total_amount", "currency"},
+		)
