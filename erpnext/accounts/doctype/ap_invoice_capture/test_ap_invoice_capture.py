@@ -9,13 +9,24 @@ from frappe.utils import getdate
 from pypdf import PdfWriter
 
 from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+	APPROVAL_SOURCE_DEFAULT,
+	APPROVAL_STATUS_AUTO_APPROVED,
+	APPROVAL_STATUS_MANAGER_APPROVED,
+	APPROVAL_STATUS_NOT_REQUIRED,
+	APPROVAL_STATUS_PENDING_MANAGER,
+	APPROVAL_STATUS_REJECTED,
+	AUTO_APPROVAL_THRESHOLD_DEFAULT,
 	FAKE_OCR_PROVIDER,
 	INTAKE_MANUAL_UPLOAD,
 	MANDATORY_HEADER_FIELDS,
+	MANAGER_APPROVAL_ROLE_DEFAULT,
 	OCR_STATUS_CONFIRMED,
 	OCR_STATUS_NEEDS_CORRECTION,
 	OCR_STATUS_NOT_EXTRACTED,
 	OCR_STATUS_PROPOSED,
+	PAYMENT_READINESS_BLOCKED,
+	PAYMENT_READINESS_NOT_READY,
+	PAYMENT_READINESS_READY,
 	PROMOTION_STATUS_NOT_PROMOTED,
 	PROMOTION_STATUS_PROMOTED,
 	PURCHASE_REF_NON_PO,
@@ -35,12 +46,17 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	VALIDATION_STATUS_NOT_VALIDATED,
 	VALIDATION_STATUS_VALIDATED,
 	AmbiguousSourceError,
+	CaptureApprovalError,
 	CapturePromotionError,
 	CaptureValidationError,
 	OCRExtractionError,
 	confirm_extracted_fields,
 	create_capture_from_file,
+	is_payment_blocked,
+	is_ready_for_payment,
 	promote_to_purchase_invoice,
+	record_manager_decision,
+	request_approval,
 	run_fake_extraction,
 	validate_for_purchase_invoice,
 )
@@ -763,3 +779,225 @@ class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
 			self.assertIn("ambiguous", capture.validation_result.lower())
 		finally:
 			mod._match_supplier = original
+
+
+class TestAPInvoiceCaptureApproval(IntegrationTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _promoted_capture(
+		self,
+		filename: str = "approval.pdf",
+		total_amount: str = "250.00",
+	):
+		f = _make_file(filename)
+		capture = create_capture_from_file(file_doc=f, source_context="Approval test")
+		run_fake_extraction(capture)
+		capture.reload()
+		confirm_extracted_fields(
+			capture,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": total_amount,
+				"currency": "INR",
+			},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_PROMOTED)
+		self.assertTrue(capture.purchase_invoice)
+		return capture
+
+	# AC-A1 / AC-A3 / AC-A4: below-threshold captures auto-approve with audit.
+	def test_auto_approval_below_threshold_records_reason_and_decision(self):
+		capture = self._promoted_capture("approval-auto.pdf", total_amount="250.00")
+
+		request_approval(capture, threshold=1000, source=APPROVAL_SOURCE_DEFAULT)
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_READY)
+		self.assertTrue(is_ready_for_payment(capture))
+		self.assertIn("Auto-approved", capture.routing_reason)
+		self.assertIn("threshold", capture.routing_reason)
+		self.assertEqual(capture.approval_threshold, 1000)
+		self.assertEqual(capture.approval_threshold_source, APPROVAL_SOURCE_DEFAULT)
+		self.assertEqual(capture.decision_by, "Administrator")
+		self.assertTrue(capture.decision_at)
+		self.assertEqual(capture.action_required, 0)
+
+	# AC-A2 / AC-A3: above-threshold captures route to manager with visible reason.
+	def test_manager_route_above_threshold_records_reason(self):
+		capture = self._promoted_capture("approval-manager.pdf", total_amount="1500.00")
+
+		request_approval(capture, threshold=1000)
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_NOT_READY)
+		self.assertFalse(is_ready_for_payment(capture))
+		self.assertIn("Manager approval required", capture.routing_reason)
+		self.assertIn("threshold", capture.routing_reason)
+		self.assertEqual(capture.assigned_approver_role, MANAGER_APPROVAL_ROLE_DEFAULT)
+		self.assertEqual(capture.action_required, 1)
+		self.assertEqual(capture.action_required_reason, "Manager approval required")
+		self.assertFalse(capture.decision_by)
+
+	# AC-A4 / AC-A5: manager approval captures actor/timestamp/notes and resumes flow.
+	def test_manager_approve_records_audit_and_marks_ready(self):
+		capture = self._promoted_capture("approval-approve.pdf", total_amount="1500.00")
+		request_approval(capture, threshold=1000)
+		capture.reload()
+
+		record_manager_decision(
+			capture,
+			approve=True,
+			actor="Administrator",
+			notes="Approved for Phase 1 mock payment.",
+		)
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_MANAGER_APPROVED)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_READY)
+		self.assertTrue(is_ready_for_payment(capture))
+		self.assertEqual(capture.decision_by, "Administrator")
+		self.assertTrue(capture.decision_at)
+		self.assertEqual(capture.decision_notes, "Approved for Phase 1 mock payment.")
+		self.assertEqual(capture.action_required, 0)
+
+	# AC-A4 / AC-A6: rejection captures audit and blocks the payment handoff.
+	def test_manager_reject_records_audit_and_blocks_payment(self):
+		capture = self._promoted_capture("approval-reject.pdf", total_amount="1500.00")
+		request_approval(capture, threshold=1000)
+		capture.reload()
+
+		record_manager_decision(
+			capture,
+			approve=False,
+			actor="Administrator",
+			notes="Rejected: supplier dispute.",
+		)
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_REJECTED)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_BLOCKED)
+		self.assertFalse(is_ready_for_payment(capture))
+		self.assertTrue(is_payment_blocked(capture))
+		self.assertEqual(capture.decision_by, "Administrator")
+		self.assertTrue(capture.decision_at)
+		self.assertEqual(capture.decision_notes, "Rejected: supplier dispute.")
+		self.assertEqual(capture.action_required, 1)
+		self.assertIn("blocked from payment", capture.action_required_reason)
+
+	def test_approval_requires_validated_capture(self):
+		f = _make_file("approval-too-early.pdf")
+		capture = create_capture_from_file(file_doc=f)
+
+		with self.assertRaises(CaptureApprovalError):
+			request_approval(capture)
+
+	def test_approval_requires_promoted_purchase_invoice(self):
+		f = _make_file("approval-not-promoted.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		run_fake_extraction(capture)
+		capture.reload()
+		confirm_extracted_fields(
+			capture,
+			corrections={"supplier": "_Test Supplier", "currency": "INR"},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+
+		with self.assertRaises(CaptureApprovalError):
+			request_approval(capture)
+
+	def test_routing_is_idempotent_guard(self):
+		capture = self._promoted_capture("approval-idempotent.pdf", total_amount="250.00")
+		request_approval(capture, threshold=AUTO_APPROVAL_THRESHOLD_DEFAULT)
+		capture.reload()
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+
+		with self.assertRaises(CaptureApprovalError):
+			request_approval(capture, threshold=AUTO_APPROVAL_THRESHOLD_DEFAULT)
+
+	# AC-A6: not-routed and rejected captures are both unavailable to payment issuance.
+	def test_rejected_and_unrouted_captures_are_not_ready_for_payment(self):
+		unrouted = self._promoted_capture("approval-unrouted.pdf", total_amount="250.00")
+		self.assertEqual(
+			unrouted.approval_status or APPROVAL_STATUS_NOT_REQUIRED,
+			APPROVAL_STATUS_NOT_REQUIRED,
+		)
+		self.assertFalse(is_ready_for_payment(unrouted))
+
+		rejected = self._promoted_capture("approval-blocked.pdf", total_amount="1500.00")
+		request_approval(rejected, threshold=1000)
+		record_manager_decision(rejected, approve=False)
+		rejected.reload()
+
+		self.assertFalse(is_ready_for_payment(rejected))
+		self.assertTrue(is_payment_blocked(rejected))
+
+	# Architecture guardrail: approval routing does not issue payment artifacts.
+	def test_approval_creates_no_payment_or_bank_artifacts(self):
+		pe_before = frappe.db.count("Payment Entry")
+		bt_before = (
+			frappe.db.count("Bank Transaction")
+			if frappe.db.exists("DocType", "Bank Transaction")
+			else 0
+		)
+
+		auto = self._promoted_capture("approval-no-payment-auto.pdf", total_amount="250.00")
+		request_approval(auto, threshold=1000)
+
+		approved = self._promoted_capture(
+			"approval-no-payment-approve.pdf", total_amount="1500.00"
+		)
+		request_approval(approved, threshold=1000)
+		record_manager_decision(approved, approve=True)
+
+		rejected = self._promoted_capture(
+			"approval-no-payment-reject.pdf", total_amount="1500.00"
+		)
+		request_approval(rejected, threshold=1000)
+		record_manager_decision(rejected, approve=False)
+
+		self.assertEqual(frappe.db.count("Payment Entry"), pe_before)
+		if frappe.db.exists("DocType", "Bank Transaction"):
+			self.assertEqual(frappe.db.count("Bank Transaction"), bt_before)
+
+	# AC-A3 / AC-A4: AP Clerk can query reason and decision outcome.
+	def test_approval_outcome_is_visible_to_ap_clerk_via_list(self):
+		capture = self._promoted_capture("approval-listable.pdf", total_amount="1500.00")
+		request_approval(capture, threshold=1000)
+		record_manager_decision(capture, approve=True, notes="Reviewed.")
+		capture.reload()
+
+		rows = frappe.get_all(
+			"AP Invoice Capture",
+			filters={"name": capture.name},
+			fields=[
+				"name",
+				"approval_status",
+				"routing_reason",
+				"assigned_approver_role",
+				"decision_by",
+				"decision_at",
+				"decision_notes",
+				"payment_readiness",
+			],
+		)
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row.approval_status, APPROVAL_STATUS_MANAGER_APPROVED)
+		self.assertIn("Manager approval required", row.routing_reason)
+		self.assertEqual(row.assigned_approver_role, MANAGER_APPROVAL_ROLE_DEFAULT)
+		self.assertEqual(row.decision_by, "Administrator")
+		self.assertTrue(row.decision_at)
+		self.assertEqual(row.decision_notes, "Reviewed.")
+		self.assertEqual(row.payment_readiness, PAYMENT_READINESS_READY)
