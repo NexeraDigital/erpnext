@@ -58,8 +58,11 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	CapturePromotionError,
 	CaptureValidationError,
 	OCRExtractionError,
+	build_closure_evidence,
 	confirm_extracted_fields,
 	create_capture_from_file,
+	get_ap_lifecycle_rows,
+	get_manager_approval_queue,
 	is_payment_blocked,
 	is_ready_for_payment,
 	issue_mock_payment,
@@ -1147,3 +1150,123 @@ class TestAPInvoiceCaptureMockPayment(IntegrationTestCase):
 			capture.payment_lifecycle_status or PAYMENT_LIFECYCLE_NOT_REQUESTED,
 			PAYMENT_LIFECYCLE_NOT_REQUESTED,
 		)
+
+
+class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _capture_through_payment(
+		self,
+		filename: str = "closure.pdf",
+		total_amount: str = "250.00",
+	):
+		f = _make_file(filename)
+		capture = create_capture_from_file(file_doc=f, source_context="Closure test")
+		run_fake_extraction(capture)
+		capture.reload()
+		confirm_extracted_fields(
+			capture,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": total_amount,
+				"currency": "INR",
+			},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		request_approval(capture, threshold=1000)
+		capture.reload()
+		if capture.approval_status == APPROVAL_STATUS_PENDING_MANAGER:
+			record_manager_decision(capture, approve=True, notes="Approved for closure test.")
+			capture.reload()
+		issue_mock_payment(capture)
+		capture.reload()
+		return capture
+
+	# AC-R3 / AC-R4 / AC-R5 / AC-R6 / AC-E2E4.
+	def test_closure_evidence_reconstructs_full_lifecycle(self):
+		capture = self._capture_through_payment("closure-evidence.pdf", total_amount="250.00")
+
+		evidence = build_closure_evidence(capture)
+
+		self.assertEqual(evidence["capture"]["name"], capture.name)
+		self.assertEqual(evidence["capture"]["source_filename"], "closure-evidence.pdf")
+		self.assertEqual(evidence["ocr"]["proposal"]["supplier"], capture.proposed_supplier)
+		self.assertEqual(evidence["ocr"]["final"]["supplier"], "_Test Supplier")
+		self.assertEqual(evidence["validation"]["matched_supplier"], "_Test Supplier")
+		self.assertEqual(evidence["approval"]["status"], APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(evidence["payment"]["entry"], capture.payment_entry)
+		self.assertEqual(evidence["payment"]["provider"], MOCK_PAYMENT_PROVIDER)
+		self.assertEqual(evidence["native"]["purchase_invoice"]["name"], capture.purchase_invoice)
+		self.assertEqual(evidence["native"]["payment_entry"]["name"], capture.payment_entry)
+		self.assertGreater(evidence["native"]["gl_entry_count"], 0)
+		self.assertEqual(evidence["native"]["bank_transaction_count"], 0)
+		self.assertTrue(evidence["closed"])
+		self.assertIn("No custom closed flag", evidence["closure_basis"])
+
+	# AC-E2E2: AP Clerk can see lifecycle state and next action fields.
+	def test_ap_lifecycle_rows_expose_current_state_and_next_action(self):
+		capture = self._capture_through_payment("closure-ap-list.pdf", total_amount="250.00")
+
+		rows = [row for row in get_ap_lifecycle_rows() if row.name == capture.name]
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row.source_filename, "closure-ap-list.pdf")
+		self.assertEqual(row.action_required, 0)
+		self.assertEqual(row.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(row.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(row.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+		self.assertEqual(row.purchase_invoice, capture.purchase_invoice)
+		self.assertEqual(row.payment_entry, capture.payment_entry)
+
+	# AC-E2E3: manager queue includes only approval-required captures.
+	def test_manager_queue_is_scoped_to_pending_manager_approvals(self):
+		pending = self._capture_through_payment(
+			"closure-manager-approved.pdf", total_amount="1500.00"
+		)
+		# Create a second capture and leave it pending manager approval.
+		f = _make_file("closure-manager-pending.pdf")
+		candidate = create_capture_from_file(file_doc=f, source_context="Closure queue")
+		run_fake_extraction(candidate)
+		candidate.reload()
+		confirm_extracted_fields(
+			candidate,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "1500.00",
+				"currency": "INR",
+			},
+			reviewer="Administrator",
+		)
+		candidate.reload()
+		validate_for_purchase_invoice(candidate)
+		candidate.reload()
+		promote_to_purchase_invoice(candidate, defaults=_PROMOTION_DEFAULTS)
+		candidate.reload()
+		request_approval(candidate, threshold=1000)
+		candidate.reload()
+		self.assertEqual(candidate.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+
+		rows = get_manager_approval_queue()
+		names = {row.name for row in rows}
+		self.assertIn(candidate.name, names)
+		self.assertNotIn(pending.name, names)
+		queue_row = next(row for row in rows if row.name == candidate.name)
+		self.assertIn("Manager approval required", queue_row.routing_reason)
+		self.assertEqual(queue_row.assigned_approver_role, MANAGER_APPROVAL_ROLE_DEFAULT)
+
+	# AC-E2E1: full AP happy path is demonstrable through capture evidence.
+	def test_capture_happy_path_is_demonstrable_end_to_end(self):
+		capture = self._capture_through_payment("closure-e2e.pdf", total_amount="250.00")
+		evidence = build_closure_evidence(capture)
+
+		self.assertEqual(evidence["validation"]["status"], VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(evidence["approval"]["payment_readiness"], PAYMENT_READINESS_READY)
+		self.assertEqual(evidence["payment"]["lifecycle_status"], PAYMENT_LIFECYCLE_CLOSED)
+		self.assertTrue(evidence["payment"]["response"]["is_mock"])
+		self.assertTrue(evidence["closed"])
