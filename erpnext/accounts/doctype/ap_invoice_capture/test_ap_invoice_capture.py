@@ -5,6 +5,7 @@ from io import BytesIO
 
 import frappe
 from frappe.tests import IntegrationTestCase
+from frappe.utils import getdate
 from pypdf import PdfWriter
 
 from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
@@ -15,18 +16,46 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	OCR_STATUS_NEEDS_CORRECTION,
 	OCR_STATUS_NOT_EXTRACTED,
 	OCR_STATUS_PROPOSED,
+	PROMOTION_STATUS_NOT_PROMOTED,
+	PROMOTION_STATUS_PROMOTED,
+	PURCHASE_REF_NON_PO,
+	PURCHASE_REF_PURCHASE_ORDER,
+	PURCHASE_REF_PURCHASE_RECEIPT,
 	STATUS_CONFIRMED,
 	STATUS_NEEDS_CORRECTION,
 	STATUS_PENDING_REVIEW,
 	STATUS_PROPOSED,
 	STATUS_UNSUPPORTED,
+	SUPPLIER_MATCH_AMBIGUOUS,
+	SUPPLIER_MATCH_MATCHED,
+	SUPPLIER_MATCH_UNKNOWN,
 	SUPPORTED_EXTENSIONS,
+	VALIDATION_SOURCE_DEFAULT,
+	VALIDATION_STATUS_BLOCKED,
+	VALIDATION_STATUS_NOT_VALIDATED,
+	VALIDATION_STATUS_VALIDATED,
 	AmbiguousSourceError,
+	CapturePromotionError,
+	CaptureValidationError,
 	OCRExtractionError,
 	confirm_extracted_fields,
 	create_capture_from_file,
+	promote_to_purchase_invoice,
 	run_fake_extraction,
+	validate_for_purchase_invoice,
 )
+
+EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]
+
+_PROMOTION_DEFAULTS = {
+	"company": "_Test Company",
+	"item_code": "_Test Item",
+	"warehouse": "_Test Warehouse - _TC",
+	"expense_account": "_Test Account Cost for Goods Sold - _TC",
+	"cost_center": "_Test Cost Center - _TC",
+	"uom": "_Test UOM",
+	"qty": 1,
+}
 
 MINIMAL_PNG = (
 	b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -474,3 +503,263 @@ class TestAPInvoiceCaptureOCRReview(IntegrationTestCase):
 			{name for name, _, _ in MANDATORY_HEADER_FIELDS},
 			{"supplier", "supplier_invoice_no", "invoice_date", "total_amount", "currency"},
 		)
+
+
+class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _confirmed_capture(
+		self,
+		filename: str = "validate-me.pdf",
+		supplier: str = "_Test Supplier",
+		corrections: dict | None = None,
+	):
+		f = _make_file(filename)
+		capture = create_capture_from_file(file_doc=f, source_context="Validation test")
+		run_fake_extraction(capture)
+		capture.reload()
+		merged = {"supplier": supplier, "currency": "INR"}
+		if corrections:
+			merged.update(corrections)
+		confirm_extracted_fields(capture, corrections=merged, reviewer="Administrator")
+		capture.reload()
+		self.assertEqual(capture.status, STATUS_CONFIRMED)
+		return capture
+
+	# AC-V1 + AC-V4 + AC-V5: known supplier yields a clean validated outcome with audit.
+	def test_validate_matches_known_supplier_and_records_audit(self):
+		capture = self._confirmed_capture("validate-known-supplier.pdf")
+
+		validate_for_purchase_invoice(capture, source=VALIDATION_SOURCE_DEFAULT)
+		capture.reload()
+
+		self.assertEqual(capture.supplier_match_status, SUPPLIER_MATCH_MATCHED)
+		self.assertEqual(capture.matched_supplier, "_Test Supplier")
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertTrue(capture.validation_result)
+		self.assertIn("_Test Supplier", capture.validation_result)
+		# AC-V5: auditable outcome — who, when, source identifier.
+		self.assertEqual(capture.validated_by, "Administrator")
+		self.assertTrue(capture.validated_at)
+		self.assertEqual(capture.validation_source, VALIDATION_SOURCE_DEFAULT)
+
+	# AC-V1: unknown supplier is flagged/blocked and is NOT auto-created.
+	def test_validate_blocks_unknown_supplier_without_auto_create(self):
+		unknown_name = "Definitely Not A Real Supplier {0}".format(
+			frappe.generate_hash(length=6)
+		)
+		self.assertFalse(frappe.db.exists("Supplier", unknown_name))
+		supplier_count_before = frappe.db.count("Supplier")
+
+		capture = self._confirmed_capture(
+			"validate-unknown-supplier.pdf", supplier=unknown_name
+		)
+
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+
+		self.assertEqual(capture.supplier_match_status, SUPPLIER_MATCH_UNKNOWN)
+		self.assertIsNone(capture.matched_supplier)
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_BLOCKED)
+		self.assertIn("unknown", capture.validation_result.lower())
+		self.assertEqual(capture.action_required, 1)
+		# AC-V1 specifically: no Supplier was created behind the AP clerk's back.
+		self.assertEqual(frappe.db.count("Supplier"), supplier_count_before)
+		self.assertFalse(frappe.db.exists("Supplier", unknown_name))
+
+	# AC-V3: explicit Non-PO classification when no references are supplied.
+	def test_validate_classifies_non_po_when_no_references(self):
+		capture = self._confirmed_capture("validate-non-po.pdf")
+
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+
+		self.assertEqual(capture.purchase_reference_status, PURCHASE_REF_NON_PO)
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+
+	# AC-V3: explicit Purchase Order classification when PO reference is set.
+	def test_validate_classifies_purchase_order_reference(self):
+		capture = self._confirmed_capture("validate-with-po.pdf")
+		# Skip Link target validation: this test asserts the explicit
+		# classification of purchase references, not Purchase Order existence.
+		capture.purchase_order_reference = "PO-AP-TEST-001"
+		capture.flags.ignore_links = True
+
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+
+		self.assertEqual(capture.purchase_reference_status, PURCHASE_REF_PURCHASE_ORDER)
+
+	# AC-V3: explicit Purchase Receipt classification when PR reference is set.
+	def test_validate_classifies_purchase_receipt_reference(self):
+		capture = self._confirmed_capture("validate-with-pr.pdf")
+		capture.purchase_receipt_reference = "PR-AP-TEST-001"
+		capture.flags.ignore_links = True
+
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+
+		self.assertEqual(capture.purchase_reference_status, PURCHASE_REF_PURCHASE_RECEIPT)
+
+	def test_validate_requires_confirmed_status(self):
+		f = _make_file("validate-too-early.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		# Capture is in Pending Review — validation must refuse.
+		self.assertEqual(capture.status, STATUS_PENDING_REVIEW)
+		with self.assertRaises(CaptureValidationError):
+			validate_for_purchase_invoice(capture)
+
+	# AC-V2: a validated capture promotes into a native Purchase Invoice.
+	def test_promote_creates_native_purchase_invoice(self):
+		capture = self._confirmed_capture(
+			"promote-happy.pdf",
+			corrections={"total_amount": "250.00", "currency": "INR"},
+		)
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+
+		pi_count_before = frappe.db.count("Purchase Invoice")
+		pi = promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+
+		# Native Purchase Invoice was created and linked back.
+		self.assertEqual(pi.doctype, "Purchase Invoice")
+		self.assertTrue(frappe.db.exists("Purchase Invoice", pi.name))
+		self.assertEqual(frappe.db.count("Purchase Invoice"), pi_count_before + 1)
+		self.assertEqual(capture.purchase_invoice, pi.name)
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_PROMOTED)
+		# Header values flowed from AP-reviewed finals.
+		self.assertEqual(pi.supplier, "_Test Supplier")
+		self.assertEqual(pi.bill_no, capture.final_supplier_invoice_no)
+		self.assertEqual(getdate(pi.bill_date), getdate(capture.final_invoice_date))
+		self.assertEqual(pi.currency, "INR")
+		# Header-only Phase 1: single default service/item row carries the total.
+		self.assertEqual(len(pi.items), 1)
+		self.assertEqual(pi.items[0].item_code, "_Test Item")
+		self.assertAlmostEqual(float(pi.items[0].rate), 250.00, places=2)
+
+	# AC-V3: explicit purchase reference handling is preserved on the capture
+	# through the validation -> promotion handoff (auditable on the capture).
+	def test_promote_preserves_purchase_reference_classification(self):
+		capture = self._confirmed_capture(
+			"promote-with-po.pdf",
+			corrections={"total_amount": "99.00"},
+		)
+		capture.purchase_order_reference = "PO-AP-TEST-PROMOTE"
+		capture.flags.ignore_links = True
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		self.assertEqual(capture.purchase_reference_status, PURCHASE_REF_PURCHASE_ORDER)
+
+		capture.flags.ignore_links = True
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+
+		# Reference remains pinned to the capture for auditability.
+		self.assertEqual(capture.purchase_order_reference, "PO-AP-TEST-PROMOTE")
+		self.assertEqual(capture.purchase_reference_status, PURCHASE_REF_PURCHASE_ORDER)
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_PROMOTED)
+
+	# AC-V1: unknown-supplier capture cannot be promoted (blocks at validation).
+	def test_promote_blocks_when_validation_failed(self):
+		capture = self._confirmed_capture(
+			"promote-unknown.pdf",
+			supplier="Nobody Inc {0}".format(frappe.generate_hash(length=6)),
+		)
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_BLOCKED)
+
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+
+	def test_promote_requires_validation_first(self):
+		capture = self._confirmed_capture("promote-without-validation.pdf")
+		self.assertEqual(
+			capture.validation_status or VALIDATION_STATUS_NOT_VALIDATED,
+			VALIDATION_STATUS_NOT_VALIDATED,
+		)
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+
+	def test_promote_is_idempotent_guard(self):
+		capture = self._confirmed_capture("promote-idempotent.pdf")
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_PROMOTED)
+		# Second promote attempt must refuse rather than silently double-create.
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+
+	# Architecture guardrail: this slice does NOT create Payment Entry or Bank Transaction.
+	def test_validation_and_promotion_create_no_payment_artifacts(self):
+		pe_before = frappe.db.count("Payment Entry")
+		bt_before = (
+			frappe.db.count("Bank Transaction")
+			if frappe.db.exists("DocType", "Bank Transaction")
+			else 0
+		)
+
+		capture = self._confirmed_capture("no-payment-artifacts.pdf")
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		promote_to_purchase_invoice(capture, defaults=_PROMOTION_DEFAULTS)
+
+		self.assertEqual(frappe.db.count("Payment Entry"), pe_before)
+		if frappe.db.exists("DocType", "Bank Transaction"):
+			self.assertEqual(frappe.db.count("Bank Transaction"), bt_before)
+
+	# AC-V5: validation outcome is queryable / auditable from list views.
+	def test_validation_outcome_is_visible_to_ap_clerk_via_list(self):
+		capture = self._confirmed_capture("auditable-validation.pdf")
+		validate_for_purchase_invoice(capture)
+
+		rows = frappe.get_all(
+			"AP Invoice Capture",
+			filters={"name": capture.name},
+			fields=[
+				"name",
+				"matched_supplier",
+				"supplier_match_status",
+				"purchase_reference_status",
+				"validation_status",
+				"validation_source",
+				"validated_by",
+				"validated_at",
+				"promotion_status",
+			],
+		)
+		self.assertEqual(len(rows), 1)
+		row = rows[0]
+		self.assertEqual(row.matched_supplier, "_Test Supplier")
+		self.assertEqual(row.supplier_match_status, SUPPLIER_MATCH_MATCHED)
+		self.assertEqual(row.purchase_reference_status, PURCHASE_REF_NON_PO)
+		self.assertEqual(row.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(row.validation_source, VALIDATION_SOURCE_DEFAULT)
+		self.assertEqual(row.validated_by, "Administrator")
+		self.assertTrue(row.validated_at)
+		self.assertEqual(row.promotion_status, PROMOTION_STATUS_NOT_PROMOTED)
+
+	# AC-V1: a supplier_name-only match (autoname is by name, but exact-name path
+	# is the primary contract); guard the helper handles ambiguity.
+	def test_validate_flags_ambiguous_supplier(self):
+		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
+
+		original = mod._match_supplier
+		try:
+			mod._match_supplier = lambda name: (None, SUPPLIER_MATCH_AMBIGUOUS)
+			capture = self._confirmed_capture(
+				"validate-ambiguous.pdf",
+				supplier="Some Shared Name",
+			)
+			validate_for_purchase_invoice(capture)
+			capture.reload()
+			self.assertEqual(capture.supplier_match_status, SUPPLIER_MATCH_AMBIGUOUS)
+			self.assertEqual(capture.validation_status, VALIDATION_STATUS_BLOCKED)
+			self.assertIn("ambiguous", capture.validation_result.lower())
+		finally:
+			mod._match_supplier = original
