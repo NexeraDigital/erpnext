@@ -64,6 +64,20 @@ PROMOTION_STATUS_PROMOTED = "Promoted"
 
 VALIDATION_SOURCE_DEFAULT = "ap-validation-v1"
 
+APPROVAL_STATUS_NOT_REQUIRED = "Not Required"
+APPROVAL_STATUS_AUTO_APPROVED = "Auto Approved"
+APPROVAL_STATUS_PENDING_MANAGER = "Pending Manager"
+APPROVAL_STATUS_MANAGER_APPROVED = "Manager Approved"
+APPROVAL_STATUS_REJECTED = "Rejected"
+
+PAYMENT_READINESS_NOT_READY = "Not Ready"
+PAYMENT_READINESS_READY = "Ready for Payment"
+PAYMENT_READINESS_BLOCKED = "Blocked"
+
+APPROVAL_SOURCE_DEFAULT = "ap-approval-v1"
+AUTO_APPROVAL_THRESHOLD_DEFAULT = 1000.0
+MANAGER_APPROVAL_ROLE_DEFAULT = "Accounts Manager"
+
 INTAKE_MANUAL_UPLOAD = "Manual ERPNext Upload"
 
 FAKE_OCR_PROVIDER = "fake-deterministic-v1"
@@ -105,6 +119,10 @@ class CaptureValidationError(frappe.ValidationError):
 
 class CapturePromotionError(frappe.ValidationError):
 	"""Raised when a capture cannot be promoted to a Purchase Invoice."""
+
+
+class CaptureApprovalError(frappe.ValidationError):
+	"""Raised when approval routing or decision recording is invalid."""
 
 
 class APInvoiceCapture(Document):
@@ -173,6 +191,21 @@ class APInvoiceCapture(Document):
 		validation_source: DF.Data | None
 		purchase_invoice: DF.Link | None
 		promotion_status: DF.Literal["Not Promoted", "Promoted"]
+		approval_status: DF.Literal[
+			"Not Required",
+			"Auto Approved",
+			"Pending Manager",
+			"Manager Approved",
+			"Rejected",
+		]
+		approval_threshold: DF.Float
+		approval_threshold_source: DF.Data | None
+		routing_reason: DF.SmallText | None
+		assigned_approver_role: DF.Data | None
+		decision_by: DF.Link | None
+		decision_at: DF.Datetime | None
+		decision_notes: DF.SmallText | None
+		payment_readiness: DF.Literal["Not Ready", "Ready for Payment", "Blocked"]
 	# end: auto-generated types
 
 	def validate(self):
@@ -865,6 +898,151 @@ def promote_to_purchase_invoice(
 	return pi
 
 
+# ---------------------------------------------------------------------------
+# Approval routing / manager decision
+# ---------------------------------------------------------------------------
+
+
+def _resolve_approval_threshold(threshold: float | None, source: str | None) -> tuple[float, str]:
+	if threshold is None:
+		return AUTO_APPROVAL_THRESHOLD_DEFAULT, source or APPROVAL_SOURCE_DEFAULT
+	return float(threshold), source or "explicit-override"
+
+
+def request_approval(
+	capture: "APInvoiceCapture | str",
+	threshold: float | None = None,
+	source: str | None = None,
+	actor: str | None = None,
+	approver_role: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Route a promoted capture through Phase 1 approval controls.
+
+	Auto-approval is allowed when the AP-reviewed total is at or below the
+	threshold. Larger captures route to manager approval with a visible reason.
+	No payment artifact is created here.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.validation_status != VALIDATION_STATUS_VALIDATED:
+		raise CaptureApprovalError(
+			_(
+				"Capture must be Validated before approval routing; "
+				"current validation_status is {0}."
+			).format(capture.validation_status or VALIDATION_STATUS_NOT_VALIDATED)
+		)
+	if capture.promotion_status != PROMOTION_STATUS_PROMOTED or not capture.purchase_invoice:
+		raise CaptureApprovalError(
+			_("Capture must be promoted to a Purchase Invoice before approval routing.")
+		)
+	if capture.approval_status and capture.approval_status != APPROVAL_STATUS_NOT_REQUIRED:
+		raise CaptureApprovalError(
+			_("Approval routing already recorded for this capture (current status: {0}).").format(
+				capture.approval_status
+			)
+		)
+
+	resolved_threshold, resolved_source = _resolve_approval_threshold(threshold, source)
+	amount = float(capture.final_total_amount or 0.0)
+
+	capture.approval_threshold = resolved_threshold
+	capture.approval_threshold_source = resolved_source
+
+	if amount <= resolved_threshold:
+		capture.approval_status = APPROVAL_STATUS_AUTO_APPROVED
+		capture.routing_reason = _(
+			"Auto-approved: final_total_amount {0:.2f} <= threshold {1:.2f}"
+		).format(amount, resolved_threshold)
+		capture.assigned_approver_role = None
+		capture.decision_by = actor or frappe.session.user
+		capture.decision_at = now_datetime()
+		capture.decision_notes = None
+		capture.payment_readiness = PAYMENT_READINESS_READY
+		capture.action_required = 0
+		capture.action_required_reason = None
+	else:
+		capture.approval_status = APPROVAL_STATUS_PENDING_MANAGER
+		capture.routing_reason = _(
+			"Manager approval required: final_total_amount {0:.2f} > threshold {1:.2f}"
+		).format(amount, resolved_threshold)
+		capture.assigned_approver_role = approver_role or MANAGER_APPROVAL_ROLE_DEFAULT
+		capture.decision_by = None
+		capture.decision_at = None
+		capture.decision_notes = None
+		capture.payment_readiness = PAYMENT_READINESS_NOT_READY
+		capture.action_required = 1
+		capture.action_required_reason = _("Manager approval required")
+
+	if save:
+		capture.save()
+	return capture
+
+
+def record_manager_decision(
+	capture: "APInvoiceCapture | str",
+	approve: bool,
+	actor: str | None = None,
+	notes: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Record manager approval or rejection for a routed capture."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.approval_status != APPROVAL_STATUS_PENDING_MANAGER:
+		raise CaptureApprovalError(
+			_("Manager decision requires approval_status Pending Manager; current is {0}.").format(
+				capture.approval_status or APPROVAL_STATUS_NOT_REQUIRED
+			)
+		)
+
+	capture.decision_by = actor or frappe.session.user
+	capture.decision_at = now_datetime()
+	capture.decision_notes = notes
+
+	if approve:
+		capture.approval_status = APPROVAL_STATUS_MANAGER_APPROVED
+		capture.payment_readiness = PAYMENT_READINESS_READY
+		capture.action_required = 0
+		capture.action_required_reason = None
+	else:
+		capture.approval_status = APPROVAL_STATUS_REJECTED
+		capture.payment_readiness = PAYMENT_READINESS_BLOCKED
+		capture.action_required = 1
+		capture.action_required_reason = _("Approval rejected — capture blocked from payment")
+
+	if save:
+		capture.save()
+	return capture
+
+
+def is_ready_for_payment(capture: "APInvoiceCapture | str") -> bool:
+	"""Predicate used by downstream mock-payment issuance code."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	return (
+		capture.approval_status
+		in (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_MANAGER_APPROVED)
+		and capture.payment_readiness == PAYMENT_READINESS_READY
+	)
+
+
+def is_payment_blocked(capture: "APInvoiceCapture | str") -> bool:
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	return (
+		capture.approval_status == APPROVAL_STATUS_REJECTED
+		or capture.payment_readiness == PAYMENT_READINESS_BLOCKED
+	)
+
+
 @frappe.whitelist()
 def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -> str:
 	"""Whitelisted entrypoint for the validation step."""
@@ -886,3 +1064,30 @@ def promote_to_purchase_invoice_for(
 		parsed = defaults or None
 	pi = promote_to_purchase_invoice(capture, defaults=parsed)
 	return pi.name
+
+
+@frappe.whitelist()
+def request_approval_for(
+	capture: str,
+	threshold: float | str | None = None,
+	source: str | None = None,
+) -> str:
+	"""Whitelisted entrypoint for approval routing."""
+
+	parsed_threshold = float(threshold) if threshold not in (None, "") else None
+	doc = request_approval(capture, threshold=parsed_threshold, source=source)
+	return doc.name
+
+
+@frappe.whitelist()
+def record_manager_decision_for(
+	capture: str,
+	approve: bool | int | str,
+	notes: str | None = None,
+) -> str:
+	"""Whitelisted entrypoint for manager approval / rejection."""
+
+	if isinstance(approve, str):
+		approve = approve.strip().lower() in ("1", "true", "yes", "approve", "approved")
+	doc = record_manager_decision(capture, approve=bool(approve), notes=notes)
+	return doc.name

@@ -61,7 +61,18 @@
   "validation_source",
   "promotion_section",
   "purchase_invoice",
-  "promotion_status"
+  "promotion_status",
+  "approval_section",
+  "approval_status",
+  "approval_threshold",
+  "approval_threshold_source",
+  "routing_reason",
+  "column_break_approval",
+  "assigned_approver_role",
+  "decision_by",
+  "decision_at",
+  "decision_notes",
+  "payment_readiness"
  ],
  "fields": [
   {
@@ -447,11 +458,91 @@
    "label": "Promotion Status",
    "options": "Not Promoted\nPromoted",
    "read_only": 1
+  },
+  {
+   "description": "Approval routing and decision audit. Phase 1: manager approval also authorizes mock payment release; no separate payment-release authority.",
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approval & Routing"
+  },
+  {
+   "default": "Not Required",
+   "description": "Approval routing outcome. Captures that are not yet routed remain at Not Required.",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "options": "Not Required\nAuto Approved\nPending Manager\nManager Approved\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "Auto-approval threshold used for this routing decision.",
+   "fieldname": "approval_threshold",
+   "fieldtype": "Float",
+   "label": "Approval Threshold",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Identifier of the configuration source for the threshold (e.g. 'ap-approval-v1').",
+   "fieldname": "approval_threshold_source",
+   "fieldtype": "Data",
+   "label": "Approval Threshold Source",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable explanation of why this capture auto-approved or routed to manager.",
+   "fieldname": "routing_reason",
+   "fieldtype": "Small Text",
+   "label": "Routing Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Role required to record the manager decision when routed for manager approval.",
+   "fieldname": "assigned_approver_role",
+   "fieldtype": "Data",
+   "label": "Assigned Approver Role",
+   "read_only": 1
+  },
+  {
+   "description": "User (or system actor) that recorded the approval / rejection decision.",
+   "fieldname": "decision_by",
+   "fieldtype": "Link",
+   "label": "Decision By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the approval / rejection decision was recorded.",
+   "fieldname": "decision_at",
+   "fieldtype": "Datetime",
+   "label": "Decision At",
+   "read_only": 1
+  },
+  {
+   "description": "Optional notes left by the approver or rejector.",
+   "fieldname": "decision_notes",
+   "fieldtype": "Small Text",
+   "label": "Decision Notes"
+  },
+  {
+   "default": "Not Ready",
+   "description": "Whether this capture may proceed to the later mock payment slice. Phase 1 only: no Payment Entry or Bank Transaction is created here.",
+   "fieldname": "payment_readiness",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Payment Readiness",
+   "options": "Not Ready\nReady for Payment\nBlocked",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-13 12:00:00",
+ "modified": "2026-05-13 18:00:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",
