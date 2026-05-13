@@ -1,0 +1,187 @@
+{
+ "actions": [],
+ "autoname": "format:APIC-{YYYY}-{#####}",
+ "creation": "2026-05-13 12:00:00",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_section",
+  "source_filename",
+  "file_extension",
+  "intake_channel",
+  "column_break_source",
+  "source_file",
+  "source_file_url",
+  "received_at",
+  "lifecycle_section",
+  "status",
+  "is_supported_format",
+  "column_break_lifecycle",
+  "action_required",
+  "action_required_reason",
+  "context_section",
+  "source_context",
+  "validation_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "description": "Original filename as uploaded.",
+   "fieldname": "source_filename",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Filename",
+   "reqd": 1
+  },
+  {
+   "description": "Detected file extension (lowercase, no dot).",
+   "fieldname": "file_extension",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File Extension",
+   "read_only": 1
+  },
+  {
+   "default": "Manual ERPNext Upload",
+   "description": "Intake channel that originated this capture. Phase 1 is manual ERPNext upload.",
+   "fieldname": "intake_channel",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Intake Channel",
+   "options": "Manual ERPNext Upload",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Native Frappe File record that preserves the original upload. Either this or Source File URL must be present.",
+   "fieldname": "source_file",
+   "fieldtype": "Link",
+   "label": "Source File",
+   "options": "File"
+  },
+  {
+   "description": "Direct URL or traceable reference to the original source image. Populated automatically from the linked File when available.",
+   "fieldname": "source_file_url",
+   "fieldtype": "Data",
+   "label": "Source File URL"
+  },
+  {
+   "default": "now",
+   "description": "Time the source artifact was received for intake.",
+   "fieldname": "received_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Received At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "default": "Pending Review",
+   "description": "Pre-accounting lifecycle state. This capture is NOT a Purchase Invoice and does not imply approval or payment.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending Review\nUnsupported\nRejected",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "1 if the uploaded source format is supported (PDF/PNG/JPG/JPEG).",
+   "fieldname": "is_supported_format",
+   "fieldtype": "Check",
+   "label": "Supported Format",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "1 if AP clerk action is required before this capture can progress.",
+   "fieldname": "action_required",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action Required"
+  },
+  {
+   "depends_on": "eval:doc.action_required",
+   "description": "Short reason action is required (e.g. 'Pending AP review', 'Unsupported format').",
+   "fieldname": "action_required_reason",
+   "fieldtype": "Data",
+   "label": "Action Required Reason"
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "description": "Optional human-readable context about where this source came from.",
+   "fieldname": "source_context",
+   "fieldtype": "Small Text",
+   "label": "Source Context"
+  },
+  {
+   "description": "Validation/rejection details. Populated when the file is unsupported or otherwise blocked.",
+   "fieldname": "validation_message",
+   "fieldtype": "Small Text",
+   "label": "Validation Message",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-13 12:00:00",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Invoice Capture",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "source_filename",
+ "track_changes": 1
+}
