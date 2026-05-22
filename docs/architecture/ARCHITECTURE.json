@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "ERPNext",
+  "repository": {
+    "path": "C:/GitHub/erpnext-1",
+    "branch": "develop",
+    "upstream": "https://github.com/frappe/erpnext",
+    "fork_owner": "NexeraDigital",
+    "fork_overlay": "AP Closed Loop Receipt Processing pilot"
+  },
+  "language": {
+    "backend": "Python >=3.10",
+    "frontend": "JavaScript (esbuild bundles, Vanilla JS + Frappe UI)",
+    "templating": "Jinja2",
+    "build": "flit (Python), esbuild via Frappe (JS/CSS)",
+    "lint": "ruff (py310, line-length 110, tab indent)",
+    "i18n": "Crowdin + Babel extractors + gettext catalogs"
+  },
+  "runtime_dependencies": {
+    "framework": "Frappe >=16.0.0-dev,<17.0.0",
+    "datastore": "MariaDB (primary, append-only ledgers + tab<DocType> tables)",
+    "cache_queue_realtime": "Redis (cache, RQ queue, websocket bus)",
+    "process_model": "Nginx -> Gunicorn web workers + RQ workers + Frappe scheduler",
+    "file_storage": "Local disk via Frappe File doctype (S3 optional)"
+  },
+  "python_dependencies": [
+    "Unidecode~=1.4.0",
+    "barcodenumber~=0.5.0",
+    "rapidfuzz~=3.14.3",
+    "holidays~=0.87",
+    "googlemaps~=4.10.0",
+    "plaid-python~=7.2.1",
+    "python-youtube~=0.9.8",
+    "pypng~=0.20220715.0",
+    "mt-940>=4.26.0",
+    "pandas~=2.3.3",
+    "statsmodels~=0.14.6"
+  ],
+  "modules": [
+    {"name": "Accounts", "doctype_count": 187, "summary": "GL, AR/AP, taxes, payment, banking, period closing, AP Closed Loop (fork-added)"},
+    {"name": "Stock", "doctype_count": 78, "summary": "Inventory, valuation, warehousing, serial/batch, repost item valuation"},
+    {"name": "Manufacturing", "doctype_count": 48, "summary": "BOM, Work Order, Job Card, Routing, Workstation"},
+    {"name": "CRM", "doctype_count": 29, "summary": "Lead, Opportunity, Prospect, Campaign, Contract, Email Campaign"},
+    {"name": "Assets", "doctype_count": 27, "summary": "Asset, Depreciation, Repair, Movement, Capitalization"},
+    {"name": "Buying", "doctype_count": 21, "summary": "Supplier, RFQ, Purchase Order, Supplier Quotation, Scorecard"},
+    {"name": "Selling", "doctype_count": 19, "summary": "Customer, Quotation, Sales Order, Pricing"},
+    {"name": "Setup", "summary": "Company, fiscal year, employee, holiday list, email digest, setup wizard"},
+    {"name": "Support", "summary": "Issue, SLA, Maintenance Schedule/Visit"},
+    {"name": "Projects", "summary": "Project, Task, Timesheet, Activity"},
+    {"name": "Portal", "summary": "Customer/supplier self-service portal pages"},
+    {"name": "Subcontracting", "summary": "Subcontracting Order/Receipt (outsourced manufacturing)"},
+    {"name": "EDI", "summary": "Code List, Common Code (UN/CEFACT master data)"},
+    {"name": "Regional", "summary": "Per-country tax / e-invoice overrides (Italy, UAE, Saudi Arabia, France, …)"},
+    {"name": "ERPNext Integrations", "summary": "Plaid, Tally Migration, GoCardless"},
+    {"name": "Quality Management", "summary": "Quality goal, procedure, review"},
+    {"name": "Communication", "summary": "Call log + communication metadata"},
+    {"name": "Telephony", "summary": "Call log, linked conversations"},
+    {"name": "Bulk Transaction", "summary": "Bulk submit/cancel via background jobs"},
+    {"name": "Maintenance", "summary": "Maintenance Schedule, Maintenance Visit"},
+    {"name": "Utilities", "summary": "Activation hints, bot, helpers, video"}
+  ],
+  "hooks": {
+    "file": "erpnext/hooks.py",
+    "key_entries": {
+      "app_name": "erpnext",
+      "develop_version": "15.x.x-develop",
+      "after_install": "erpnext.setup.install.after_install",
+      "boot_session": "erpnext.startup.boot.boot_session",
+      "before_tests": "erpnext.setup.utils.before_tests",
+      "setup_wizard_stages": "erpnext.setup.setup_wizard.setup_wizard.get_setup_stages",
+      "setup_wizard_complete": "erpnext.setup.setup_wizard.setup_wizard.setup_demo",
+      "extend_doctype_class": {"Address": "erpnext.accounts.custom.address.ERPNextAddress"},
+      "override_whitelisted_methods": {"frappe.www.contact.send_message": "erpnext.templates.utils.send_message"},
+      "regional_overrides": ["France", "United Arab Emirates", "Saudi Arabia", "Italy"],
+      "auto_cancel_exempted_doctypes": ["Payment Entry"],
+      "period_closing_doctypes_count": 17,
+      "accounting_dimension_doctypes_count": 52,
+      "bank_reconciliation_doctypes": ["Payment Entry", "Journal Entry", "Purchase Invoice", "Sales Invoice"],
+      "invoice_doctypes": ["Sales Invoice", "Purchase Invoice"],
+      "advance_payment_receivable_doctypes": ["Sales Order"],
+      "advance_payment_payable_doctypes": ["Purchase Order"]
+    },
+    "doc_events_wildcards": {
+      "*": ["service_level_agreement.apply", "transaction_deletion_record.check_for_running_deletion_job"]
+    },
+    "scheduler_events": {
+      "cron": {
+        "0/15 * * * *": ["bom_update_log.resume_bom_cost_update_jobs"],
+        "0/30 * * * *": ["repost_item_valuation.run_parallel_reposting"],
+        "30 * * * *": ["gl_entry.rename_gle_sle_docs"]
+      },
+      "hourly": ["project.hourly_reminder"],
+      "hourly_maintenance": [
+        "repost_item_valuation.repost_entries",
+        "bulk_transaction.retry",
+        "project.collect_project_status",
+        "project.project_status_update_reminder",
+        "plaid_settings.automatic_synchronization",
+        "video.update_youtube_data"
+      ],
+      "daily_maintenance_count": 25,
+      "weekly": ["auto_create_exchange_rate_revaluation_weekly"],
+      "monthly_long": ["process_deferred_accounting", "auto_create_exchange_rate_revaluation_monthly"]
+    }
+  },
+  "controllers": {
+    "directory": "erpnext/controllers/",
+    "files": [
+      {"name": "accounts_controller.py", "role": "Base class for any GL-posting document; posting date, currency, tax orchestration, payment schedule"},
+      {"name": "buying_controller.py", "role": "Purchase-side shared validation, party defaults, pricing"},
+      {"name": "selling_controller.py", "role": "Sales-side shared validation, party defaults, pricing rules"},
+      {"name": "stock_controller.py", "role": "Anything that emits Stock Ledger Entries"},
+      {"name": "subcontracting_controller.py", "role": "Outsourced-manufacturing cost/inventory flow"},
+      {"name": "subcontracting_inward_controller.py", "role": "Inward subcontracting receipt flow"},
+      {"name": "taxes_and_totals.py", "role": "Single tax/total recomputation engine"},
+      {"name": "status_updater.py", "role": "Recomputes Billed/Delivered/Completed % on parent documents"},
+      {"name": "queries.py", "role": "Reusable query helpers"},
+      {"name": "trends.py", "role": "Trend reports backbone"},
+      {"name": "sales_and_purchase_return.py", "role": "Return / credit-note logic"},
+      {"name": "item_variant.py", "role": "Item variant creation/validation"},
+      {"name": "website_list_for_contact.py", "role": "Portal listing of customer/supplier documents"},
+      {"name": "budget_controller.py", "role": "Budget cost-center variance enforcement"}
+    ]
+  },
+  "core_data_flows": {
+    "order_to_cash": [
+      "Quotation",
+      "Sales Order",
+      "Delivery Note (-> Stock Ledger Entry, Bin)",
+      "Sales Invoice (-> GL Entry, Payment Ledger Entry)",
+      "Payment Entry (-> GL Entry, settles AR)"
+    ],
+    "procure_to_pay": [
+      "Material Request",
+      "Request for Quotation",
+      "Supplier Quotation",
+      "Purchase Order",
+      "Purchase Receipt (-> Stock Ledger Entry, Bin)",
+      "Purchase Invoice (-> GL Entry, Payment Ledger Entry)",
+      "Payment Entry (-> GL Entry, settles AP)"
+    ],
+    "make": [
+      "Production Plan",
+      "Work Order",
+      "Job Card",
+      "Stock Entry (Material Transfer / Manufacture)",
+      "Stock Ledger Entry"
+    ],
+    "bank_reconciliation": [
+      "Bank Statement Import (CSV/MT940/Plaid) -> Bank Transaction",
+      "Bank Reconciliation Tool -> link Bank Transaction to Payment Entry/Journal Entry/Invoice",
+      "Bank Clearance -> clears unreconciled instruments"
+    ],
+    "accounting_dimensions": "Accounting Dimension records flow into every GL Entry, Payment Ledger Entry, and ~50 transaction doctypes via accounting_dimension_doctypes in hooks.py"
+  },
+  "accounting_spine": {
+    "ledgers": [
+      {"name": "GL Entry", "role": "Append-only journal lines; canonical truth for trial balance / P&L / BS"},
+      {"name": "Payment Ledger Entry", "role": "Per-party AR/AP perspective ledger; powers receivable/payable reports"},
+      {"name": "Stock Ledger Entry", "role": "Append-only stock movements; valuation derived from this"},
+      {"name": "Bin", "role": "Cached per-(Item, Warehouse) on-hand state"},
+      {"name": "Account Closing Balance", "role": "Period Closing Voucher snapshot of P&L into RE"}
+    ],
+    "principles": [
+      "Submitted Purchase Invoice + submitted Payment Entry + outstanding_amount=0 + status=Paid means the AP is settled.",
+      "Bank Transaction is independent of Payment Entry — settlement and reconciliation are separate signals.",
+      "Accounting Period locks block validate/save on the 17 period_closing_doctypes once a period is closed."
+    ]
+  },
+  "frontend": {
+    "delivery": "Server-rendered desk pages (Frappe) + DocType-attached JS",
+    "bundles": {
+      "app_include_js": "erpnext.bundle.js",
+      "app_include_css": "erpnext.bundle.css",
+      "web_include_css": "erpnext-web.bundle.css",
+      "email_css": "email_erpnext.bundle.css"
+    },
+    "portal_routes": "hooks.py:website_route_rules (orders, invoices, supplier quotations, POs, RFQs, addresses, shipments, BOMs, timesheets, material requests, projects, tasks)",
+    "icons": ["/assets/erpnext/icons/pos-icons.svg"]
+  },
+  "testing": {
+    "runner": "bench --site test_site run-tests",
+    "framework": "frappe.tests.IntegrationTestCase (transactional, rolls back per test)",
+    "bootstrap_hook": "before_tests = erpnext.setup.utils.before_tests",
+    "fixture_records": ["_Test Company", "_Test Supplier", "_Test Item", "_Test Cost Center - _TC", "_Test Bank - _TC", "_Test Warehouse - _TC", "_Test Account Cost for Goods Sold - _TC"],
+    "ci": ["GitHub Actions: server-tests-mariadb.yml", "codecov.yml", "sider.yml"]
+  },
+  "extension_points": [
+    "Add DocType JSON + Document subclass under erpnext/<module>/doctype/<name>/",
+    "Cross-doctype reactions via hooks.py:doc_events",
+    "Whitelisted RPC via @frappe.whitelist() -> /api/method/<dotted.path>",
+    "Reports under <module>/report/<name>/ (json + py + js)",
+    "Workspaces under <module>/workspace/ ; dashboards under <module>/dashboard_chart/",
+    "Country-specific behavior under erpnext/regional/<country>/ + hooks.py:regional_overrides",
+    "Background jobs via hooks.py:scheduler_events",
+    "Boot-time data via boot_session / extend_bootinfo"
+  ],
+  "fork_overlay": {
+    "summary": "AP Closed Loop Receipt Processing pilot — narrow vertical slice for invoice intake -> OCR proposal -> AP review -> validation -> Purchase Invoice promotion -> approval routing -> mock Payment Entry -> closure evidence.",
+    "added_paths": [
+      "AGENTS.md",
+      "erpnext/accounts/ap_closed_loop/__init__.py",
+      "erpnext/accounts/ap_closed_loop/walking_skeleton.py",
+      "erpnext/accounts/ap_closed_loop/test_walking_skeleton.py",
+      "erpnext/accounts/doctype/ap_invoice_capture/__init__.py",
+      "erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json",
+      "erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py",
+      "erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py"
+    ],
+    "modified_paths": [
+      "erpnext/setup/utils.py (Role enumeration switched from frappe.db.get_values to frappe.get_all)"
+    ],
+    "principles": [
+      "Purchase Invoice is the canonical payable invoice (native doctype, not replaced).",
+      "Payment Entry is the payment/closure anchor (native doctype, not replaced).",
+      "No Bank Transaction is created; no bank-reconciliation implied.",
+      "No custom 'closed' flag is stored; closure is derived from native state.",
+      "Provider / payment artifacts are explicitly labeled MOCK and must not be mistaken for a real banking integration."
+    ],
+    "see_also": "FORK-CHANGES.md"
+  }
+}

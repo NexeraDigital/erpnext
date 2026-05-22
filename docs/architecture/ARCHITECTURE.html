@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ERPNext Architecture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --fg: #1b1f23;
+    --muted: #57606a;
+    --bg: #ffffff;
+    --panel: #f6f8fa;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --accent-soft: #ddf4ff;
+    --warn: #9a6700;
+    --warn-soft: #fff8c5;
+    --code-bg: #f6f8fa;
+    --code-fg: #24292f;
+    --fork: #8250df;
+    --fork-soft: #f5edff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent-soft: #1f6feb33;
+      --warn: #d29922;
+      --warn-soft: #3b2e0033;
+      --code-bg: #161b22;
+      --code-fg: #c9d1d9;
+      --fork: #d2a8ff;
+      --fork-soft: #8250df33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Helvetica, Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+  }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 80px;
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+  }
+  h1 { font-size: 28px; margin: 0 0 6px; }
+  h2 {
+    margin-top: 44px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 22px;
+  }
+  h3 { margin-top: 28px; font-size: 17px; }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); font-size: 14px; }
+  code, pre {
+    font: 13px/1.5 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+  }
+  code {
+    background: var(--code-bg);
+    color: var(--code-fg);
+    padding: 1px 6px;
+    border-radius: 5px;
+  }
+  pre code { background: none; padding: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 24px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { background: var(--panel); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .pill.fork { background: var(--fork-soft); color: var(--fork); border-color: var(--fork); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+  .toc {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 16px 0 28px;
+  }
+  .toc ol { margin: 0; padding-left: 22px; }
+  .toc li { padding: 2px 0; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 16px 0 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card .title { font-weight: 600; margin-bottom: 4px; }
+  .card .body { font-size: 14px; color: var(--muted); }
+  .callout {
+    background: var(--warn-soft);
+    border-left: 4px solid var(--warn);
+    padding: 12px 16px;
+    border-radius: 6px;
+    margin: 18px 0;
+  }
+  .callout.fork {
+    background: var(--fork-soft);
+    border-left-color: var(--fork);
+  }
+  ul.tight li { margin: 2px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>ERPNext Architecture</h1>
+  <div class="muted">
+    Repo <code>C:\GitHub\erpnext-1</code> &nbsp;|&nbsp; Branch <code>develop</code> &nbsp;|&nbsp; Upstream
+    <a href="https://github.com/frappe/erpnext">frappe/erpnext</a> &nbsp;|&nbsp;
+    Fork owner <span class="pill fork">NexeraDigital</span> — see
+    <a href="FORK-CHANGES.md">FORK-CHANGES.md</a> for the AP Closed Loop pilot added in this fork.
+  </div>
+</header>
+
+<div class="toc">
+  <strong>Contents</strong>
+  <ol>
+    <li><a href="#what">What ERPNext Is</a></li>
+    <li><a href="#topology">High-Level System Topology</a></li>
+    <li><a href="#layout">Repository Layout</a></li>
+    <li><a href="#concepts">Core Architectural Concepts</a></li>
+    <li><a href="#modules">Module Inventory</a></li>
+    <li><a href="#flows">Data Flow Examples</a></li>
+    <li><a href="#config">Configuration &amp; Build</a></li>
+    <li><a href="#extend">Extension Points</a></li>
+    <li><a href="#fork">The Fork Overlay</a></li>
+  </ol>
+</div>
+
+<h2 id="what">1. What ERPNext Is</h2>
+<p>
+  ERPNext is a 100% open-source, full-stack ERP delivered as a single Python package (<code>erpnext</code>) that plugs into a
+  <strong>Frappe Bench</strong>. It covers accounting, stock, manufacturing, selling, buying, projects, assets, CRM, support,
+  quality, subcontracting, EDI, regional tax/compliance, and a portal/website.
+</p>
+<p>
+  ERPNext does not run standalone. The <strong>Frappe Framework</strong> hosts it and provides:
+</p>
+<ul class="tight">
+  <li>The persistent <strong>DocType</strong> model (metadata-driven schemas → MariaDB tables).</li>
+  <li>DB abstraction (<code>frappe.db</code>, <code>frappe.qb</code>), auth, roles, workflows.</li>
+  <li>REST/RPC API (<code>/api/method/*</code>, <code>/api/resource/*</code>).</li>
+  <li>Background job queue (RQ over Redis) and a cron-like scheduler.</li>
+  <li>The desk UI, portal/website rendering, print, email, file storage, test runner.</li>
+</ul>
+<p>
+  "ERPNext" is therefore best read as <strong>business doctypes + controllers + reports + hooks</strong> layered on top of Frappe.
+</p>
+
+<h2 id="topology">2. High-Level System Topology</h2>
+<pre><code>                       ┌──────────────────────────────────────────────────────┐
+                       │                     Bench Host                        │
+                       │                                                       │
+   Browser  ─────────► │  Nginx → Gunicorn (web) ─► Frappe app ─► ERPNext app  │
+                       │                                       │               │
+   Email / Cron ─────► │  Frappe Scheduler ─► RQ workers ──────┘               │
+                       │            │                                          │
+                       │            ▼                                          │
+                       │  MariaDB  ◄──►  Redis (cache + queue + websocket)     │
+                       │            ▲                                          │
+                       │            │                                          │
+                       │  File storage (private/public)                        │
+                       └──────────────────────────────────────────────────────┘
+</code></pre>
+<ul class="tight">
+  <li><strong>Web tier:</strong> Nginx in front of Gunicorn workers running the Frappe Werkzeug app.</li>
+  <li><strong>Async tier:</strong> Frappe scheduler enqueues into Redis-backed RQ; workers consume <code>default</code>, <code>short</code>, <code>long</code>. ERPNext registers callbacks under <code>scheduler_events</code> in <code>hooks.py</code>.</li>
+  <li><strong>Persistence:</strong> MariaDB is canonical; each DocType becomes a <code>tab&lt;DocType&gt;</code> table. Redis is cache + websocket bus, not source of truth.</li>
+  <li><strong>Files:</strong> the Frappe <code>File</code> doctype wraps uploads on disk (or S3). Used by the fork's <em>AP Invoice Capture</em>.</li>
+  <li><strong>Realtime:</strong> Socket.IO via Frappe for desk notifications and live document updates.</li>
+</ul>
+
+<h2 id="layout">3. Repository Layout</h2>
+<pre><code>erpnext-1/
+├── pyproject.toml        flit build, Python ≥ 3.10, frappe >=16.0.0-dev,<17
+├── package.json          frontend bundles (esbuild via Frappe), husky/commitlint
+├── hooks.py              ► single most important file: app wiring
+├── modules.txt           21 functional modules
+├── patches.txt           ordered DB migrations
+├── README.md / SECURITY / TRADEMARK / CODE_OF_CONDUCT
+├── AGENTS.md             ◀ FORK: Codex/Claude operating notes for AP pilot
+└── erpnext/
+    ├── accounts/         finance: GL, AR/AP, taxes, PI/SI, PE, banking
+    │   ├── doctype/      187 doctypes (Account, GL Entry, Purchase Invoice, …)
+    │   ├── ap_closed_loop/                       ◀ FORK: walking skeleton
+    │   ├── doctype/ap_invoice_capture/           ◀ FORK: capture doctype + flow
+    │   └── report/       finance reports (P&amp;L, BS, Trial Balance, GL, AR/AP …)
+    ├── stock/            78 doctypes — Item, Warehouse, Bin, Stock Entry, SLE
+    ├── manufacturing/    48 doctypes — BOM, Work Order, Job Card, Routing
+    ├── selling/          19 doctypes — Quotation, Sales Order, Customer
+    ├── buying/           21 doctypes — Supplier, RFQ, Purchase Order, SQ
+    ├── assets/           27 doctypes — Asset, Depreciation, Repair, Movement
+    ├── crm/              29 doctypes — Lead, Opportunity, Prospect, Campaign
+    ├── projects/, support/, subcontracting/, edi/, quality_management/
+    ├── regional/         per-country overrides (Italy/UAE/SA/France/…)
+    ├── erpnext_integrations/  Plaid, GoCardless, Tally
+    ├── controllers/      cross-doctype superclasses (Accounts/Buying/Selling/Stock/Subcontracting,
+    │                     TaxesAndTotals, StatusUpdater)
+    ├── public/           bundled JS/CSS/SVG assets (esbuild entrypoints)
+    ├── templates/, www/, portal/
+    ├── setup/            install, setup wizard, demo data, holiday lists
+    ├── patches/          ordered migration scripts referenced by patches.txt
+    ├── startup/, domains/, change_log/, locale/, gettext/, tests/
+</code></pre>
+
+<h2 id="concepts">4. Core Architectural Concepts</h2>
+
+<h3>4.1 DocType — the universal building block</h3>
+<p>
+  Every business object — a Customer, a Sales Invoice line, a setting page, a workflow state — is a <strong>DocType</strong>.
+  Each is defined by a JSON descriptor (fields, naming rule, permissions, child tables) plus an optional Python
+  <code>Document</code> subclass for behavior. Document lifecycle:
+</p>
+<pre><code>before_insert → validate → before_save → after_save → on_update
+                                       └─ on_submit → on_cancel → on_trash
+</code></pre>
+<p>
+  Cross-doctype reactions are wired in <code>hooks.py:doc_events</code> — e.g. wildcard <code>*</code> validators apply SLA
+  and the transaction-deletion lock to every save; the 17 <code>period_closing_doctypes</code> get an accounting-period guard;
+  <code>Stock Entry</code> submit/cancel recomputes linked Material Request fulfillment.
+</p>
+
+<h3>4.2 Controllers (cross-doctype mixins)</h3>
+<table>
+  <thead><tr><th>Controller</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>AccountsController</code></td><td>Base for any GL-posting document (Sales/Purchase Invoice, Payment Entry, Journal Entry). Posting date, currency, tax orchestration, payment schedule, advances.</td></tr>
+    <tr><td><code>BuyingController</code> / <code>SellingController</code></td><td>Purchase/sale-side shared logic — party validation, pricing rules, item defaults.</td></tr>
+    <tr><td><code>StockController</code></td><td>Anything that creates Stock Ledger Entries (Stock Entry, Delivery Note, Purchase Receipt, Subcontracting Receipt).</td></tr>
+    <tr><td><code>SubcontractingController</code></td><td>The special inventory/cost flow for outsourced manufacturing.</td></tr>
+    <tr><td><code>TaxesAndTotals</code></td><td>The single tax/total recomputation engine called by every transactional controller.</td></tr>
+    <tr><td><code>StatusUpdater</code></td><td>Recomputes Billed / Delivered / Completed status percentages on parent documents from child rows.</td></tr>
+  </tbody>
+</table>
+
+<h3>4.3 The accounting spine (AR / AP / GL)</h3>
+<pre><code>Sales Quotation ─► Sales Order ─► Delivery Note ─► Sales Invoice ─► Payment Entry
+                                        │                  │             │
+                                        │                  ▼             ▼
+                                        │            GL Entry +    GL Entry +
+                                        │            Payment       Payment
+                                        │            Ledger        Ledger
+                                        ▼
+                                  Stock Ledger Entry (Bin)
+
+Material Request ─► RFQ ─► Supplier Quotation ─► Purchase Order
+                                                        │
+                                                        ▼
+                                          Purchase Receipt ─► Purchase Invoice ─► Payment Entry
+                                                  │                  │                  │
+                                                  ▼                  ▼                  ▼
+                                              SLE + Bin        GL + PL Ledger     GL + PL Ledger
+</code></pre>
+<ul class="tight">
+  <li><strong>GL Entry</strong> is the journal-line truth; <strong>Payment Ledger Entry</strong> is a parallel AR/AP-perspective ledger that powers receivable/payable reports without re-scanning GL.</li>
+  <li><strong>Period Closing Voucher</strong> snapshots a year's P&amp;L into <code>Account Closing Balance</code>.</li>
+  <li><strong>Accounting Dimensions</strong> (Cost Center + arbitrary additional dimensions) flow through every GL Entry and ~50 transaction doctypes — see <code>accounting_dimension_doctypes</code> in <code>hooks.py</code>.</li>
+  <li>Bank reconciliation is its own subsystem (<code>Bank Reconciliation Tool</code>, <code>Bank Transaction</code>, <code>Bank Clearance</code>). Whether a payment is <em>reconciled</em> is a separate signal from whether the AR/AP is <em>settled</em>.</li>
+</ul>
+
+<h3>4.4 Stock / inventory engine</h3>
+<ul class="tight">
+  <li><strong>Stock Ledger Entry</strong> is append-only; quantity and valuation are derived from it.</li>
+  <li><strong>Bin</strong> caches per-(Item, Warehouse) on-hand state for fast lookups.</li>
+  <li><strong>Repost Item Valuation</strong> is the queued job that recomputes SLE valuation when historic stock is edited; runs every 30 min via <code>scheduler_events.cron</code> and on demand.</li>
+  <li><strong>Serial No / Batch No / Serial and Batch Bundle</strong> track identity-bearing inventory.</li>
+</ul>
+
+<h3>4.5 Manufacturing</h3>
+<p><strong>BOM</strong> (version + cost-update every 15 min) → <strong>Production Plan</strong> → <strong>Work Order</strong> → <strong>Job Card</strong> → <strong>Stock Entries</strong> (Manufacture / Material Transfer for Manufacture).</p>
+
+<h3>4.6 Hooks — how ERPNext extends Frappe</h3>
+<table>
+  <thead><tr><th>Hook</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>app_include_js/css</code>, <code>web_include_*</code>, <code>email_css</code></td><td>Bundle entrypoints (esbuild).</td></tr>
+    <tr><td><code>doctype_js</code>, <code>doctype_list_js</code>, <code>page_js</code></td><td>Client-side script attachments.</td></tr>
+    <tr><td><code>doc_events</code></td><td>Server-side observers on documents (incl. wildcard <code>*</code>).</td></tr>
+    <tr><td><code>scheduler_events</code></td><td>Cron/hourly/daily/weekly/monthly jobs.</td></tr>
+    <tr><td><code>regional_overrides</code></td><td>Country-specific monkey-patches of tax/GL logic.</td></tr>
+    <tr><td><code>setup_wizard_stages</code>, <code>after_install</code></td><td>First-run bootstrapping.</td></tr>
+    <tr><td><code>boot_session</code>, <code>extend_bootinfo</code></td><td>Inject data into the desk on login.</td></tr>
+    <tr><td><code>website_route_rules</code>, <code>standard_portal_menu_items</code></td><td>Portal/website URLs.</td></tr>
+    <tr><td><code>period_closing_doctypes</code></td><td>Doctypes guarded by Accounting Period locks (17 entries).</td></tr>
+    <tr><td><code>accounting_dimension_doctypes</code></td><td>Doctypes that carry accounting dimensions (~50 entries).</td></tr>
+    <tr><td><code>auto_cancel_exempted_doctypes</code></td><td>Breaks chained cancellation for <code>Payment Entry</code>.</td></tr>
+    <tr><td><code>user_privacy_documents</code></td><td>GDPR personal-data fields.</td></tr>
+    <tr><td><code>naming_series_variables</code></td><td>Custom token resolvers (e.g. <code>FY</code>, <code>ABBR</code>).</td></tr>
+  </tbody>
+</table>
+
+<h3>4.7 Regional / multi-jurisdiction</h3>
+<p>
+  <code>erpnext/regional/&lt;country&gt;/utils.py</code> ships per-country overrides registered via <code>regional_overrides</code>
+  and direct <code>doc_events</code>: Italy (FatturaPA e-invoice, state code on Address), UAE/Saudi Arabia (reverse-charge VAT,
+  itemised tax data, regional GL entries), France (regional test hooks).
+</p>
+
+<h3>4.8 Background processing &amp; scheduler</h3>
+<ul class="tight">
+  <li><strong>Every 15 min:</strong> BOM cost-update job resumer.</li>
+  <li><strong>Every 30 min:</strong> parallel reposting of item valuation.</li>
+  <li><strong>30 past the hour:</strong> GLE/SLE rename queue.</li>
+  <li><strong>Hourly:</strong> project deadline reminders.</li>
+  <li><strong>Hourly maintenance:</strong> repost valuation, bulk-transaction retries, project status, Plaid sync, YouTube data.</li>
+  <li><strong>Daily maintenance:</strong> ~25 jobs — auto-close tickets, update invoice statuses, fiscal year auto-create, supplier scorecards, asset maintenance/depreciation posting, dunning, reorder, subscriptions, e-mail digests.</li>
+  <li><strong>Weekly / Monthly long:</strong> exchange rate revaluation, deferred revenue/expense processing.</li>
+</ul>
+
+<h3>4.9 Test architecture</h3>
+<ul class="tight">
+  <li>Module-local <code>test_&lt;doctype&gt;.py</code> via <code>frappe.tests.IntegrationTestCase</code> against MariaDB.</li>
+  <li><code>before_tests = erpnext.setup.utils.before_tests</code> bootstraps <code>_Test Company</code>, <code>_Test Item</code>, <code>_Test Supplier</code>, <code>_Test Bank - _TC</code>, <code>_Test Cost Center - _TC</code>, etc.</li>
+  <li>Tests roll back with <code>frappe.db.rollback()</code> in <code>tearDown</code>.</li>
+</ul>
+
+<h3>4.10 Frontend</h3>
+<p>
+  ERPNext does <em>not</em> ship a separate SPA. The desk UI is delivered via Frappe with ERPNext contributing esbuild bundles
+  (declared in <code>package.json</code>), DocType-attached client scripts (<code>erpnext/public/js/*.js</code> and per-doctype
+  <code>*.js</code>), a small Vue / Frappe-UI surface for POS, plus server-rendered Jinja for portal/website pages.
+</p>
+
+<h2 id="modules">5. Module Inventory</h2>
+<table>
+  <thead><tr><th>Module</th><th class="num">Doctypes</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td>Accounts</td><td class="num">187</td><td>GL, AR/AP, taxes, payment, banking, AP Closed Loop <span class="pill fork">fork</span></td></tr>
+    <tr><td>Stock</td><td class="num">78</td><td>Inventory, valuation, warehousing, serial/batch</td></tr>
+    <tr><td>Manufacturing</td><td class="num">48</td><td>BOM, work orders, job cards, routing</td></tr>
+    <tr><td>CRM</td><td class="num">29</td><td>Leads, opportunities, prospects, campaigns</td></tr>
+    <tr><td>Assets</td><td class="num">27</td><td>Asset, depreciation, repair, movement</td></tr>
+    <tr><td>Buying</td><td class="num">21</td><td>Supplier, RFQ, PO, SQ</td></tr>
+    <tr><td>Selling</td><td class="num">19</td><td>Customer, quotation, sales order</td></tr>
+    <tr><td>Setup</td><td class="num">—</td><td>Company, fiscal year, employee, holidays, naming series</td></tr>
+    <tr><td>Support</td><td class="num">—</td><td>Issue, SLA, maintenance schedule/visit</td></tr>
+    <tr><td>Projects</td><td class="num">—</td><td>Project, task, timesheet, activity</td></tr>
+    <tr><td>Portal</td><td class="num">—</td><td>Customer/supplier self-service</td></tr>
+    <tr><td>Subcontracting</td><td class="num">—</td><td>Outsourced manufacturing flow</td></tr>
+    <tr><td>EDI</td><td class="num">—</td><td>UN/CEFACT code lists</td></tr>
+    <tr><td>Regional</td><td class="num">—</td><td>Country-specific tax / e-invoice</td></tr>
+    <tr><td>ERPNext Integrations</td><td class="num">—</td><td>Plaid, Tally, GoCardless</td></tr>
+    <tr><td>Quality Management</td><td class="num">—</td><td>Quality goal, procedure, review</td></tr>
+    <tr><td>Communication / Telephony</td><td class="num">—</td><td>Call log, communication metadata</td></tr>
+    <tr><td>Bulk Transaction</td><td class="num">—</td><td>Bulk submit/cancel via background jobs</td></tr>
+    <tr><td>Maintenance</td><td class="num">—</td><td>Maintenance Schedule / Visit</td></tr>
+    <tr><td>Utilities</td><td class="num">—</td><td>Activation hints, bot, helpers, video</td></tr>
+  </tbody>
+</table>
+
+<h2 id="flows">6. Data Flow Examples</h2>
+
+<h3>6.1 Submit a Purchase Invoice (the AP path the fork extends)</h3>
+<ol>
+  <li>User or API creates a <code>Purchase Invoice</code> referencing a <code>Supplier</code> and items.</li>
+  <li><code>BuyingController.validate</code> → <code>TaxesAndTotals</code> recomputes totals; <code>AccountsController.validate</code> checks posting date / accounting period.</li>
+  <li>The <code>period_closing_doctypes</code> validator confirms the date isn't in a closed period.</li>
+  <li>On <code>submit</code>: <code>make_gl_entries</code> posts journal lines to <code>GL Entry</code> + parallel <code>Payment Ledger Entry</code>, advances <code>Payment Schedule</code>, updates Supplier outstanding.</li>
+  <li><code>StatusUpdater</code> updates the linked PO / Purchase Receipt billed-status.</li>
+  <li>Reports (Accounts Payable, Trial Balance) read from <code>GL Entry</code> + <code>Payment Ledger Entry</code>.</li>
+</ol>
+
+<h3>6.2 Settle a Purchase Invoice via Payment Entry</h3>
+<ol>
+  <li><code>get_payment_entry("Purchase Invoice", pi.name, …)</code> prefills a draft PE.</li>
+  <li>On submit: GL Entries debit <em>Creditors</em>, credit the bank account; PI <code>outstanding_amount</code> → 0; PI <code>status</code> → <em>Paid</em>.</li>
+  <li><strong>No <code>Bank Transaction</code> is created</strong> by Payment Entry submission. Bank Transactions originate from bank statement import / Plaid; <code>Bank Reconciliation Tool</code> links them to PEs afterwards.</li>
+</ol>
+
+<div class="callout">
+  <strong>Settlement vs. reconciliation.</strong> A submitted Payment Entry with a PI <code>outstanding_amount = 0</code> means the
+  payable is <em>settled</em>. Whether a <em>real bank statement line</em> has been matched to that PE is a separate signal carried
+  by <code>Bank Transaction</code> + <code>Bank Reconciliation Tool</code>. The AP Closed Loop fork intentionally never crosses into
+  Bank Transaction territory.
+</div>
+
+<h2 id="config">7. Configuration &amp; Build</h2>
+<div class="grid">
+  <div class="card"><div class="title">Python</div><div class="body"><code>pyproject.toml</code>: core deps (Unidecode, rapidfuzz, holidays, googlemaps, plaid-python, python-youtube, mt-940, pandas, statsmodels), pinned <code>frappe&nbsp;&gt;=16.0.0-dev,&lt;17</code>.</div></div>
+  <div class="card"><div class="title">JS / CSS</div><div class="body"><code>package.json</code> with <code>husky</code> + <code>commitlint</code>; bundles built by Frappe's esbuild runner.</div></div>
+  <div class="card"><div class="title">Lint / format</div><div class="body"><code>ruff</code> with line-length 110, tab indent, py310 target.</div></div>
+  <div class="card"><div class="title">i18n</div><div class="body">Crowdin (<code>crowdin.yml</code>), Babel extractors, gettext catalogs under <code>locale/</code>.</div></div>
+  <div class="card"><div class="title">CI</div><div class="body">GitHub Actions (<code>server-tests-mariadb.yml</code>), <code>codecov.yml</code>, <code>sider.yml</code>.</div></div>
+</div>
+
+<h2 id="extend">8. Extension Points</h2>
+<ol>
+  <li>Add a <code>DocType</code> JSON + <code>Document</code> subclass under <code>erpnext/&lt;module&gt;/doctype/&lt;name&gt;/</code>.</li>
+  <li>Wire cross-doctype reactions through <code>hooks.py:doc_events</code> rather than monkey-patching.</li>
+  <li>Whitelisted server methods (<code>@frappe.whitelist()</code>) become RPC endpoints at <code>/api/method/erpnext.&lt;path&gt;.&lt;fn&gt;</code> — this is how the AP Closed Loop pilot exposes its actions.</li>
+  <li>Reports go under <code>&lt;module&gt;/report/&lt;name&gt;/</code> (<code>*.json</code>, <code>*.py</code>, <code>*.js</code>).</li>
+  <li>Workspaces &amp; dashboards under <code>&lt;module&gt;/workspace/</code> and <code>&lt;module&gt;/dashboard_chart/</code>.</li>
+  <li>Country-specific behavior under <code>erpnext/regional/&lt;country&gt;/</code> + <code>hooks.py:regional_overrides</code>.</li>
+</ol>
+
+<h2 id="fork">9. The Fork Overlay</h2>
+<div class="callout fork">
+  This repository is <code>develop</code> of upstream <strong>plus</strong> an AP Closed Loop Receipt Processing pilot owned by
+  <span class="pill fork">NexeraDigital</span>. The pilot adds one new accounting doctype (<code>AP Invoice Capture</code>),
+  a deterministic walking-skeleton module, and an <code>AGENTS.md</code> operating note. <strong>No upstream business logic is replaced.</strong>
+  See <a href="FORK-CHANGES.md">FORK-CHANGES.md</a> for the full breakdown.
+</div>
+
+</main>
+</body>
+</html>
