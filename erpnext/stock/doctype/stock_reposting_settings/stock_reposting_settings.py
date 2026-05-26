@@ -16,7 +16,9 @@ class StockRepostingSettings(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		do_not_fetch_incoming_rate_from_serial_no: DF.Check
 		enable_parallel_reposting: DF.Check
+		enable_separate_reposting_for_gl: DF.Check
 		end_time: DF.Time | None
 		item_based_reposting: DF.Check
 		limit_reposting_timeslot: DF.Check

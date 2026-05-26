@@ -2,14 +2,17 @@
 # License: GNU General Public License v3. See license.txt
 
 
+import datetime
 import json
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import CombineDatetime, IfNull, Sum
+from frappe.query_builder.functions import IfNull, Sum
 from frappe.utils import cstr, flt, get_link_to_form, get_time, getdate, nowdate, nowtime
+from frappe.utils.data import DateTimeLikeObject
 
 import erpnext
+from erpnext.stock.doctype.inventory_dimension.inventory_dimension import get_inventory_dimensions
 from erpnext.stock.doctype.serial_and_batch_bundle.serial_and_batch_bundle import get_available_serial_nos
 from erpnext.stock.doctype.warehouse.warehouse import get_child_warehouses
 from erpnext.stock.serial_batch_bundle import BatchNoValuation, SerialNoValuation
@@ -93,13 +96,13 @@ def get_stock_value_on(
 
 @frappe.whitelist()
 def get_stock_balance(
-	item_code,
-	warehouse,
-	posting_date=None,
-	posting_time=None,
-	with_valuation_rate=False,
-	with_serial_no=False,
-	inventory_dimensions_dict=None,
+	item_code: str,
+	warehouse: str | None,
+	posting_date: DateTimeLikeObject | None = None,
+	posting_time: DateTimeLikeObject | datetime.timedelta | None = None,
+	with_valuation_rate: bool = False,
+	with_serial_no: bool = False,
+	inventory_dimensions_dict: dict | None = None,
 ):
 	"""Returns stock balance quantity at given warehouse on given posting date or current date.
 
@@ -122,11 +125,19 @@ def get_stock_balance(
 	}
 
 	extra_cond = ""
+
 	if inventory_dimensions_dict:
+		inventory_dimensions_fieldname = [d.get("fieldname") for d in get_inventory_dimensions()]
+
 		for field, value in inventory_dimensions_dict.items():
-			column = frappe.utils.sanitize_column(field)
+			if field not in inventory_dimensions_fieldname:
+				frappe.throw(
+					_("{0} is not a valid {1} fieldname.").format(
+						frappe.bold(field), frappe.bold("Inventory Dimension")
+					)
+				)
 			args[field] = value
-			extra_cond += f" and {column} = %({field})s"
+			extra_cond += f" and {field} = %({field})s"
 
 	last_entry = get_previous_sle(args, extra_cond=extra_cond)
 
@@ -165,7 +176,7 @@ def get_serial_nos_data(serial_nos):
 
 
 @frappe.whitelist()
-def get_latest_stock_qty(item_code, warehouse=None):
+def get_latest_stock_qty(item_code: str, warehouse: str | None = None):
 	values, condition = [item_code], ""
 	if warehouse:
 		lft, rgt, is_group = frappe.db.get_value("Warehouse", warehouse, ["lft", "rgt", "is_group"])
@@ -237,7 +248,7 @@ def _create_bin(item_code, warehouse):
 
 
 @frappe.whitelist()
-def get_incoming_rate(args, raise_error_if_no_rate=True):
+def get_incoming_rate(args: dict | str, raise_error_if_no_rate: bool = True, fallbacks: bool = True):
 	"""Get Incoming Rate based on valuation method"""
 	from erpnext.stock.stock_ledger import get_previous_sle, get_valuation_rate
 
@@ -325,38 +336,11 @@ def get_incoming_rate(args, raise_error_if_no_rate=True):
 			args.get("allow_zero_valuation"),
 			currency=erpnext.get_company_currency(args.get("company")),
 			company=args.get("company"),
+			fallbacks=fallbacks,
 			raise_error_if_no_rate=raise_error_if_no_rate,
 		)
 
 	return flt(in_rate)
-
-
-def get_batch_incoming_rate(item_code, warehouse, batch_no, posting_date, posting_time, creation=None):
-	sle = frappe.qb.DocType("Stock Ledger Entry")
-
-	timestamp_condition = CombineDatetime(sle.posting_date, sle.posting_time) < CombineDatetime(
-		posting_date, posting_time
-	)
-	if creation:
-		timestamp_condition |= (
-			CombineDatetime(sle.posting_date, sle.posting_time) == CombineDatetime(posting_date, posting_time)
-		) & (sle.creation < creation)
-
-	batch_details = (
-		frappe.qb.from_(sle)
-		.select(Sum(sle.stock_value_difference).as_("batch_value"), Sum(sle.actual_qty).as_("batch_qty"))
-		.where(
-			(sle.item_code == item_code)
-			& (sle.warehouse == warehouse)
-			& (sle.batch_no == batch_no)
-			& (sle.serial_and_batch_bundle.isnull())
-			& (sle.is_cancelled == 0)
-		)
-		.where(timestamp_condition)
-	).run(as_dict=True)
-
-	if batch_details and batch_details[0].batch_qty:
-		return batch_details[0].batch_value / batch_details[0].batch_qty
 
 
 def get_avg_purchase_rate(serial_nos):

@@ -1,8 +1,6 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and Contributors
 # License: GNU General Public License v3. See license.txt
 
-import copy
-import json
 
 import frappe
 from frappe import _, bold
@@ -20,7 +18,6 @@ from frappe.utils import (
 	now_datetime,
 	nowtime,
 	strip,
-	strip_html,
 )
 from frappe.utils.html_utils import clean_html
 from pypika import Order
@@ -82,7 +79,6 @@ class Item(Document):
 		brand: DF.Link | None
 		country_of_origin: DF.Link | None
 		create_new_batch: DF.Check
-		customer: DF.Link | None
 		customer_code: DF.SmallText | None
 		customer_items: DF.Table[ItemCustomerDetail]
 		customs_tariff_number: DF.Link | None
@@ -182,8 +178,32 @@ class Item(Document):
 			for default in self.item_defaults or [frappe._dict()]:
 				self.add_price(default.default_price_list)
 
+			frappe.msgprint(
+				_("Item Price created at rate {0}").format(
+					frappe.format(self.standard_rate, {"fieldtype": "Currency"})
+				),
+				indicator="green",
+				alert=True,
+			)
+
 		if self.opening_stock:
-			self.set_opening_stock()
+			if self.opening_stock > 10000 and self.has_serial_no:
+				frappe.enqueue(
+					self.set_opening_stock,
+					queue="long",
+					timeout=600,
+					job_name=f"set_opening_stock_for_{self.name}",
+				)
+				frappe.msgprint(
+					_(
+						"Opening stock creation has been queued and will be created in the background. Please check the stock entry after some time."
+					),
+					indicator="orange",
+					alert=True,
+				)
+
+			else:
+				self.set_opening_stock()
 
 	def validate(self):
 		if not self.item_name:
@@ -202,6 +222,7 @@ class Item(Document):
 		self.validate_warehouse_for_reorder()
 		self.update_bom_item_desc()
 
+		self.validate_variant()
 		self.validate_has_variants()
 		self.validate_attributes_in_variants()
 		self.validate_stock_exists_for_template_item()
@@ -232,7 +253,24 @@ class Item(Document):
 			cint(frappe.get_single_value("Stock Settings", "clean_description_html"))
 			and self.description != self.item_name  # perf: Avoid cleaning up a fallback
 		):
+			old_desc = self.description
 			self.description = clean_html(self.description)
+
+			if (
+				old_desc
+				and self.description
+				and "<img src" in old_desc
+				and "<img src" not in self.description
+			):
+				frappe.msgprint(
+					_(
+						'Image in the description has been removed. To disable this behavior, uncheck "{0}" in {1}.'
+					).format(
+						frappe.get_meta("Stock Settings").get_label("clean_description_html"),
+						get_link_to_form("Stock Settings"),
+					),
+					alert=True,
+				)
 
 	def validate_customer_provided_part(self):
 		if self.is_customer_provided_item:
@@ -264,10 +302,14 @@ class Item(Document):
 
 	def set_opening_stock(self):
 		"""set opening stock"""
-		if not self.is_stock_item or self.has_serial_no or self.has_batch_no:
+		if (
+			not self.is_stock_item
+			or (self.has_serial_no and not self.serial_no_series)
+			or (self.has_batch_no and (not self.create_new_batch or not self.batch_number_series))
+		):
 			return
 
-		if not self.valuation_rate and not self.standard_rate and not self.is_customer_provided_item:
+		if self.valuation_rate is None and not self.is_customer_provided_item:
 			frappe.throw(_("Valuation Rate is mandatory if Opening Stock entered"))
 
 		from erpnext.stock.doctype.stock_entry.stock_entry_utils import make_stock_entry
@@ -292,13 +334,37 @@ class Item(Document):
 					item_code=self.name,
 					target=default_warehouse,
 					qty=self.opening_stock,
-					rate=self.valuation_rate or self.standard_rate,
+					rate=self.valuation_rate,
 					company=default.company,
 					posting_date=getdate(),
 					posting_time=nowtime(),
+					do_not_save=True,
 				)
 
+				if self.valuation_rate == 0:
+					for item in stock_entry.items:
+						item.allow_zero_valuation_rate = 1
+
+				stock_entry.insert()
+				stock_entry.submit()
+				stock_entry.load_from_db()
 				stock_entry.add_comment("Comment", _("Opening Stock"))
+
+				stock_entry_link = frappe.utils.get_link_to_form("Stock Entry", stock_entry.name)
+				if self.valuation_rate == 0:
+					frappe.msgprint(
+						_("Opening Stock entry created with zero valuation rate: {0}").format(
+							stock_entry_link
+						),
+						indicator="orange",
+						alert=True,
+					)
+				else:
+					frappe.msgprint(
+						_("Opening Stock entry created: {0}").format(stock_entry_link),
+						indicator="green",
+						alert=True,
+					)
 
 	def validate_fixed_asset(self):
 		if self.is_fixed_asset:
@@ -484,7 +550,7 @@ class Item(Document):
 					)
 					if item_barcode.barcode_type:
 						barcode_type = convert_erpnext_to_barcodenumber(
-							item_barcode.barcode_type.upper(), item_barcode.barcode
+							item_barcode.barcode_type.replace("-", "").upper(), item_barcode.barcode
 						)
 						if barcode_type in barcodenumber.barcodes():
 							if not barcodenumber.check_code(barcode_type, item_barcode.barcode):
@@ -760,6 +826,19 @@ class Item(Document):
 					{"company": defaults.get("company"), "default_warehouse": defaults.default_warehouse},
 				)
 
+		if not self.taxes and item_group.taxes:
+			for tax in item_group.taxes:
+				self.append(
+					"taxes",
+					{
+						"item_tax_template": tax.item_tax_template,
+						"tax_category": tax.tax_category,
+						"valid_from": tax.valid_from,
+						"minimum_net_rate": tax.minimum_net_rate,
+						"maximum_net_rate": tax.maximum_net_rate,
+					},
+				)
+
 	def update_variants(self):
 		if self.flags.dont_update_variants or frappe.db.get_single_value(
 			"Item Variant Settings", "do_not_update_variants"
@@ -780,6 +859,48 @@ class Item(Document):
 						timeout=600,
 						enqueue_after_commit=True,
 					)
+
+	def validate_variant(self):
+		if self.variant_of:
+			has_variants, based_on = frappe.get_value(
+				"Item", self.variant_of, ["has_variants", "variant_based_on"]
+			)
+			if not has_variants:
+				frappe.throw(_("Item {0} is not a template item.").format(frappe.bold(self.variant_of)))
+
+			if based_on == "Item Attribute":
+				for d in self.attributes:
+					if not frappe.db.exists(
+						"Item Variant Attribute", {"attribute": d.attribute, "parent": self.variant_of}
+					):
+						frappe.throw(
+							_("Attribute {0} is not valid for the selected template.").format(
+								frappe.bold(d.attribute)
+							)
+						)
+
+					numeric_values, disabled = frappe.get_value(
+						"Item Variant Attribute",
+						{"attribute": d.attribute, "parent": self.variant_of},
+						["numeric_values", "disabled"],
+					)
+
+					if disabled:
+						frappe.throw(_("Attribute {0} is disabled.").format(frappe.bold(d.attribute)))
+
+					if (
+						not numeric_values
+						and d.attribute_value
+						and not frappe.db.exists(
+							"Item Attribute Value",
+							{"parent": d.attribute, "attribute_value": d.attribute_value},
+						)
+					):
+						frappe.throw(
+							_("Attribute Value {0} is not valid for the selected attribute {1}.").format(
+								frappe.bold(d.attribute_value), frappe.bold(d.attribute)
+							)
+						)
 
 	def validate_has_variants(self):
 		if self.is_new():
@@ -1307,7 +1428,7 @@ def set_item_default(item_code, company, fieldname, value):
 
 
 @frappe.whitelist()
-def get_item_details(item_code, company=None):
+def get_item_details(item_code: str, company: str | None = None):
 	out = frappe._dict()
 	if company:
 		out = get_item_defaults(item_code, company) or frappe._dict()
@@ -1319,7 +1440,7 @@ def get_item_details(item_code, company=None):
 
 
 @frappe.whitelist()
-def get_uom_conv_factor(uom, stock_uom):
+def get_uom_conv_factor(uom: str | None, stock_uom: str | None):
 	"""Get UOM conversion factor from uom to stock_uom
 	e.g. uom = "Kg", stock_uom = "Gram" then returns 1000.0
 	"""
@@ -1365,7 +1486,7 @@ def get_uom_conv_factor(uom, stock_uom):
 
 
 @frappe.whitelist()
-def get_item_attribute(parent, attribute_value=""):
+def get_item_attribute(parent: str, attribute_value: str = ""):
 	"""Used for providing auto-completions in child table."""
 	if not frappe.has_permission("Item"):
 		frappe.throw(_("No Permission"))

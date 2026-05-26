@@ -283,7 +283,15 @@ def get_conditions(filters):
 	if filters.get("party"):
 		conditions.append("party in %(party)s")
 
-	if not (
+	if filters.get("disable_opening_balance_calculation"):
+		if not ignore_is_opening:
+			conditions.append("(posting_date >=%(from_date)s or is_opening = 'Yes')")
+		else:
+			conditions.append("posting_date >=%(from_date)s")
+
+	# opening balance calculation is done only if filtered on account/party
+	# so from_date filter is not applied
+	elif not (
 		filters.get("account")
 		or filters.get("party")
 		or filters.get("categorize_by") in ["Categorize by Account", "Categorize by Party"]
@@ -324,10 +332,8 @@ def get_conditions(filters):
 
 	from frappe.desk.reportview import build_match_conditions
 
-	match_conditions = build_match_conditions("GL Entry")
-
-	if match_conditions:
-		conditions.append(match_conditions)
+	if match_conditions := build_match_conditions("GL Entry"):
+		conditions.append(f"({match_conditions})")
 
 	accounting_dimensions = get_accounting_dimensions(as_list=False)
 
@@ -419,7 +425,13 @@ def get_data_with_opening_closing(filters, account_details, accounting_dimension
 	# Opening for filtered account
 	add_total_to_data(totals, "opening")
 
-	if filters.get("categorize_by") != "Categorize by Voucher (Consolidated)":
+	if not filters.get("categorize_by"):
+		all_entries = []
+		for acc_dict in gle_map.values():
+			all_entries.extend(acc_dict.entries)
+		data += all_entries
+
+	elif filters.get("categorize_by") != "Categorize by Voucher (Consolidated)":
 		set_opening_closing = (not filters.get("categorize_by") and not filters.get("voucher_no")) or (
 			filters.get("categorize_by") and filters.get("categorize_by") != "Categorize by Voucher"
 		)
@@ -485,7 +497,6 @@ def initialize_gle_map(gl_entries, filters):
 				totals=get_totals_dict(),
 				entries=[],
 			)
-
 	return gle_map
 
 
@@ -550,7 +561,11 @@ def get_accountwise_gle(filters, accounting_dimensions, gl_entries, gle_map):
 		gle.remarks = _(gle.remarks)
 		gle.party_type = _(gle.party_type)
 
-		if gle.posting_date < from_date or (cstr(gle.is_opening) == "Yes" and not show_opening_entries):
+		if gle.posting_date < from_date or (
+			cstr(gle.is_opening) == "Yes"
+			and not show_opening_entries
+			and not filters.disable_opening_balance_calculation
+		):
 			if not group_by_voucher_consolidated:
 				update_value_in_dict(gle_map[group_by_value].totals, "opening", gle, True)
 				update_value_in_dict(gle_map[group_by_value].totals, "closing", gle, True)
@@ -678,13 +693,20 @@ def get_columns(filters):
 			"options": "GL Entry",
 			"hidden": 1,
 		},
-		{"label": _("Posting Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 120},
+		{
+			"label": _("Posting Date"),
+			"fieldname": "posting_date",
+			"fieldtype": "Date",
+			"width": 120,
+			"sticky": True,
+		},
 		{
 			"label": _("Account"),
 			"fieldname": "account",
 			"fieldtype": "Link",
 			"options": "Account",
 			"width": 180,
+			"sticky": True,
 		},
 		{
 			"label": _("Debit ({0})").format(currency),
@@ -726,7 +748,7 @@ def get_columns(filters):
 				"options": "transaction_currency",
 			},
 			{
-				"label": "Transaction Currency",
+				"label": _("Transaction Currency"),
 				"fieldname": "transaction_currency",
 				"fieldtype": "Link",
 				"options": "Currency",

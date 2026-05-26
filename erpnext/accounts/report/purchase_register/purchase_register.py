@@ -6,7 +6,7 @@ import frappe
 from frappe import _, msgprint
 from frappe.query_builder.custom import ConstantColumn
 from frappe.utils import flt, getdate
-from pypika import Order
+from pypika.terms import Bracket, LiteralValue, Order
 
 from erpnext.accounts.party import get_party_account
 from erpnext.accounts.report.utils import (
@@ -422,15 +422,13 @@ def get_invoices(filters, additional_query_columns):
 
 	from frappe.desk.reportview import build_match_conditions
 
-	query, params = query.walk()
-	match_conditions = build_match_conditions("Purchase Invoice")
+	if match_conditions := build_match_conditions("Purchase Invoice"):
+		query = query.where(Bracket(LiteralValue(match_conditions)))
 
-	if match_conditions:
-		query += " and " + match_conditions
+	query = query.orderby("posting_date", order=Order.desc)
+	query = query.orderby("name", order=Order.desc)
 
-	query += " order by posting_date desc, name desc"
-
-	return frappe.db.sql(query, params, as_dict=True)
+	return query.run(as_dict=True)
 
 
 def get_conditions(filters, query, doctype):
@@ -501,7 +499,7 @@ def get_invoice_tax_map(invoice_list, invoice_expense_map, expense_accounts, inc
 		else sum(base_tax_amount_after_discount_amount) * -1 end as tax_amount
 		from `tabPurchase Taxes and Charges`
 		where parent in (%s) and category in ('Total', 'Valuation and Total')
-			and base_tax_amount_after_discount_amount != 0
+			and base_tax_amount_after_discount_amount != 0 and parenttype='Purchase Invoice'
 		group by parent, account_head, add_deduct_tax
 	"""
 		% ", ".join(["%s"] * len(invoice_list)),

@@ -45,6 +45,8 @@ class PackedItem(Document):
 		projected_qty: DF.Float
 		qty: DF.Float
 		rate: DF.Currency
+		requested_qty: DF.Float
+		reserve_stock: DF.Check
 		serial_and_batch_bundle: DF.Link | None
 		serial_no: DF.Text | None
 		target_warehouse: DF.Link | None
@@ -124,7 +126,7 @@ def get_indexed_packed_items_table(doc):
 		key = (
 			packed_item.parent_item,
 			packed_item.item_code,
-			packed_item.idx if doc.is_new() else packed_item.parent_detail_docname,
+			packed_item.parent_detail_docname,
 		)
 
 		indexed_table[key] = packed_item
@@ -201,6 +203,9 @@ def add_packed_item_row(doc, packing_item, main_item_row, packed_items_table, re
 		pi_row.idx, pi_row.name = None, None
 		pi_row = doc.append("packed_items", pi_row)
 
+	if doc.is_new() and doc.get("reserve_stock"):
+		pi_row.reserve_stock = 1
+
 	return pi_row
 
 
@@ -226,7 +231,7 @@ def get_packed_item_details(item_code, company):
 
 def update_packed_item_basic_data(main_item_row, pi_row, packing_item, item_data):
 	pi_row.parent_item = main_item_row.item_code
-	pi_row.parent_detail_docname = main_item_row.name
+	pi_row.parent_detail_docname = main_item_row.name or main_item_row.idx
 	pi_row.item_code = packing_item.item_code
 	pi_row.item_name = item_data.item_name
 	pi_row.uom = item_data.stock_uom
@@ -240,6 +245,17 @@ def update_packed_item_basic_data(main_item_row, pi_row, packing_item, item_data
 
 def update_packed_item_stock_data(main_item_row, pi_row, packing_item, item_data, doc):
 	# TODO batch_no, actual_batch_qty, incoming_rate
+	if main_item_row.get("so_detail"):
+		pi_row.warehouse = frappe.get_value(
+			"Packed Item",
+			{
+				"parent_detail_docname": main_item_row.so_detail,
+				"parent_item": main_item_row.item_code,
+				"item_code": packing_item.item_code,
+			},
+			"warehouse",
+		)
+
 	if not pi_row.warehouse and not doc.amended_from:
 		fetch_warehouse = doc.get("is_pos") or item_data.is_stock_item or not item_data.default_warehouse
 		pi_row.warehouse = (
@@ -354,11 +370,19 @@ def update_product_bundle_rate(parent_items_price, pi_row, item_row):
 
 def set_product_bundle_rate_amount(doc, parent_items_price):
 	"Set cumulative rate and amount in bundle item."
+	rate_updated = False
 	for item in doc.get("items"):
 		bundle_rate = parent_items_price.get((item.item_code, item.name))
 		if bundle_rate and bundle_rate != item.rate:
 			item.rate = bundle_rate
 			item.amount = flt(bundle_rate * item.qty)
+			item.margin_rate_or_amount = 0
+			item.discount_percentage = 0
+			item.discount_amount = 0
+			rate_updated = True
+	if rate_updated:
+		doc.calculate_taxes_and_totals()
+		doc.set_total_in_words()
 
 
 def on_doctype_update():
@@ -366,7 +390,7 @@ def on_doctype_update():
 
 
 @frappe.whitelist()
-def get_items_from_product_bundle(row):
+def get_items_from_product_bundle(row: str):
 	row, items = ItemDetailsCtx(json.loads(row)), []
 
 	bundled_items = get_product_bundle_items(row["item_code"])

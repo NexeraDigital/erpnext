@@ -89,19 +89,11 @@ class SupplierScorecard(Document):
 			throw(_("Criteria weights must add up to 100%"))
 
 	def calculate_total_score(self):
-		scorecards = frappe.db.sql(
-			"""
-			SELECT
-				scp.name
-			FROM
-				`tabSupplier Scorecard Period` scp
-			WHERE
-				scp.scorecard = %(sc)s
-				AND scp.docstatus = 1
-			ORDER BY
-				scp.end_date DESC""",
-			{"sc": self.name},
-			as_dict=1,
+		scorecards = frappe.get_all(
+			"Supplier Scorecard Period",
+			fields=["name"],
+			filters={"scorecard": self.name, "docstatus": 1},
+			order_by="end_date desc",
 		)
 
 		period = 0
@@ -146,30 +138,22 @@ class SupplierScorecard(Document):
 
 
 @frappe.whitelist()
-def get_timeline_data(doctype, name):
+def get_timeline_data(doctype: str, name: str):
 	# Get a list of all the associated scorecards
-	scs = frappe.get_doc(doctype, name)
+
 	out = {}
 	timeline_data = {}
-	scorecards = frappe.db.sql(
-		"""
-		SELECT
-			sc.name
-		FROM
-			`tabSupplier Scorecard Period` sc
-		WHERE
-			sc.scorecard = %(scs)s
-			AND sc.docstatus = 1""",
-		{"scs": scs.name},
-		as_dict=1,
+
+	scorecards = frappe.get_all(
+		"Supplier Scorecard Period",
+		fields=["name", "start_date", "end_date", "total_score"],
+		filters={"scorecard": name, "docstatus": 1},
+		order_by="end_date desc",
 	)
 
 	for sc in scorecards:
-		start_date, end_date, total_score = frappe.db.get_value(
-			"Supplier Scorecard Period", sc.name, ["start_date", "end_date", "total_score"]
-		)
-		for single_date in daterange(start_date, end_date):
-			timeline_data[time.mktime(single_date.timetuple())] = total_score
+		for single_date in daterange(sc.start_date, sc.end_date):
+			timeline_data[time.mktime(single_date.timetuple())] = sc.total_score
 
 	out["timeline_data"] = timeline_data
 	return out
@@ -181,24 +165,19 @@ def daterange(start_date, end_date):
 
 
 def refresh_scorecards():
-	scorecards = frappe.db.sql(
-		"""
-		SELECT
-			sc.name
-		FROM
-			`tabSupplier Scorecard` sc""",
-		{},
-		as_dict=1,
-	)
-	for sc in scorecards:
+	"""
+	Refresh the scorecards
+	"""
+	scorecards = frappe.get_list("Supplier Scorecard", fields=["name"], pluck="name", limit_page_length=0)
+	for sc_name in scorecards:
 		# Check to see if any new scorecard periods are created
-		if make_all_scorecards(sc.name) > 0:
+		if make_all_scorecards(sc_name) > 0:
 			# Save the scorecard to update the score and standings
-			frappe.get_doc("Supplier Scorecard", sc.name).save()
+			frappe.get_doc("Supplier Scorecard", sc_name).save()
 
 
 @frappe.whitelist()
-def make_all_scorecards(docname):
+def make_all_scorecards(docname: str):
 	sc = frappe.get_doc("Supplier Scorecard", docname)
 	supplier = frappe.get_doc("Supplier", sc.supplier)
 
@@ -212,25 +191,16 @@ def make_all_scorecards(docname):
 
 	while (start_date < todays) and (end_date <= todays):
 		# check to make sure there is no scorecard period already created
-		scorecards = frappe.db.sql(
-			"""
-			SELECT
-				scp.name
-			FROM
-				`tabSupplier Scorecard Period` scp
-			WHERE
-				scp.scorecard = %(sc)s
-				AND scp.docstatus = 1
-				AND (
-					(scp.start_date > %(end_date)s
-					AND scp.end_date < %(start_date)s)
-				OR
-					(scp.start_date < %(end_date)s
-					AND scp.end_date > %(start_date)s))
-			ORDER BY
-				scp.end_date DESC""",
-			{"sc": docname, "start_date": start_date, "end_date": end_date},
-			as_dict=1,
+		scorecards = frappe.get_all(
+			"Supplier Scorecard Period",
+			fields=["name"],
+			filters={
+				"scorecard": docname,
+				"docstatus": 1,
+				"start_date": ["<", end_date],
+				"end_date": [">", start_date],
+			},
+			order_by="end_date desc",
 		)
 		if len(scorecards) == 0:
 			period_card = make_supplier_scorecard(docname, None)
@@ -266,8 +236,8 @@ def get_scorecard_date(period, start_date):
 	return end_date
 
 
-def make_default_records():
-	install_variable_docs = [
+def get_default_scorecard_variables():
+	return [
 		{
 			"param_name": "total_accepted_items",
 			"variable_label": "Total Accepted Items",
@@ -374,7 +344,10 @@ def make_default_records():
 			"path": "get_invoiced_qty",
 		},
 	]
-	install_standing_docs = [
+
+
+def get_default_scorecard_standing():
+	return [
 		{
 			"min_grade": 0.0,
 			"prevent_rfqs": 1,
@@ -425,12 +398,17 @@ def make_default_records():
 		},
 	]
 
+
+def make_default_records():
+	install_variable_docs = get_default_scorecard_variables()
 	for d in install_variable_docs:
 		try:
 			d["doctype"] = "Supplier Scorecard Variable"
 			frappe.get_doc(d).insert()
 		except frappe.NameError:
 			pass
+
+	install_standing_docs = get_default_scorecard_standing()
 	for d in install_standing_docs:
 		try:
 			d["doctype"] = "Supplier Scorecard Standing"

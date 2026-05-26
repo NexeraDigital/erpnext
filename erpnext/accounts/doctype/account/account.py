@@ -65,6 +65,7 @@ class Account(NestedSet):
 			"Stock",
 			"Stock Adjustment",
 			"Stock Received But Not Billed",
+			"Stock Delivered But Not Billed",
 			"Service Received But Not Billed",
 			"Tax",
 			"Temporary",
@@ -471,7 +472,7 @@ class Account(NestedSet):
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
-def get_parent_account(doctype, txt, searchfield, start, page_len, filters):
+def get_parent_account(doctype: str, txt: str, searchfield: str, start: int, page_len: int, filters: dict):
 	return frappe.db.sql(
 		"""select name from tabAccount
 		where is_group = 1 and docstatus != 2 and company = {}
@@ -515,7 +516,9 @@ def get_account_autoname(account_number, account_name, company):
 
 
 @frappe.whitelist()
-def update_account_number(name, account_name, account_number=None, from_descendant=False):
+def update_account_number(
+	name: str, account_name: str, account_number: str | None = None, from_descendant: bool = False
+):
 	_ensure_idle_system()
 	account = frappe.get_cached_doc("Account", name)
 	if not account:
@@ -577,7 +580,7 @@ def update_account_number(name, account_name, account_number=None, from_descenda
 
 
 @frappe.whitelist()
-def merge_account(old, new):
+def merge_account(old: str, new: str):
 	_ensure_idle_system()
 	# Validate properties before merging
 	new_account = frappe.get_cached_doc("Account", new)
@@ -614,7 +617,7 @@ def merge_account(old, new):
 
 
 @frappe.whitelist()
-def get_root_company(company):
+def get_root_company(company: str):
 	# return the topmost company in the hierarchy
 	ancestors = get_ancestors_of("Company", company, "lft asc")
 	return [ancestors[0]] if ancestors else []
@@ -671,6 +674,7 @@ def get_company_default_account_fields():
 		"default_expense_account": "Default Expense Account",
 		"default_income_account": "Default Income Account",
 		"stock_received_but_not_billed": "Stock Received But Not Billed Account",
+		"stock_delivered_but_not_billed": "Stock Delivered But Not Billed Account",
 		"stock_adjustment_account": "Stock Adjustment Account",
 		"write_off_account": "Write Off Account",
 		"default_discount_account": "Default Payment Discount Account",

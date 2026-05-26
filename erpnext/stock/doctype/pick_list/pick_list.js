@@ -9,6 +9,22 @@ frappe.ui.form.on("Pick List", {
 		}, 500);
 	},
 
+	set_warehouse_query: function (frm, fieldname, parentfield = null) {
+		const query = () => {
+			let filters = { company: frm.doc.company };
+
+			frm.doc.consider_rejected_warehouses ? null : (filters.is_rejected_warehouse = 0);
+
+			return { filters };
+		};
+
+		if (parentfield) {
+			frm.set_query(fieldname, parentfield, query);
+		} else {
+			frm.set_query(fieldname, query);
+		}
+	},
+
 	setup: (frm) => {
 		frm.ignore_doctypes_on_cancel_all = ["Serial and Batch Bundle"];
 
@@ -21,21 +37,8 @@ frappe.ui.form.on("Pick List", {
 			"Stock Entry": "Stock Entry",
 		};
 
-		frm.set_query("warehouse", "locations", () => {
-			return {
-				filters: {
-					company: frm.doc.company,
-				},
-			};
-		});
-
-		frm.set_query("parent_warehouse", () => {
-			return {
-				filters: {
-					company: frm.doc.company,
-				},
-			};
-		});
+		frm.events.set_warehouse_query(frm, "warehouse", "locations");
+		frm.events.set_warehouse_query(frm, "parent_warehouse");
 
 		frm.set_query("work_order", () => {
 			return {
@@ -119,6 +122,8 @@ frappe.ui.form.on("Pick List", {
 	refresh: (frm) => {
 		frm.trigger("add_get_items_button");
 		frm.trigger("update_warehouse_property");
+		erpnext.toggle_serial_batch_fields(frm);
+
 		if (frm.doc.docstatus === 1) {
 			const status_completed = frm.doc.status === "Completed";
 

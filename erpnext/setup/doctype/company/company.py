@@ -3,6 +3,7 @@
 
 
 import json
+from typing import Literal
 
 import frappe
 import frappe.defaults
@@ -11,7 +12,14 @@ from frappe.cache_manager import clear_defaults_cache
 from frappe.contacts.address_and_contact import load_address_and_contact
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
 from frappe.desk.page.setup_wizard.setup_wizard import make_records
-from frappe.utils import add_months, cint, formatdate, get_first_day, get_link_to_form, get_timestamp, today
+from frappe.utils import (
+	cint,
+	get_first_day,
+	get_last_day,
+	get_link_to_form,
+	get_timestamp,
+	today,
+)
 from frappe.utils.nestedset import NestedSet, rebuild_tree
 
 from erpnext.accounts.doctype.account.account import get_account_currency
@@ -68,6 +76,7 @@ class Company(NestedSet):
 		default_income_account: DF.Link | None
 		default_inventory_account: DF.Link | None
 		default_letter_head: DF.Link | None
+		default_letter_head_report: DF.Link | None
 		default_operating_cost_account: DF.Link | None
 		default_payable_account: DF.Link | None
 		default_provisional_account: DF.Link | None
@@ -79,6 +88,7 @@ class Company(NestedSet):
 		default_wip_warehouse: DF.Link | None
 		depreciation_cost_center: DF.Link | None
 		depreciation_expense_account: DF.Link | None
+		disable_sdbnb_in_sr: DF.Check
 		disposal_account: DF.Link | None
 		domain: DF.Data | None
 		email: DF.Data | None
@@ -113,6 +123,7 @@ class Company(NestedSet):
 		series_for_depreciation_entry: DF.Data | None
 		service_expense_account: DF.Link | None
 		stock_adjustment_account: DF.Link | None
+		stock_delivered_but_not_billed: DF.Link | None
 		stock_received_but_not_billed: DF.Link | None
 		submit_err_jv: DF.Check
 		tax_id: DF.Data | None
@@ -242,6 +253,7 @@ class Company(NestedSet):
 			["Default Expense Account", "default_expense_account"],
 			["Default Income Account", "default_income_account"],
 			["Stock Received But Not Billed Account", "stock_received_but_not_billed"],
+			["Stock Delivered But Not Billed Account", "stock_delivered_but_not_billed"],
 			["Stock Adjustment Account", "stock_adjustment_account"],
 			["Write Off Account", "write_off_account"],
 			["Default Payment Discount Account", "default_discount_account"],
@@ -623,6 +635,7 @@ class Company(NestedSet):
 			default_accounts.update(
 				{
 					"stock_received_but_not_billed": "Stock Received But Not Billed",
+					"stock_delivered_but_not_billed": "Stock Delivered But Not Billed",
 					"default_inventory_account": "Stock",
 					"stock_adjustment_account": "Stock Adjustment",
 				}
@@ -674,21 +687,6 @@ class Company(NestedSet):
 			)
 
 			self.db_set("disposal_account", disposal_acct)
-
-		if not self.service_expense_account:
-			service_expense_acct = frappe.db.get_value(
-				"Account",
-				{
-					"account_name": _("Marketing Expenses"),
-					"company": self.name,
-					"is_group": 0,
-					"root_type": "Expense",
-				},
-				"name",
-			)
-
-			if service_expense_acct:
-				self.db_set("service_expense_account", service_expense_acct)
 
 	def _set_default_account(self, fieldname, account_type):
 		if self.get(fieldname):
@@ -811,7 +809,7 @@ class Company(NestedSet):
 		boms = frappe.db.sql_list("select name from tabBOM where company=%s", self.name)
 		if boms:
 			frappe.db.sql("delete from tabBOM where company=%s", self.name)
-			for dt in ("BOM Operation", "BOM Item", "BOM Scrap Item", "BOM Explosion Item"):
+			for dt in ("BOM Operation", "BOM Item", "BOM Secondary Item", "BOM Explosion Item"):
 				frappe.db.sql(
 					"delete from `tab{}` where parent in ({})".format(dt, ", ".join(["%s"] * len(boms))),
 					tuple(boms),
@@ -866,30 +864,40 @@ def install_country_fixtures(company, country):
 
 
 def update_company_current_month_sales(company):
-	from_date = get_first_day(today())
-	to_date = get_first_day(add_months(from_date, 1))
+	"""Update Company's Total Monthly Sales.
 
-	results = frappe.db.sql(
-		"""
-		SELECT
-			SUM(base_grand_total) AS total,
-			DATE_FORMAT(posting_date, '%%m-%%Y') AS month_year
-		FROM
-			`tabSales Invoice`
-		WHERE
-			posting_date >= %s
-			AND posting_date < %s
-			AND docstatus = 1
-			AND company = %s
-		GROUP BY
-			month_year
-		""",
-		(from_date, to_date, company),
-		as_dict=True,
+	Postgres compatibility:
+	- Avoid MariaDB-only DATE_FORMAT().
+	- Use a date range for the current month instead (portable + index-friendly).
+	"""
+
+	# Local imports so you don't have to touch file-level imports
+	from frappe.query_builder.functions import Sum
+
+	start_date = get_first_day(today())
+	end_date = get_last_day(today())
+
+	si = frappe.qb.DocType("Sales Invoice")
+
+	total_monthly_sales = (
+		frappe.qb.from_(si)
+		.select(Sum(si.base_grand_total))
+		.where(
+			(si.docstatus == 1)
+			& (si.company == company)
+			& (si.posting_date >= start_date)
+			& (si.posting_date <= end_date)
+		)
+	).run(pluck=True)[0] or 0
+
+	# Fieldname in standard ERPNext is `total_monthly_sales`
+	frappe.db.set_value(
+		"Company",
+		company,
+		"total_monthly_sales",
+		total_monthly_sales,
+		update_modified=False,
 	)
-
-	monthly_total = results[0]["total"] if len(results) > 0 else 0
-	frappe.db.set_value("Company", company, "total_monthly_sales", monthly_total)
 
 
 def update_company_monthly_sales(company):
@@ -908,7 +916,7 @@ def update_transactions_annual_history(company, commit=False):
 	transactions_history = get_all_transactions_annual_history(company)
 	frappe.db.set_value("Company", company, "transactions_annual_history", json.dumps(transactions_history))
 
-	if commit:
+	if commit and not frappe.in_test:
 		frappe.db.commit()
 
 
@@ -917,11 +925,13 @@ def cache_companies_monthly_sales_history():
 	for company in companies:
 		update_company_monthly_sales(company)
 		update_transactions_annual_history(company)
-	frappe.db.commit()
+
+	if not frappe.in_test:
+		frappe.db.commit()
 
 
 @frappe.whitelist()
-def get_children(doctype, parent=None, company=None, is_root=False):
+def get_children(doctype: str, parent: str | None = None, company: str | None = None, is_root: bool = False):
 	if parent is None or parent == "All Companies":
 		parent = ""
 
@@ -1028,10 +1038,11 @@ def get_timeline_data(doctype, name):
 
 
 @frappe.whitelist()
-def get_default_company_address(name, sort_key="is_primary_address", existing_address=None):
-	if sort_key not in ["is_shipping_address", "is_primary_address"]:
-		return None
-
+def get_default_company_address(
+	name: str,
+	sort_key: Literal["is_shipping_address", "is_primary_address"] = "is_primary_address",
+	existing_address: str | None = None,
+):
 	out = frappe.db.sql(
 		""" SELECT
 			addr.name, addr.{}
@@ -1055,7 +1066,9 @@ def get_default_company_address(name, sort_key="is_primary_address", existing_ad
 
 
 @frappe.whitelist()
-def get_billing_shipping_address(name, billing_address=None, shipping_address=None):
+def get_billing_shipping_address(
+	name: str, billing_address: str | None = None, shipping_address: str | None = None
+):
 	primary_address = get_default_company_address(name, "is_primary_address", billing_address)
 	shipping_address = get_default_company_address(name, "is_shipping_address", shipping_address)
 
@@ -1063,7 +1076,9 @@ def get_billing_shipping_address(name, billing_address=None, shipping_address=No
 
 
 @frappe.whitelist()
-def create_transaction_deletion_request(company):
+def create_transaction_deletion_request(company: str):
+	frappe.only_for("System Manager")
+
 	from erpnext.setup.doctype.transaction_deletion_record.transaction_deletion_record import (
 		is_deletion_doc_running,
 	)
@@ -1071,12 +1086,15 @@ def create_transaction_deletion_request(company):
 	is_deletion_doc_running(company)
 
 	tdr = frappe.get_doc({"doctype": "Transaction Deletion Record", "company": company})
+	tdr.insert()
+
+	tdr.generate_to_delete_list()
+	tdr.reload()
+
 	tdr.submit()
-	tdr.start_deletion_tasks()
 
 	frappe.msgprint(
-		_("A Transaction Deletion Document: {0} is triggered for {0}").format(
-			get_link_to_form("Transaction Deletion Record", tdr.name)
-		),
-		frappe.bold(company),
+		_("Transaction Deletion Document {0} has been triggered for company {1}").format(
+			get_link_to_form("Transaction Deletion Record", tdr.name), frappe.bold(company)
+		)
 	)

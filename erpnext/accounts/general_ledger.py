@@ -9,11 +9,11 @@ from frappe import _
 from frappe.model.meta import get_field_precision
 from frappe.utils import cint, flt, formatdate, get_link_to_form, getdate, now
 from frappe.utils.caching import request_cache
-from frappe.utils.dashboard import cache_source
 
 import erpnext
 from erpnext.accounts.doctype.accounting_dimension.accounting_dimension import (
 	get_accounting_dimensions,
+	get_checks_for_pl_and_bs_accounts,
 )
 from erpnext.accounts.doctype.accounting_dimension_filter.accounting_dimension_filter import (
 	get_dimension_filter_map,
@@ -35,7 +35,8 @@ def make_gl_entries(
 ):
 	if gl_map:
 		if (
-			not cint(frappe.get_single_value("Accounts Settings", "use_legacy_budget_controller"))
+			not cancel
+			and not cint(frappe.get_single_value("Accounts Settings", "use_legacy_budget_controller"))
 			and gl_map[0].voucher_type != "Period Closing Voucher"
 		):
 			bud_val = BudgetValidation(gl_map=gl_map)
@@ -153,7 +154,7 @@ def validate_disabled_accounts(gl_map):
 def validate_accounting_period(gl_map):
 	accounting_periods = frappe.db.sql(
 		""" SELECT
-			ap.name as name
+			ap.name as name, ap.exempted_role as exempted_role
 		FROM
 			`tabAccounting Period` ap, `tabClosed Document` cd
 		WHERE
@@ -173,6 +174,10 @@ def validate_accounting_period(gl_map):
 	)
 
 	if accounting_periods:
+		if accounting_periods[0].exempted_role:
+			exempted_roles = accounting_periods[0].exempted_role
+			if exempted_roles in frappe.get_roles():
+				return
 		frappe.throw(
 			_(
 				"You cannot create or cancel any accounting entries with in the closed Accounting Period {0}"
@@ -425,6 +430,8 @@ def make_entry(args, adv_adj, update_outstanding, from_repost=False):
 	gle.flags.adv_adj = adv_adj
 	gle.flags.update_outstanding = update_outstanding or "Yes"
 	gle.flags.notify_update = False
+	if gle.is_cancelled or is_immutable_ledger_enabled():
+		gle.flags.ignore_links = True
 	gle.submit()
 
 	if (
@@ -624,6 +631,18 @@ def update_accounting_dimensions(round_off_gle):
 
 		for dimension in dimensions:
 			round_off_gle[dimension] = dimension_values.get(dimension)
+	else:
+		report_type = frappe.get_cached_value("Account", round_off_gle.account, "report_type")
+		for dimension in get_checks_for_pl_and_bs_accounts():
+			if (
+				round_off_gle.company == dimension.company
+				and (
+					(report_type == "Profit and Loss" and dimension.mandatory_for_pl)
+					or (report_type == "Balance Sheet" and dimension.mandatory_for_bs)
+				)
+				and dimension.default_dimension
+			):
+				round_off_gle[dimension.fieldname] = dimension.default_dimension
 
 
 def get_round_off_account_and_cost_center(company, voucher_type, voucher_no, use_company_default=False):
@@ -699,7 +718,12 @@ def make_reverse_gl_entries(
 		check_freezing_date(gl_entries[0]["posting_date"], adv_adj)
 
 		is_opening = any(d.get("is_opening") == "Yes" for d in gl_entries)
-		validate_against_pcv(is_opening, gl_entries[0]["posting_date"], gl_entries[0]["company"])
+
+		# For reverse entries, use the posting_date parameter if provided and valid
+		# Otherwise fall back to original posting_date
+		validation_date = posting_date if posting_date else gl_entries[0]["posting_date"]
+		validate_against_pcv(is_opening, validation_date, gl_entries[0]["company"])
+
 		if partial_cancel:
 			# Partial cancel is only used by `Advance` in separate account feature.
 			# Only cancel GL entries for unlinked reference using `voucher_detail_no`

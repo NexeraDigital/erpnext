@@ -36,6 +36,15 @@ frappe.ui.form.on("Quotation", {
 			};
 		});
 
+		frm.set_query("warehouse", "items", (doc, cdt, cdn) => {
+			return {
+				filters: {
+					company: doc.company,
+					is_group: 0,
+				},
+			};
+		});
+
 		frm.set_indicator_formatter("item_code", function (doc) {
 			return !doc.qty && frm.doc.has_unit_price_items ? "yellow" : "";
 		});
@@ -123,6 +132,7 @@ erpnext.selling.QuotationController = class QuotationController extends erpnext.
 					frappe.datetime.get_diff(doc.valid_till, frappe.datetime.get_today()) >= 0)
 			) {
 				this.frm.add_custom_button(__("Sales Order"), () => this.make_sales_order(), __("Create"));
+				cur_frm.page.set_inner_btn_group_as_primary(__("Create"));
 				this.frm.add_custom_button(__("Update Items"), () => {
 					erpnext.utils.update_child_items({
 						frm: this.frm,
@@ -137,8 +147,6 @@ erpnext.selling.QuotationController = class QuotationController extends erpnext.
 					this.frm.trigger("set_as_lost_dialog");
 				});
 			}
-
-			cur_frm.page.set_inner_btn_group_as_primary(__("Create"));
 		}
 
 		if (this.frm.doc.docstatus === 0 && frappe.model.can_read("Opportunity")) {

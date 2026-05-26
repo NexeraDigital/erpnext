@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - '**.js'
       - '**.css'
+      - '**.svg'
       - '**.md'
       - '**.html'
       - 'crowdin.yml'
@@ -40,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      TZ: 'Asia/Kolkata'
       NODE_ENV: "production"
       WITH_COVERAGE: ${{ github.event_name != 'pull_request' }}
 
@@ -55,6 +57,7 @@ jobs:
       mysql:
         image: mariadb:10.6
         env:
+          TZ: 'Asia/Kolkata'
           MARIADB_ROOT_PASSWORD: 'root'
         ports:
           - 3306:3306
@@ -128,7 +131,7 @@ jobs:
           FRAPPE_BRANCH: ${{ github.event.client_payload.sha || github.event.inputs.branch }}
 
       - name: Run Tests
-        run: 'cd ~/frappe-bench/ && bench --site test_site run-parallel-tests --app erpnext --total-builds ${{ strategy.job-total }} --build-number ${{ matrix.container }} --with-coverage'
+        run: 'cd ~/frappe-bench/ && bench --site test_site run-parallel-tests --lightmode --app erpnext --total-builds ${{ strategy.job-total }} --build-number ${{ matrix.container }} --with-coverage'
         env:
           TYPE: server
 

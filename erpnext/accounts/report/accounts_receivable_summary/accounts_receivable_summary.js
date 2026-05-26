@@ -54,6 +54,17 @@ frappe.query_reports["Accounts Receivable Summary"] = {
 			options: "Cost Center",
 		},
 		{
+			fieldname: "project",
+			label: __("Project"),
+			fieldtype: "MultiSelectList",
+			options: "Project",
+			get_data: function (txt) {
+				return frappe.db.get_link_options("Project", txt, {
+					company: frappe.query_report.get_filter_value("company"),
+				});
+			},
+		},
+		{
 			fieldname: "party_type",
 			label: __("Party Type"),
 			fieldtype: "Autocomplete",
@@ -131,12 +142,18 @@ frappe.query_reports["Accounts Receivable Summary"] = {
 			fieldtype: "Check",
 		},
 	],
+	collapsible_filters: true,
+	separate_check_filters: true,
 
 	onload: function (report) {
 		report.page.add_inner_button(__("Accounts Receivable"), function () {
 			var filters = report.get_values();
 			frappe.set_route("query-report", "Accounts Receivable", { company: filters.company });
 		});
+
+		if (frappe.boot.sysdefaults.default_ageing_range) {
+			report.set_filter_value("range", frappe.boot.sysdefaults.default_ageing_range);
+		}
 	},
 };
 

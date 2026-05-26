@@ -120,7 +120,8 @@ class Appointment(Document):
 		self.auto_assign()
 		self.create_calendar_event()
 		self.save(ignore_permissions=True)
-		frappe.db.commit()
+		if not frappe.in_test:
+			frappe.db.commit()
 
 	def create_lead_and_link(self):
 		# Return if already linked
@@ -234,10 +235,13 @@ def _get_agents_sorted_by_asc_workload(date):
 		return agent_list
 	appointment_counter = Counter(agent_list)
 	for appointment in appointments:
-		assigned_to = frappe.parse_json(appointment._assign)
-		if not assigned_to:
+		assign_data = appointment._assign
+		if isinstance(assign_data, str):
+			assign_data = assign_data.strip()
+		if not assign_data:
 			continue
-		if (assigned_to[0] in agent_list) and getdate(appointment.scheduled_time) == date:
+		assigned_to = frappe.parse_json(assign_data)
+		if assigned_to and (assigned_to[0] in agent_list) and getdate(appointment.scheduled_time) == date:
 			appointment_counter[assigned_to[0]] += 1
 	sorted_agent_list = appointment_counter.most_common()
 	sorted_agent_list.reverse()

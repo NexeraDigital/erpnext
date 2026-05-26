@@ -17,16 +17,9 @@ frappe.ui.form.on("Purchase Receipt", {
 			"Landed Cost Voucher": "Landed Cost Voucher",
 		};
 
-		frm.set_query("expense_account", "items", function () {
-			return {
-				query: "erpnext.controllers.queries.get_expense_account",
-				filters: { company: frm.doc.company },
-			};
-		});
-
 		frm.set_query("wip_composite_asset", "items", function () {
 			return {
-				filters: { is_composite_asset: 1, docstatus: 0 },
+				filters: { asset_type: "Composite Asset", docstatus: 0 },
 			};
 		});
 
@@ -171,6 +164,16 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 		this.setup_accounting_dimension_triggers();
 		this.setup_posting_date_time_check();
 		super.setup(doc);
+
+		this.frm.set_query("expense_account", "items", () => {
+			return {
+				query: "erpnext.controllers.queries.get_expense_account",
+				filters: {
+					company: this.frm.doc.company,
+					disabled: 0,
+				},
+			};
+		});
 	}
 
 	refresh() {
@@ -263,7 +266,7 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 					);
 				}
 				cur_frm.add_custom_button(
-					__("Retention Stock Entry"),
+					__("Sample Retention Stock Entry"),
 					this.make_retention_stock_entry,
 					__("Create")
 				);
@@ -275,8 +278,6 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 		if (this.frm.doc.docstatus == 1 && this.frm.doc.status === "Closed" && this.frm.has_perm("submit")) {
 			cur_frm.add_custom_button(__("Reopen"), this.reopen_purchase_receipt, __("Status"));
 		}
-
-		this.frm.toggle_reqd("supplier_warehouse", this.frm.doc.is_old_subcontracting_flow);
 	}
 
 	make_purchase_invoice() {
@@ -341,7 +342,7 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 
 	make_retention_stock_entry() {
 		frappe.call({
-			method: "erpnext.stock.doctype.stock_entry.stock_entry.move_sample_to_retention_warehouse",
+			method: "erpnext.stock.doctype.stock_entry.stock_entry_handler.manufacturing.move_sample_to_retention_warehouse",
 			args: {
 				company: cur_frm.doc.company,
 				items: cur_frm.doc.items,
@@ -361,6 +362,17 @@ erpnext.stock.PurchaseReceiptController = class PurchaseReceiptController extend
 
 	apply_putaway_rule() {
 		if (this.frm.doc.apply_putaway_rule) erpnext.apply_putaway_rule(this.frm);
+	}
+
+	items_add(doc, cdt, cdn) {
+		const row = frappe.get_doc(cdt, cdn);
+		const field_copy = ["expense_account", "cost_center"];
+		if (doc.project) {
+			frappe.model.set_value(cdt, cdn, "project", doc.project);
+		} else {
+			field_copy.push("project");
+		}
+		this.frm.script_manager.copy_from_first_row("items", row, field_copy);
 	}
 };
 
@@ -406,14 +418,6 @@ cur_frm.fields_dict["items"].grid.get_field("bom").get_query = function (doc, cd
 
 frappe.provide("erpnext.buying");
 
-frappe.ui.form.on("Purchase Receipt", "is_subcontracted", function (frm) {
-	if (frm.doc.is_old_subcontracting_flow) {
-		erpnext.buying.get_default_bom(frm);
-	}
-
-	frm.toggle_reqd("supplier_warehouse", frm.doc.is_old_subcontracting_flow);
-});
-
 frappe.ui.form.on("Purchase Receipt Item", {
 	item_code: function (frm, cdt, cdn) {
 		var d = locals[cdt][cdn];
@@ -451,7 +455,7 @@ var validate_sample_quantity = function (frm, cdt, cdn) {
 	var d = locals[cdt][cdn];
 	if (d.sample_quantity && d.qty) {
 		frappe.call({
-			method: "erpnext.stock.doctype.stock_entry.stock_entry.validate_sample_quantity",
+			method: "erpnext.stock.doctype.stock_entry.stock_entry_handler.manufacturing.validate_sample_quantity",
 			args: {
 				batch_no: d.batch_no,
 				item_code: d.item_code,

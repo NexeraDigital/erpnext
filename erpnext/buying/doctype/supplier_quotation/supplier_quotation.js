@@ -16,6 +16,14 @@ erpnext.buying.SupplierQuotationController = class SupplierQuotationController e
 			return !doc.qty && me.frm.doc.has_unit_price_items ? "yellow" : "";
 		});
 
+		this.frm.set_query("warehouse", "items", (doc, cdt, cdn) => {
+			return {
+				filters: {
+					company: doc.company,
+					is_group: 0,
+				},
+			};
+		});
 		super.setup();
 	}
 
@@ -118,9 +126,3 @@ erpnext.buying.SupplierQuotationController = class SupplierQuotationController e
 
 // for backward compatibility: combine new and previous states
 extend_cscript(cur_frm.cscript, new erpnext.buying.SupplierQuotationController({ frm: cur_frm }));
-
-cur_frm.fields_dict["items"].grid.get_field("project").get_query = function (doc, cdt, cdn) {
-	return {
-		filters: [["Project", "status", "not in", "Completed, Cancelled"]],
-	};
-};

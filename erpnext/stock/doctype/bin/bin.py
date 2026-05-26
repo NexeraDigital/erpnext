@@ -5,7 +5,7 @@
 import frappe
 from frappe.model.document import Document
 from frappe.query_builder import Case, Order
-from frappe.query_builder.functions import Coalesce, CombineDatetime, Sum
+from frappe.query_builder.functions import Coalesce, Sum
 from frappe.utils import flt
 
 
@@ -19,6 +19,7 @@ class Bin(Document):
 		from frappe.types import DF
 
 		actual_qty: DF.Float
+		company: DF.Link | None
 		indented_qty: DF.Float
 		item_code: DF.Link
 		ordered_qty: DF.Float
@@ -144,11 +145,7 @@ class Bin(Document):
 		# reserved qty
 
 		subcontract_order = frappe.qb.DocType(subcontract_doctype)
-		supplied_item = frappe.qb.DocType(
-			"Purchase Order Item Supplied"
-			if subcontract_doctype == "Purchase Order"
-			else "Subcontracting Order Supplied Item"
-		)
+		supplied_item = frappe.qb.DocType("Subcontracting Order Supplied Item")
 
 		conditions = (
 			(supplied_item.rm_item_code == self.item_code)
@@ -156,11 +153,7 @@ class Bin(Document):
 			& (subcontract_order.per_received < 100)
 			& (supplied_item.reserve_warehouse == self.warehouse)
 			& (
-				(
-					(subcontract_order.is_old_subcontracting_flow == 1)
-					& (subcontract_order.status != "Closed")
-					& (subcontract_order.docstatus == 1)
-				)
+				((subcontract_order.status != "Closed") & (subcontract_order.docstatus == 1))
 				if subcontract_doctype == "Purchase Order"
 				else (subcontract_order.docstatus == 1)
 			)
@@ -192,7 +185,6 @@ class Bin(Document):
 				(
 					(Coalesce(se.purchase_order, "") != "")
 					& (subcontract_order.name == se.purchase_order)
-					& (subcontract_order.is_old_subcontracting_flow == 1)
 					& (subcontract_order.status != "Closed")
 				)
 				if subcontract_doctype == "Purchase Order"

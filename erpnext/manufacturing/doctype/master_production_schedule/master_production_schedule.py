@@ -6,10 +6,7 @@ import math
 import frappe
 from frappe import _, bold
 from frappe.model.document import Document
-from frappe.model.mapper import get_mapped_doc
-from frappe.query_builder.functions import Sum
-from frappe.utils import add_days, flt, getdate, parse_json, today
-from frappe.utils.nestedset import get_descendants_of
+from frappe.utils import add_days, getdate, parse_json
 
 
 class MasterProductionSchedule(Document):
@@ -292,7 +289,7 @@ class MasterProductionSchedule(Document):
 		return item_wise_data
 
 	def add_mps_data(self, data):
-		data = frappe._dict(sorted(data.items(), key=lambda x: x[0][1]))
+		data = frappe._dict(sorted(data.items(), key=lambda x: x[0][1] or ""))
 
 		for key in data:
 			row = data[key]
@@ -471,7 +468,7 @@ def get_item_lead_time(item_code):
 
 
 @frappe.whitelist()
-def get_mps_details(mps):
+def get_mps_details(mps: str):
 	return frappe.db.get_value(
 		"Master Production Schedule",
 		mps,
