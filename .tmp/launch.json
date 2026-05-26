@@ -1,0 +1,134 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Bench Web (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "serve",
+                "--port", "8000",
+                "--noreload",
+                "--nothreading"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Bench Worker (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "worker",
+                "--queue", "default,short,long"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Bench Scheduler (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "scheduler",
+                "start"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "AP Closed Loop — walking skeleton tests",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "--site", "erpnext.localhost",
+                "run-tests",
+                "--module", "erpnext.accounts.ap_closed_loop.test_walking_skeleton"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "AP Invoice Capture tests",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "--site", "erpnext.localhost",
+                "run-tests",
+                "--module", "erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Current test file",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "--site", "erpnext.localhost",
+                "run-tests",
+                "--module", "${fileBasenameNoExtension}"
+            ],
+            "python": "${workspaceFolder}/env/bin/python",
+            "cwd": "${workspaceFolder}/sites",
+            "env": {
+                "DEV_SERVER": "1"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Attach to running Frappe",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "127.0.0.1",
+                "port": 5678
+            },
+            "justMyCode": false,
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "${workspaceFolder}"
+                }
+            ]
+        }
+    ]
+}
