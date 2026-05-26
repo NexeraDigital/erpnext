@@ -879,8 +879,8 @@ def promote_to_purchase_invoice(
 	pi = frappe.new_doc("Purchase Invoice")
 	pi.supplier = capture.matched_supplier
 	pi.bill_no = capture.final_supplier_invoice_no
-	pi.bill_date = capture.final_invoice_date
-	pi.posting_date = capture.final_invoice_date or today()
+	pi.bill_date = capture.final_invoice_date.isoformat() if capture.final_invoice_date else None
+	pi.posting_date = capture.final_invoice_date.isoformat() if capture.final_invoice_date else today()
 	if capture.final_currency:
 		pi.currency = capture.final_currency
 	pi.conversion_rate = 1.0
