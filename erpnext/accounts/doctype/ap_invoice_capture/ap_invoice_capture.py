@@ -1019,6 +1019,11 @@ def record_manager_decision(
 	if isinstance(capture, str):
 		capture = frappe.get_doc("AP Invoice Capture", capture)
 
+	# The DocType grants write to both Accounts User and Accounts Manager,
+	# so without this gate any AP clerk could approve their own over-threshold
+	# capture. Enforce the role that was recorded when approval was routed.
+	frappe.only_for(capture.assigned_approver_role or MANAGER_APPROVAL_ROLE_DEFAULT)
+
 	if capture.approval_status != APPROVAL_STATUS_PENDING_MANAGER:
 		raise CaptureApprovalError(
 			_("Manager decision requires approval_status Pending Manager; current is {0}.").format(
@@ -1120,6 +1125,10 @@ def issue_mock_payment(
 	if isinstance(capture, str):
 		capture = frappe.get_doc("AP Invoice Capture", capture)
 
+	# Payment issuance is a manager-level action — the approval gate above is
+	# state-only and would otherwise let any AP clerk trigger a Payment Entry.
+	frappe.only_for(MANAGER_APPROVAL_ROLE_DEFAULT)
+
 	if not is_ready_for_payment(capture):
 		raise CapturePaymentError(
 			_("Capture is not approved and ready for mock payment issuance.")
@@ -1148,6 +1157,9 @@ def issue_mock_payment(
 	pe.reference_date = today()
 	pe.custom_remarks = 1
 	pe.remarks = MOCK_PAYMENT_REMARK
+	# The Accounts Manager role check above is the authorization boundary for
+	# payment issuance; Payment Entry's own create-permission is bypassed so
+	# AP-flow approvals don't require separate PE create rights per user.
 	pe.insert(ignore_permissions=True)
 	pe.submit()
 

@@ -275,14 +275,20 @@ File upload (manual ERPNext upload)
    │
    ▼  record_manager_decision_for(capture, approve=True|False, notes=…)  @frappe.whitelist
       → record_manager_decision()
+         - role-gated via frappe.only_for(capture.assigned_approver_role
+           or "Accounts Manager") — denies Accounts User who lacks that role
          - requires approval_status==Pending Manager
          - approve ⇒ Manager Approved, payment_readiness=Ready
          - reject  ⇒ Rejected, payment_readiness=Blocked, action_required=1
    │
    ▼  issue_mock_payment_for(capture, paid_from=…)                    @frappe.whitelist
       → issue_mock_payment()
+         - role-gated via frappe.only_for("Accounts Manager")
          - requires is_ready_for_payment(capture)
          - submits PI if still draft
+         - PE inserted with ignore_permissions=True (the role gate above is
+           the authorization boundary; AP-flow approvals shouldn't require
+           per-user PE create rights)
          - get_payment_entry("Purchase Invoice", pi.name, bank_account=…)
          - reference_no = MOCK-PAY-<capture-name>
          - remarks = MOCK_PAYMENT_REMARK
@@ -339,9 +345,11 @@ The string-vs-dict normalization in each wrapper (parsing JSON `corrections`/`de
 
 ---
 
-## 7. Modified File — `erpnext/setup/utils.py`
+## 7. Modified Upstream Files
 
-The only edit to an upstream file is a 2-line readability refactor inside `_enable_all_roles_for_admin`:
+### 7.1 `erpnext/setup/utils.py`
+
+2-line readability refactor inside `_enable_all_roles_for_admin`:
 
 ```diff
 -    all_roles = set(frappe.db.get_values("Role", pluck="name"))
@@ -352,7 +360,21 @@ The only edit to an upstream file is a 2-line readability refactor inside `_enab
      )
 ```
 
-Semantically equivalent — `frappe.get_all` is the preferred, higher-level helper and standardizes the call style across the two enumerations. This change is unrelated to AP Closed Loop functionality and is best read as incidental cleanup.
+Semantically equivalent — `frappe.get_all` is the preferred, higher-level helper and standardizes the call style across the two enumerations. Unrelated to AP Closed Loop functionality; best read as incidental cleanup.
+
+### 7.2 `erpnext/tests/utils.py`
+
+1-line fix to `BootStrapTestData.make_records` so the test bootstrap is idempotent on sites where ERPNext's standard records already exist:
+
+```diff
+     for x in records:
+         filters = get_filters(x)
+         if not frappe.db.exists(doctype, filters):
+-            frappe.get_doc(x).insert()
++            frappe.get_doc(x).insert(ignore_if_duplicate=True)
+```
+
+`frappe.db.exists(dt, dict)` returns a false negative when the filter dict includes the autoname source field alongside other filters (observed with `Price List` + `{"price_list_name": …, "enabled": 1, …}`). Without this guard, `bench run-tests` raises `DuplicateEntryError` on a previously-used site before any test executes. The `ignore_if_duplicate=True` flag swallows the duplicate insert, matching the function's "create if missing" intent.
 
 ---
 
