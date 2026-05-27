@@ -4,6 +4,18 @@ This is a fork of `frappe/erpnext` carrying the **AP Closed Loop Receipt Process
 
 Before doing non-trivial work, read the doc that matches your task.
 
+## Grounding rule (mandatory)
+
+**Every plan for a code change MUST cite the relevant upstream documentation page(s) before editing.** Do not rely on training data for Frappe/ERPNext API signatures, hook names, DocType field types, permission semantics, or bench commands — these change between versions and the in-repo behavior is what ships, not what you remember.
+
+- **Canonical sources, in priority order:**
+  1. `https://docs.frappe.io/framework/v15/user/en/` — Frappe framework v15 (DocTypes, hooks, controllers, `frappe.db`, whitelisted methods, background jobs, permissions, client scripts, bench). Append the section path, e.g. `.../basics/doctypes`, `.../python-api/hooks`. The bare `/framework` URL is a landing page — skip it.
+  2. `https://docs.frappe.io/erpnext/user/manual/en/` — ERPNext manual (no version segment; site serves current). Append the module path, e.g. `.../accounts`, `.../buying`. The bare `/erpnext` URL is a landing page — skip it.
+  3. `https://github.com/frappe/frappe` and `https://github.com/frappe/erpnext` — source of truth when docs are vague, out of date, or silent
+- **How to apply:** before writing or editing code, `WebFetch` the matching upstream page(s) and quote the specific URL(s) in your plan/response. If the docs contradict your local memory, trust the docs. If the docs are silent, read the upstream source and cite the file + line.
+- **Scope:** applies to all server code (`*.py`), client scripts (`*.js`), DocType JSON, `hooks.py`, fixtures, and bench/migration commands. Trivial edits inside fork-only files (under `erpnext/accounts/ap_closed_loop/` or `erpnext/accounts/doctype/ap_invoice_capture/`) that don't touch a framework surface are exempt — but anything that calls into `frappe.*` is not.
+- **When the upstream behavior is itself the bug or limitation** (i.e. the reason for the fork change), still cite the upstream doc/source so the delta is explicit.
+
 ## Documentation index
 
 | Doc | Purpose | Update when… |
