@@ -314,7 +314,79 @@ get_manager_approval_queue()  → only captures in approval_status == "Pending M
 
 Both are exposed via `@frappe.whitelist`-ed `_for` wrappers (`get_ap_lifecycle_rows_for`, `get_manager_approval_queue_for`).
 
-### 6.6 Whitelisted endpoints
+### 6.6 Auto-progression cascade
+
+The controller wires Frappe's standard lifecycle hooks + the background job
+queue to auto-advance a capture through every transition that doesn't
+require human judgment. Three pause points:
+
+1. **OCR review** (`status == Proposed`) — the clerk must confirm or
+   correct the OCR proposal.
+2. **Manual promote** (`validation_status == Validated`) — `promote_to_purchase_invoice`
+   needs `company` / `item_code` / etc. defaults that have no source on the
+   capture; the cascade stops until a clerk supplies them. A future
+   `AP Closed Loop Settings` single doctype will close this seam.
+3. **Manager approval** (`approval_status == Pending Manager`) — the
+   manager must explicitly approve or reject.
+
+Everything else cascades:
+
+```
+after_insert (supported file attached)
+    │
+    ▼  enqueue → run_fake_extraction_for
+Proposed  ⏸ human reviews OCR
+    │
+    ▼  confirm_extracted_fields_for → cascade
+Confirmed
+    │
+    ▼  enqueue → validate_for_purchase_invoice_for
+Validated  ⏸ manual promote (defaults required)
+    │
+    ▼  promote_to_purchase_invoice_for(defaults=…) → cascade
+Promoted
+    │
+    ▼  enqueue → request_approval_for
+    ├── Auto Approved
+    │      │
+    │      ▼  enqueue → issue_mock_payment_for
+    │   Closed
+    │
+    └── Pending Manager  ⏸ human decides
+           │
+           ▼  record_manager_decision_for(approve=True|False) → cascade
+       Manager Approved → enqueue → issue_mock_payment_for → Closed
+       Rejected → blocked (no cascade)
+```
+
+Mechanisms used:
+
+| Mechanism | Where | Role |
+|---|---|---|
+| `after_insert(self)` | controller | Entry point for the first hop (intake → OCR). Fires once. |
+| `_kick_next_step(self)` | controller | Inspects state, enqueues the next step, or returns silently at a pause point. |
+| `_determine_next_step(self)` | controller | Pure state-machine function returning `(method_name, reason)` or `None`. Each branch encodes the same precondition the corresponding pure function would raise on, so the cascade only enqueues steps that will succeed. |
+| `_enqueue_next(self, method, reason)` | controller | Wraps `frappe.enqueue` with `enqueue_after_commit=True`, `deduplicate=True`, and a per-capture-per-step `job_id` so repeat triggers in the same transaction coalesce. |
+| Whitelisted `*_for` wrappers | module-level | Each wrapper calls `_kick_next_step()` after the underlying pure function succeeds, joining the cascade. |
+
+### 6.6.1 Test integration of the cascade
+
+The cascade is OPT-IN during tests so Brandon's single-step suite remains
+deterministic. Two flags control behavior:
+
+```python
+frappe.flags.ap_auto_progress_enabled = True   # enable cascade in tests
+frappe.flags.skip_ap_auto_progress    = True   # short-circuit cascade anywhere
+```
+
+In production (i.e., `frappe.flags.in_test` is unset), the cascade is on by
+default and `skip_ap_auto_progress` is the kill switch.
+
+When the cascade does fire under `in_test`, `frappe.enqueue` is called with
+`now=True` so the job runs synchronously within the request — tests don't
+depend on a real RQ worker.
+
+### 6.7 Whitelisted endpoints
 
 All endpoints are reachable as `/api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.<fn>`:
 
@@ -334,9 +406,9 @@ get_manager_approval_queue_for()
 
 The string-vs-dict normalization in each wrapper (parsing JSON `corrections`/`defaults`, coercing `approve` from `"1"|"true"|"yes"|"approve"`) lets the same surface be called from desk client scripts and external clients.
 
-### 6.7 Tests (`test_ap_invoice_capture.py`)
+### 6.8 Tests (`test_ap_invoice_capture.py`)
 
-1,272 lines covering every state transition and every guardrail. The test suite uses `EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]` and a `_PROMOTION_DEFAULTS` dict that lines up with the ERPNext `_Test …` fixtures. Notable patterns:
+66 tests covering every state transition, every guardrail, and the auto-progression cascade. The test suite uses `EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]` and a `_PROMOTION_DEFAULTS` dict that lines up with the ERPNext `_Test …` fixtures. The `TestAPInvoiceCaptureAutoProgress` class is the cascade suite — it sets `frappe.flags.ap_auto_progress_enabled = True` per-test and asserts pause points (Proposed, Validated, Pending Manager) and resume points (after confirm, after promote, after manager approve). Notable patterns:
 
 - PDF intake uses `pypdf.PdfWriter` to produce a real PDF byte stream → uploaded via Frappe's `File` doctype → fed to `create_capture_from_file`.
 - Simulated-failure paths use filename markers (`missing_supplier_…pdf`, `ambiguous_invoice_date_…pdf`, bare `ambiguous_…pdf`).

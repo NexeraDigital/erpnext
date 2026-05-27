@@ -278,6 +278,116 @@ class APInvoiceCapture(Document):
 				if not self.action_required_reason:
 					self.action_required_reason = _("Mandatory fields missing — correction required")
 
+	def after_insert(self):
+		"""Kick off auto-progression once a capture lands.
+
+		Cascade lives in `_kick_next_step` (also called from the whitelisted
+		action wrappers). `after_insert` is just the entry point for the
+		first hop — intake → OCR — for captures with a supported file
+		attached.
+		"""
+
+		self._kick_next_step()
+
+	def _kick_next_step(self) -> None:
+		"""Enqueue the next automatable step, if any.
+
+		Pauses (returns without enqueueing) at human-decision points:
+		* Proposed → human OCR review and field correction
+		* Validated → manual promote (defaults required, not yet wired)
+		* Pending Manager → human approval decision
+
+		Test integration:
+		* In tests (`frappe.flags.in_test`) the cascade is OPT-IN — set
+		  `frappe.flags.ap_auto_progress_enabled = True` to exercise it.
+		  This keeps single-step tests deterministic without modifying them.
+		* In all contexts, `frappe.flags.skip_ap_auto_progress = True`
+		  short-circuits the cascade entirely.
+		"""
+
+		if frappe.flags.get("skip_ap_auto_progress"):
+			return
+		if frappe.flags.get("in_test") and not frappe.flags.get(
+			"ap_auto_progress_enabled"
+		):
+			return
+
+		decision = self._determine_next_step()
+		if not decision:
+			return
+		method_name, reason = decision
+		self._enqueue_next(method_name, reason)
+
+	def _determine_next_step(self) -> "tuple[str, str] | None":
+		"""Return ``(method_name, reason)`` for the next auto-step, or None.
+
+		Each branch checks the precondition the corresponding pure function
+		would otherwise raise on, so the cascade only enqueues steps that
+		will succeed.
+		"""
+
+		# Step 1: Fresh, supported intake → run OCR
+		if (
+			self.status == STATUS_PENDING_REVIEW
+			and self.ocr_status in (None, OCR_STATUS_NOT_EXTRACTED)
+			and self.is_supported_format
+			and self.source_file
+		):
+			return ("run_fake_extraction_for", "auto: post-intake OCR")
+
+		# Step 2: Confirmed OCR → run validation
+		if (
+			self.ocr_status == OCR_STATUS_CONFIRMED
+			and self.validation_status in (None, VALIDATION_STATUS_NOT_VALIDATED)
+		):
+			return ("validate_for_purchase_invoice_for", "auto: post-confirm validation")
+
+		# Manual seam: validated captures wait for a clerk to click Promote
+		# (defaults like company / item_code are required by the PI schema
+		# and have no source on the capture record itself).
+
+		# Step 3: Promoted with no approval yet → route approval
+		if (
+			self.promotion_status == PROMOTION_STATUS_PROMOTED
+			and self.purchase_invoice
+			and self.approval_status in (None, APPROVAL_STATUS_NOT_REQUIRED)
+		):
+			return ("request_approval_for", "auto: post-promotion approval routing")
+
+		# Step 4: Approved (auto or by manager) and Ready → issue mock payment
+		if (
+			self.approval_status
+			in (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_MANAGER_APPROVED)
+			and self.payment_readiness == PAYMENT_READINESS_READY
+			and not self.payment_entry
+		):
+			return ("issue_mock_payment_for", "auto: post-approval payment issuance")
+
+		return None
+
+	def _enqueue_next(self, method_name: str, reason: str) -> None:
+		"""Schedule the next auto-step via Frappe's job queue.
+
+		* ``enqueue_after_commit=True`` so the worker sees committed state.
+		* ``deduplicate=True`` + a per-capture-per-step ``job_name`` coalesces
+		  repeat triggers within the same transaction.
+		* ``now`` runs the job synchronously in tests so the cascade lands
+		  inside the existing request rather than depending on a real worker.
+		"""
+
+		full_path = (
+			f"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.{method_name}"
+		)
+		frappe.enqueue(
+			full_path,
+			capture=self.name,
+			queue="short",
+			job_id=f"ap-progress-{self.name}-{method_name}",
+			deduplicate=True,
+			enqueue_after_commit=True,
+			now=bool(frappe.flags.get("in_test")),
+		)
+
 	def _hydrate_from_linked_file(self) -> None:
 		"""Pull filename / url off the linked File record when available."""
 
@@ -654,6 +764,11 @@ def run_fake_extraction_for(capture: str) -> str:
 	"""Whitelisted helper to trigger fake OCR on an existing capture."""
 
 	doc = run_fake_extraction(capture)
+	# OCR completes at status=Proposed; the cascade pauses there for human
+	# review. _kick_next_step is a no-op at that state, but we call it
+	# uniformly so failure paths (e.g. extraction left the capture in an
+	# unexpected state) get a chance to advance.
+	doc._kick_next_step()
 	return doc.name
 
 
@@ -674,6 +789,7 @@ def confirm_extracted_fields_for(
 	else:
 		parsed = corrections or None
 	doc = confirm_extracted_fields(capture, corrections=parsed, notes=notes)
+	doc._kick_next_step()
 	return doc.name
 
 
@@ -1368,6 +1484,7 @@ def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -
 	"""Whitelisted entrypoint for the validation step."""
 
 	doc = validate_for_purchase_invoice(capture, source=source)
+	doc._kick_next_step()
 	return doc.name
 
 
@@ -1383,6 +1500,10 @@ def promote_to_purchase_invoice_for(
 	else:
 		parsed = defaults or None
 	pi = promote_to_purchase_invoice(capture, defaults=parsed)
+	# `promote` returns the PI, not the capture — reload the capture to
+	# resume the cascade (next hop is approval routing).
+	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap._kick_next_step()
 	return pi.name
 
 
@@ -1396,6 +1517,7 @@ def request_approval_for(
 
 	parsed_threshold = float(threshold) if threshold not in (None, "") else None
 	doc = request_approval(capture, threshold=parsed_threshold, source=source)
+	doc._kick_next_step()
 	return doc.name
 
 
@@ -1410,6 +1532,7 @@ def record_manager_decision_for(
 	if isinstance(approve, str):
 		approve = approve.strip().lower() in ("1", "true", "yes", "approve", "approved")
 	doc = record_manager_decision(capture, approve=bool(approve), notes=notes)
+	doc._kick_next_step()
 	return doc.name
 
 
@@ -1418,6 +1541,11 @@ def issue_mock_payment_for(capture: str, paid_from: str | None = None) -> str:
 	"""Whitelisted entrypoint for deterministic mock payment issuance."""
 
 	pe = issue_mock_payment(capture, paid_from=paid_from)
+	# Mock payment is terminal — _kick_next_step is a no-op at Closed/Confirmed
+	# but we call it for symmetry and so any future hop (e.g. closure-evidence
+	# auto-generation) plugs in without changing the wrapper.
+	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap._kick_next_step()
 	return pe.name
 
 

@@ -56,7 +56,7 @@ Baked into the code AND enforced by tests:
 3. **Doesn't store a custom `closed` flag.** It *derives* closure by looking at the native ERPNext data (`outstanding_amount == 0` + `status == "Paid"`). No new column.
 4. **Everything fake is loudly labeled MOCK.** The mock OCR provider is `deterministic_fake_extractor`. The mock payment reference starts with `MOCK-PAY-`. The remarks literally say "Not bank reconciled. No real banking integration." This prevents the prototype from being mistaken for production.
 5. **Nothing happens silently.** Bad data, missing fields, ambiguous suppliers → the ticket pauses with a human-readable reason. No guessing, no quiet auto-completion.
-6. **Pure API-only.** No buttons in the desk UI yet. Every step is a function you POST to. The desk UI is Phase 2.
+6. **Pure API-only at first.** Brandon shipped every step as a whitelisted function you POST to. Phase-2 UI work (added on top of his pilot) layers a sidebar entry, an Upload Invoice button, a colored status banner, and **auto-progression** so most steps run on their own.
 
 ---
 
@@ -64,7 +64,7 @@ Baked into the code AND enforced by tests:
 
 - Did **not** touch Purchase Invoice, Payment Entry, Bank Transaction, or GL Entry logic
 - Did **not** auto-create suppliers — unknown ones require clerk intervention
-- Did **not** wire any UI buttons — every action is a whitelisted API call
+- Did **not** wire any UI buttons in his original pilot — every action was a whitelisted API call. (Phase-2 work has since added an Upload button, a status banner, and auto-progression on top.)
 - Did **not** integrate a real OCR provider — the "OCR" is a deterministic hash function (same input always yields the same output; makes tests reproducible)
 - Did **not** integrate a real payment provider — every Payment Entry it creates is a clearly-labeled mock
 
@@ -77,20 +77,35 @@ Two files do all the work:
 - **`walking_skeleton.py`** (365 lines) — a pure-Python script that runs the entire flow end-to-end with no UI. Used to *prove* the spine works against ERPNext's Purchase Invoice + Payment Entry before any DocType was built.
 - **`ap_invoice_capture.py`** (1,424 lines) — the real DocType controller with all the state-machine logic, validation, supplier matching, approval routing, and mock payment writeback.
 
-Plus **1,402 lines of tests** covering every state transition and every guardrail.
+Plus **66 tests** covering every state transition, every guardrail, and the auto-progression cascade.
 
-The only existing ERPNext file Brandon touched was `erpnext/setup/utils.py` — a 2-line readability refactor unrelated to the AP flow.
+Existing ERPNext files touched by this fork:
+- `erpnext/setup/utils.py` — Brandon's original 2-line readability refactor (unrelated to AP flow).
+- `erpnext/tests/utils.py` — 1-line fix so the test bootstrap is idempotent on previously-used sites.
+- `erpnext/workspace_sidebar/invoicing.json` — added the "Invoice Capture" entry under Payables.
 
 ---
 
+## The Phase-2 UI layer (added on top of Brandon's pilot)
+
+What an AP clerk now sees in the desk:
+
+- **Sidebar entry** — under Invoicing → Payables → "Invoice Capture". One click to the list.
+- **Upload Invoice button** on a new/empty capture form — opens the standard Frappe file picker (Private locked on, Optimize visible-but-recommended-off) and links the result into the form's Source fields.
+- **Colored status banner + pill** at the top of the form — orange/red when the capture is waiting on a human (with the reason quoted), blue when it's flowing on its own, green when Closed. Replaces the raw `action_required` checkbox.
+- **Auto-progression** — the system advances captures automatically wherever it can. Three places it stops for a human: confirming OCR proposed values, clicking Promote (defaults still required), and manager approval over the $1000 threshold. Everything else cascades on its own via Frappe's job queue.
+
 ## What you can play with right now
 
-Brandon's code is installed and live in this local site.
+Brandon's code + the Phase-2 UI is installed and live in this local site.
 
-- DocType list view (currently empty): `/desk/ap-invoice-capture/view/list`
-- DocType definition (the schema): `/desk/doctype/AP Invoice Capture`
+- Sidebar: open `/app/invoicing` and expand **Payables → Invoice Capture**
+- List view: `/app/ap-invoice-capture`
+- DocType definition: `/app/doctype/AP Invoice Capture`
 
-There's no UI button yet, so you'd create a capture by calling the API directly:
+To create a capture: open the list, click "+ Add", then click **Upload Invoice** on the form. The cascade takes it from there.
+
+To create one via API:
 
 ```
 POST /api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.create_capture_from_uploaded_file

@@ -1270,3 +1270,244 @@ class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
 		self.assertEqual(evidence["payment"]["lifecycle_status"], PAYMENT_LIFECYCLE_CLOSED)
 		self.assertTrue(evidence["payment"]["response"]["is_mock"])
 		self.assertTrue(evidence["closed"])
+
+
+# ---------------------------------------------------------------------------
+# Auto-progression cascade
+# ---------------------------------------------------------------------------
+#
+# The cascade pauses at every human-decision point (OCR review, manual
+# promote, manager approval) and runs everything else automatically. These
+# tests exercise the chain end-to-end via the whitelisted `*_for` wrappers
+# rather than the pure functions, since the cascade hangs off the wrappers.
+# `frappe.flags.ap_auto_progress_enabled` opts each test into cascading;
+# without it, the single-step tests above behave as Brandon designed them.
+
+from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (  # noqa: E402
+	confirm_extracted_fields_for,
+	issue_mock_payment_for,
+	promote_to_purchase_invoice_for,
+	record_manager_decision_for,
+	request_approval_for,
+	validate_for_purchase_invoice_for,
+)
+
+
+class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
+	def setUp(self):
+		# Opt this test class into cascade; reset between tests so flag
+		# leaks don't pollute other suites that run in the same process.
+		frappe.flags.ap_auto_progress_enabled = True
+
+	def tearDown(self):
+		frappe.flags.ap_auto_progress_enabled = False
+		frappe.db.rollback()
+
+	def test_intake_auto_runs_ocr_via_after_insert(self):
+		"""after_insert + cascade should land a supported file at Proposed."""
+		f = _make_file("auto-intake.pdf")
+		capture = create_capture_from_file(file_doc=f, source_context="auto-intake")
+		capture.reload()
+
+		# OCR ran automatically; the capture is now waiting on human review.
+		self.assertEqual(capture.ocr_status, OCR_STATUS_PROPOSED)
+		self.assertEqual(capture.status, STATUS_PROPOSED)
+		self.assertTrue(capture.proposed_supplier)
+		self.assertEqual(capture.action_required, 1)
+
+	def test_intake_does_not_cascade_for_unsupported_format(self):
+		"""Unsupported uploads must not advance — cascade stops at Unsupported."""
+		bad = frappe.get_doc(
+			{
+				"doctype": "File",
+				"file_name": "auto-bad.docx",
+				"is_private": 1,
+				"content": _content_for("auto-bad.docx"),
+			}
+		)
+		bad.insert(ignore_permissions=True)
+		capture = create_capture_from_file(file_doc=bad)
+		capture.reload()
+
+		self.assertEqual(capture.status, STATUS_UNSUPPORTED)
+		self.assertEqual(capture.ocr_status, OCR_STATUS_NOT_EXTRACTED)
+		self.assertEqual(capture.action_required, 1)
+
+	def test_confirm_cascades_to_validate(self):
+		"""Confirming OCR fields should auto-trigger validation."""
+		f = _make_file("auto-confirm.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()  # status = Proposed after cascade
+
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "250.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+
+		self.assertEqual(capture.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(capture.matched_supplier, "_Test Supplier")
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_NOT_PROMOTED)
+
+	def test_cascade_stops_at_validated_until_manual_promote(self):
+		"""Validated captures stay parked until a clerk supplies promote defaults."""
+		f = _make_file("auto-stop-at-validated.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "250.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+
+		# Validated, but no PI yet — the cascade can't promote without defaults.
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_NOT_PROMOTED)
+		self.assertFalse(capture.purchase_invoice)
+
+	def test_promote_resumes_cascade_through_auto_approval_and_payment(self):
+		"""Auto-approval (<= threshold) captures should reach Closed after promote."""
+		f = _make_file("auto-cascade-small.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "250.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+
+		# Manual seam: clerk clicks Promote with defaults. Cascade should then
+		# advance through approval routing and mock-payment issuance.
+		promote_to_purchase_invoice_for(capture.name, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+
+		self.assertEqual(capture.promotion_status, PROMOTION_STATUS_PROMOTED)
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_READY)
+		self.assertTrue(capture.payment_entry)
+		self.assertEqual(capture.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+
+	def test_over_threshold_pauses_at_pending_manager(self):
+		"""Over-threshold captures stop at Pending Manager — no auto-payment."""
+		f = _make_file("auto-cascade-big.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "1500.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+		promote_to_purchase_invoice_for(capture.name, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+
+		# Cascade routed to manager, then paused — no PE.
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_NOT_READY)
+		self.assertFalse(capture.payment_entry)
+
+	def test_manager_approve_resumes_cascade_to_payment(self):
+		"""Manager approve resumes the cascade through to Closed."""
+		f = _make_file("auto-mgr-approve.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "1500.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+		promote_to_purchase_invoice_for(capture.name, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+
+		record_manager_decision_for(capture.name, approve=True, notes="ok via cascade")
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_MANAGER_APPROVED)
+		self.assertTrue(capture.payment_entry)
+		self.assertEqual(capture.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+
+	def test_manager_reject_blocks_cascade(self):
+		"""Manager reject must not auto-trigger payment."""
+		f = _make_file("auto-mgr-reject.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		confirm_extracted_fields_for(
+			capture.name,
+			corrections={
+				"supplier": "_Test Supplier",
+				"total_amount": "1500.00",
+				"currency": "INR",
+			},
+		)
+		capture.reload()
+		promote_to_purchase_invoice_for(capture.name, defaults=_PROMOTION_DEFAULTS)
+		capture.reload()
+		record_manager_decision_for(capture.name, approve=False, notes="rejected by cascade test")
+		capture.reload()
+
+		self.assertEqual(capture.approval_status, APPROVAL_STATUS_REJECTED)
+		self.assertEqual(capture.payment_readiness, PAYMENT_READINESS_BLOCKED)
+		self.assertFalse(capture.payment_entry)
+
+	def test_unknown_supplier_blocks_cascade_at_validate(self):
+		"""Cascade must surface a real failure (unknown supplier) via action_required."""
+		f = _make_file("auto-unknown-supplier.pdf")
+		capture = create_capture_from_file(file_doc=f)
+		capture.reload()
+		# Confirm with a supplier that doesn't exist as a Supplier record.
+		# Validation should fail and the cascade should NOT proceed.
+		try:
+			confirm_extracted_fields_for(
+				capture.name,
+				corrections={
+					"supplier": "Definitely Not A Real Supplier",
+					"total_amount": "250.00",
+					"currency": "INR",
+				},
+			)
+		except CaptureValidationError:
+			pass  # expected — validate raises on unknown supplier
+		capture.reload()
+
+		self.assertEqual(capture.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertIn(
+			capture.supplier_match_status,
+			(SUPPLIER_MATCH_UNKNOWN, SUPPLIER_MATCH_AMBIGUOUS),
+		)
+		self.assertNotEqual(capture.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(capture.action_required, 1)
+		self.assertFalse(capture.payment_entry)
+
+	def test_skip_flag_disables_cascade(self):
+		"""skip_ap_auto_progress short-circuits even when the test-mode opt-in is set."""
+		frappe.flags.skip_ap_auto_progress = True
+		try:
+			f = _make_file("skip-flag.pdf")
+			capture = create_capture_from_file(file_doc=f)
+			capture.reload()
+			# With skip set, OCR should NOT have auto-run.
+			self.assertEqual(capture.ocr_status, OCR_STATUS_NOT_EXTRACTED)
+			self.assertEqual(capture.status, STATUS_PENDING_REVIEW)
+		finally:
+			frappe.flags.skip_ap_auto_progress = False
