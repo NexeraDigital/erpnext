@@ -7,6 +7,7 @@ frappe.ui.form.on("AP Invoice Capture", {
 		clear_inline_actions(frm);
 		render_inline_upload_button(frm);
 		render_inline_confirm_button(frm);
+		render_inline_validation_actions(frm);
 		render_inline_manager_buttons(frm);
 	},
 });
@@ -207,6 +208,128 @@ function open_confirm_dialog(frm) {
 				callback() {
 					d.hide();
 					frm.reload_doc();
+				},
+			});
+		},
+	});
+	d.show();
+}
+
+// When validation lands at Blocked, surface the recovery actions inline
+// under the Validation section. Re-run Validation is always available;
+// Create Supplier is gated to Accounts Manager AND only shown when the
+// block is specifically the "unknown supplier" case, to keep the SoD
+// boundary (AP clerks can't self-create the vendor they're about to pay).
+function render_inline_validation_actions(frm) {
+	if (frm.is_new()) return;
+	if (frm.doc.validation_status !== "Blocked") return;
+
+	const buttons = [
+		{
+			label: __("Re-run Validation"),
+			style: "primary",
+			on_click: () => rerun_validation(frm),
+		},
+	];
+
+	if (
+		frm.doc.supplier_match_status === "Unknown"
+		&& frappe.user.has_role("Accounts Manager")
+	) {
+		buttons.push({
+			label: __("Create Supplier"),
+			style: "default",
+			on_click: () => open_create_supplier_dialog(frm),
+		});
+	}
+
+	append_inline_actions(frm, "validation_section", build_inline_action_row(buttons));
+}
+
+function rerun_validation(frm) {
+	frappe.call({
+		method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.validate_for_purchase_invoice_for",
+		args: { capture: frm.doc.name },
+		freeze: true,
+		freeze_message: __("Re-running validation…"),
+		callback() {
+			frm.reload_doc();
+		},
+		error() {
+			// Frappe shows the server error as a toast automatically.
+			// Reload anyway so partial state (validation_message,
+			// supplier_match_status) is reflected.
+			frm.reload_doc();
+		},
+	});
+}
+
+function open_create_supplier_dialog(frm) {
+	const proposed_name = frm.doc.final_supplier || frm.doc.proposed_supplier || "";
+	const default_country =
+		(frappe.boot && frappe.boot.sysdefaults && frappe.boot.sysdefaults.country) || "";
+
+	const d = new frappe.ui.Dialog({
+		title: __("Create new Supplier"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "intro",
+				options: `<div class="text-muted small mb-3">${__(
+					"Create the missing Supplier so this capture can revalidate. The new record is created with normal permissions — no AP-side bypass. After saving, click Re-run Validation.",
+				)}</div>`,
+			},
+			{
+				fieldtype: "Data",
+				fieldname: "supplier_name",
+				label: __("Supplier Name"),
+				reqd: 1,
+				default: proposed_name,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "supplier_group",
+				label: __("Supplier Group"),
+				options: "Supplier Group",
+				reqd: 1,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "country",
+				label: __("Country"),
+				options: "Country",
+				reqd: 1,
+				default: default_country,
+			},
+		],
+		primary_action_label: __("Create"),
+		primary_action(values) {
+			frappe.call({
+				method: "frappe.client.insert",
+				args: {
+					doc: {
+						doctype: "Supplier",
+						supplier_name: values.supplier_name,
+						supplier_group: values.supplier_group,
+						country: values.country,
+					},
+				},
+				freeze: true,
+				freeze_message: __("Creating Supplier…"),
+				callback(r) {
+					if (!r.message) return;
+					const supplier_name = r.message.name;
+					frm.set_value("final_supplier", supplier_name).then(() => {
+						return frm.save();
+					}).then(() => {
+						d.hide();
+						frappe.show_alert({
+							message: __("Supplier {0} created. Click Re-run Validation to retry.", [
+								supplier_name,
+							]),
+							indicator: "green",
+						});
+					});
 				},
 			});
 		},
