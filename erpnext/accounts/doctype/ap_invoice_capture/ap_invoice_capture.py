@@ -378,14 +378,22 @@ class APInvoiceCapture(Document):
 		full_path = (
 			f"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.{method_name}"
 		)
+		# enqueue_after_commit defers the job until the current transaction
+		# commits, so a real RQ worker sees committed state. In tests we run
+		# the job synchronously (now=True) and MUST stay inside the test's
+		# transaction — otherwise `frappe.db.rollback()` in tearDown can't
+		# undo the cascade's writes (the after-commit callback forces a
+		# `frappe.db.commit()` mid-test). Disabling enqueue_after_commit in
+		# test mode keeps the whole cascade inside the rollback boundary.
+		in_test = bool(frappe.flags.get("in_test"))
 		frappe.enqueue(
 			full_path,
 			capture=self.name,
 			queue="short",
 			job_id=f"ap-progress-{self.name}-{method_name}",
 			deduplicate=True,
-			enqueue_after_commit=True,
-			now=bool(frappe.flags.get("in_test")),
+			enqueue_after_commit=not in_test,
+			now=in_test,
 		)
 
 	def _hydrate_from_linked_file(self) -> None:
