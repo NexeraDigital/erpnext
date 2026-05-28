@@ -7,11 +7,89 @@ frappe.ui.form.on("AP Invoice Capture", {
 		clear_inline_actions(frm);
 		render_inline_upload_button(frm);
 		render_inline_confirm_button(frm);
+		render_inline_change_currency_button(frm);
 		render_inline_validation_actions(frm);
 		render_inline_promote_button(frm);
 		render_inline_manager_buttons(frm);
 	},
 });
+
+// Change Currency is a post-confirmation override for the canonical case
+// where the fake OCR (hash-driven, ignores image content) proposed a
+// currency that doesn't match the supplier's Payable account, causing
+// Promote to fail with a Frappe currency-mismatch error. Visible while
+// the capture exists and isn't promoted yet; placed in the AP Review
+// section so it's visually adjacent to the read-only Final Currency field.
+function render_inline_change_currency_button(frm) {
+	if (frm.is_new()) return;
+	if (frm.doc.promotion_status === "Promoted") return;
+	if (!frm.doc.final_currency) return;
+
+	append_inline_actions(
+		frm,
+		"review_section",
+		build_inline_action_row([
+			{
+				label: __("Change Currency"),
+				style: "default",
+				on_click: () => open_change_currency_dialog(frm),
+			},
+		]),
+	);
+}
+
+function open_change_currency_dialog(frm) {
+	const d = new frappe.ui.Dialog({
+		title: __("Change capture currency"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "intro",
+				options: `<div class="text-muted small mb-3">${__(
+					"Update the capture's final currency. Use this when OCR's proposed currency was wrong (the fake OCR ignores image content) or doesn't match the supplier's payable account. After changing, click Re-run Validation or Promote to retry the blocked step.",
+				)}</div>`,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "currency",
+				label: __("Final Currency"),
+				options: "Currency",
+				reqd: 1,
+				default: frm.doc.final_currency,
+			},
+		],
+		primary_action_label: __("Change"),
+		async primary_action(values) {
+			if (values.currency === frm.doc.final_currency) {
+				// Nothing to change — close without hitting the server.
+				d.hide();
+				return;
+			}
+			try {
+				await frappe.call({
+					method: "frappe.client.set_value",
+					args: {
+						doctype: "AP Invoice Capture",
+						name: frm.doc.name,
+						fieldname: "final_currency",
+						value: values.currency,
+					},
+					freeze: true,
+					freeze_message: __("Updating currency…"),
+				});
+			} catch (_) {
+				return; // Frappe surfaces the error as a toast
+			}
+			d.hide();
+			frappe.show_alert({
+				message: __("Final currency updated to {0}.", [values.currency]),
+				indicator: "green",
+			});
+			frm.reload_doc();
+		},
+	});
+	d.show();
+}
 
 // All inline action buttons live in a `.ap-inline-actions` row that we
 // render into the relevant section's wrapper. Clear stale instances on
@@ -379,14 +457,16 @@ function render_inline_promote_button(frm) {
 }
 
 async function open_promote_dialog(frm) {
-	// Pull settings defaults up front so the dialog opens already populated.
-	// Single doctype name == record name; pass both to frappe.db.get_doc.
+	// Pull settings defaults via a whitelisted helper that reads the raw
+	// stored values (not frappe.db.get_doc, which auto-populates empty
+	// Link fields from session defaults — that pulls in cross-company
+	// warehouses and other footguns).
 	let settings = {};
 	try {
-		settings = (await frappe.db.get_doc(
-			"AP Closed Loop Settings",
-			"AP Closed Loop Settings",
-		)) || {};
+		const r = await frappe.call({
+			method: "erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings.get_promote_defaults_for_ui",
+		});
+		settings = (r && r.message) || {};
 	} catch (_) {
 		settings = {};
 	}
@@ -424,6 +504,19 @@ async function open_promote_dialog(frm) {
 				options: "Item",
 				reqd: 1,
 				default: settings.default_item_code,
+				get_query() {
+					// Fixed-asset items require per-Company GL account setup
+					// (Fixed Asset Account per Item Group). For the pilot's
+					// expense-style spend, exclude them so the user doesn't
+					// pick a footgun item and hit "Missing Account" on insert.
+					return {
+						filters: {
+							is_fixed_asset: 0,
+							disabled: 0,
+							is_purchase_item: 1,
+						},
+					};
+				},
 			},
 			{
 				fieldtype: "Column Break",
