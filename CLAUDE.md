@@ -39,6 +39,14 @@ Before doing non-trivial work, read the doc that matches your task.
 - **Existing convention is to keep `FORK-CHANGES.md` and `FORK-CHANGES-PLAIN.md` paired** — if you update one, update both.
 - **When the user references a screenshot or image file by name without a full path** (e.g. *"see Screenshot 2026-05-27 093723.png"*), look in `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/` first. That's their Windows Pictures → Screenshots folder mounted via WSL — note the literal folder name `Screenshots 1` (with the trailing space and `1`). A Windows-style path like `C:\Users\russw\OneDrive\Pictures\Screenshots 1\...` translates to `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/...`.
 
+## Remote (SSH) access to customer machines
+
+The customer's UAT/test machine and any other remote host reachable via SSH are **read-only by default**.
+
+- **Allowed without asking:** read-only inspection commands — `ls`, `cat`, `tail`, `grep`, `ps`, `systemctl status`, `journalctl`, `bench --site … list-apps`, `bench --site … console` for SELECT-only queries, log fetches, config reads, etc.
+- **Requires explicit per-action permission from the user:** anything that writes, updates, modifies, deletes, restarts, deploys, or otherwise changes state on the remote host. This includes — but is not limited to — `bench migrate`, `bench update`, `bench restart`, `bench --site … set-config`, editing files, `pip install`, `apt`/`yum`, `git pull`, `git checkout`, database writes (INSERT/UPDATE/DELETE/DDL), service restarts, cron edits, firewall changes, and any `sudo` invocation.
+- **How to apply:** before running a state-changing command over SSH, quote the exact command back to the user and wait for explicit approval ("yes", "go ahead", etc.). A prior approval covers only the specific command approved — not similar commands later in the session. If unsure whether a command mutates state, treat it as state-changing and ask.
+
 ## What this repo is *not* the place for
 
 - **Frappe framework changes** — separate repo (`frappe/frappe`), separate bench app.
