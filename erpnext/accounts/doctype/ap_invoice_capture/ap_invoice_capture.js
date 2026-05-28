@@ -303,34 +303,44 @@ function open_create_supplier_dialog(frm) {
 			},
 		],
 		primary_action_label: __("Create"),
-		primary_action(values) {
-			frappe.call({
-				method: "frappe.client.insert",
-				args: {
-					doc: {
-						doctype: "Supplier",
-						supplier_name: values.supplier_name,
-						supplier_group: values.supplier_group,
-						country: values.country,
+		// Async/await so each step serializes: insert → set_value → save →
+		// hide → toast. Mixing callback-style frappe.call with .then chains
+		// on frm.save() races against Frappe's post-save lifecycle and
+		// leaves the dialog open (observed bug, 2026-05-27).
+		async primary_action(values) {
+			let r;
+			try {
+				r = await frappe.call({
+					method: "frappe.client.insert",
+					args: {
+						doc: {
+							doctype: "Supplier",
+							supplier_name: values.supplier_name,
+							supplier_group: values.supplier_group,
+							country: values.country,
+						},
 					},
-				},
-				freeze: true,
-				freeze_message: __("Creating Supplier…"),
-				callback(r) {
-					if (!r.message) return;
-					const supplier_name = r.message.name;
-					frm.set_value("final_supplier", supplier_name).then(() => {
-						return frm.save();
-					}).then(() => {
-						d.hide();
-						frappe.show_alert({
-							message: __("Supplier {0} created. Click Re-run Validation to retry.", [
-								supplier_name,
-							]),
-							indicator: "green",
-						});
-					});
-				},
+					freeze: true,
+					freeze_message: __("Creating Supplier…"),
+				});
+			} catch (e) {
+				// Frappe surfaces the server error as a toast automatically;
+				// leave the dialog open so the user can correct the inputs.
+				return;
+			}
+
+			if (!r || !r.message) return;
+			const supplier_name = r.message.name;
+
+			await frm.set_value("final_supplier", supplier_name);
+			await frm.save();
+
+			d.hide();
+			frappe.show_alert({
+				message: __("Supplier {0} created. Click Re-run Validation to retry.", [
+					supplier_name,
+				]),
+				indicator: "green",
 			});
 		},
 	});
