@@ -2,7 +2,7 @@
 
 > **Purpose:** complete map of every place a user can land in the ERPNext desk UI on this fork. Use this before recommending where new functionality should live so suggestions are grounded in the navigation users actually see.
 >
-> **Last verified against repo:** 2026-05-27 *(Payables now includes Invoice Capture → AP Invoice Capture)*
+> **Last verified against repo:** 2026-05-27 *(Payables now includes Invoice Capture → AP Invoice Capture; Settings tail extended with AP Closed Loop Settings)*
 >
 > **Update triggers** — regenerate this doc when any of the following change:
 > - `erpnext/workspace_sidebar/*.json` (primary navigation)
@@ -34,6 +34,7 @@ Every classic workspace has a sidebar equivalent. Sidebar is canonical.
   - **Payments**: Payment Entry, Journal Entry, Payment Request, Payment Order, Payment Reconciliation, Unreconcile Payment, Process Payment Reconciliation, Repost Accounting Ledger, Repost Payment Ledger
   - **Reports**: General Ledger, Trial Balance, Financial Reports *(workspace)*
   - Settings → Accounts Settings
+  - **AP Closed Loop Settings** *(Single DocType — site-wide promote defaults for the AP capture pilot)*
 
 - **Accounts Setup** (`accounts_setup.json`) — Setup *(15: Account, Cost Center, Accounting Dimension, Currency, Company, Fiscal Year…)* · Opening & Closing *(5)* · Settings *(3)*
 

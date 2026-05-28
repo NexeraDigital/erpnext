@@ -91,9 +91,13 @@ Existing ERPNext files touched by this fork:
 What an AP clerk now sees in the desk:
 
 - **Sidebar entry** — under Invoicing → Payables → "Invoice Capture". One click to the list.
-- **Upload Invoice button** on a new/empty capture form — opens the standard Frappe file picker (Private locked on, Optimize visible-but-recommended-off) and links the result into the form's Source fields.
+- **Upload Invoice button** in the Source section — opens the standard Frappe file picker (Private locked on, Optimize visible-but-recommended-off) and links the result into the form's Source fields. Once a file is attached, the button is replaced by a **View source invoice** link that opens the original PDF/PNG in a new tab.
+- **Confirm Fields button** in the OCR section — opens a dialog with the five proposed values pre-filled; clerk corrects any wrong field and confirms.
+- **Re-run Validation + Create Supplier buttons** in the Validation section — appear when validation is blocked. Create Supplier is role-gated to Accounts Manager so AP clerks can't self-create their own vendor.
+- **Promote to Purchase Invoice button** in the Promotion section — opens a dialog pre-filled from **AP Closed Loop Settings** (a new Single DocType holding site-wide GL-coding defaults: company, item, expense account, cost center). Click Promote and the cascade auto-routes approval and issues mock payment.
+- **Approve / Reject buttons** in the Approval section — appear only when the capture is waiting on a manager AND the user has the recorded approver role.
 - **Colored status banner + pill** at the top of the form — orange/red when the capture is waiting on a human (with the reason quoted), blue when it's flowing on its own, green when Closed. Replaces the raw `action_required` checkbox.
-- **Auto-progression** — the system advances captures automatically wherever it can. Three places it stops for a human: confirming OCR proposed values, clicking Promote (defaults still required), and manager approval over the $1000 threshold. Everything else cascades on its own via Frappe's job queue.
+- **Auto-progression** — the system advances captures automatically wherever it can. Three places it stops for a human: confirming OCR proposed values, clicking Promote (the only remaining manual seam), and manager approval over the $1000 threshold. Everything else cascades on its own via Frappe's job queue.
 
 ## What you can play with right now
 

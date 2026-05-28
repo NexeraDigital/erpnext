@@ -10,6 +10,8 @@ This fork adds a single, narrowly-scoped vertical slice on top of upstream ERPNe
 
 ## 1. Files Added / Modified
 
+Brandon's pilot (8 commits, fork base):
+
 ```
  AGENTS.md                                                              |   76 ++
  erpnext/accounts/ap_closed_loop/__init__.py                            |    0
@@ -20,10 +22,26 @@ This fork adds a single, narrowly-scoped vertical slice on top of upstream ERPNe
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py      | 1424 ++++++++++++++++++++
  erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py | 1272 +++++++++++++++++
  erpnext/setup/utils.py                                                 |    4 +-
- 9 files changed, 3931 insertions(+), 2 deletions(-)
 ```
 
-**Net effect:** one new DocType (`AP Invoice Capture`), one new utility module (`ap_closed_loop/`), three test modules, one operating-notes file (`AGENTS.md`), and a 2-line internal refactor.
+Phase-2 UI + automation layer (added on top of Brandon's pilot):
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.js                |  ~400 +++
+ erpnext/accounts/doctype/ap_closed_loop_settings/__init__.py                     |    0
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    |   90 ++
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      |   55 ++
+ erpnext/workspace_sidebar/invoicing.json                                         |    +/- (sidebar entry)
+ erpnext/tests/utils.py                                                           |    +/- (bootstrap fix)
+```
+
+**Net effect:**
+- Two new DocTypes: `AP Invoice Capture` (transaction), `AP Closed Loop Settings` (Single, site-wide defaults).
+- One new service module (`ap_closed_loop/`).
+- Test modules.
+- Form UI with inline state-driven buttons (Upload, Confirm Fields, Re-run Validation, Create Supplier, Promote, Approve/Reject) anchored to the section they act on.
+- Auto-progression cascade that advances every step the system can decide on its own; pauses at the three unavoidable human-decision points (OCR review, manual promote — now form-driven, manager decision).
+- Two new sidebar entries (Invoice Capture under Payables; AP Closed Loop Settings — to be wired).
 
 ---
 
@@ -385,6 +403,44 @@ default and `skip_ap_auto_progress` is the kill switch.
 When the cascade does fire under `in_test`, `frappe.enqueue` is called with
 `now=True` so the job runs synchronously within the request — tests don't
 depend on a real RQ worker.
+
+### 6.6.2 AP Closed Loop Settings (Single DocType)
+
+`promote_to_purchase_invoice` needs four organization-level values that don't exist on the captured invoice image: `company`, `item_code`, `expense_account`, `cost_center` (plus optional `warehouse` and `uom`). These are GL coding decisions, not invoice data. To avoid prompting the clerk for them every time, the fork adds a Single DocType holding site-wide defaults:
+
+```
+erpnext/accounts/doctype/ap_closed_loop_settings/
+├── __init__.py
+├── ap_closed_loop_settings.json   (issingle: 1, 6 fields, standard Accounts permissions)
+└── ap_closed_loop_settings.py     (controller + get_promote_defaults() helper)
+```
+
+Fields:
+
+| Fieldname | Type | Required | Purpose |
+|---|---|---|---|
+| `default_company` | Link → Company | (UI requires) | Buyer entity for the generated Purchase Invoice |
+| `default_item_code` | Link → Item | (UI requires) | Catch-all line item ("AP General Expenses") |
+| `default_expense_account` | Link → Account | (UI requires) | GL expense account the PI line debits |
+| `default_cost_center` | Link → Cost Center | (UI requires) | Cost center allocated to the PI line |
+| `default_warehouse` | Link → Warehouse | optional | Used when default Item is a stock item |
+| `default_uom` | Link → UOM | optional | Falls back to Item's stock UOM if blank |
+
+Permissions mirror the ERPNext Single-doctype convention:
+- System Manager: read + write
+- Accounts Manager: read + write
+- Accounts User: read only
+
+#### Integration with `promote_to_purchase_invoice`
+
+`_coalesce_defaults` is now a two-layer merge:
+
+1. Settings doctype values (via `get_promote_defaults()` — only non-empty fields contribute)
+2. Caller-supplied `defaults` dict (overrides settings on a per-field basis)
+
+Tests that pass explicit `_PROMOTION_DEFAULTS` keep working unchanged (caller's dict still wins). UI promotions can pass `defaults=None` or just the per-invoice overrides; settings fill the rest.
+
+The settings-doctype lookup is wrapped in `try/except` so a missing/uninstalled settings DocType doesn't break tests on stale sites.
 
 ### 6.7 Whitelisted endpoints
 

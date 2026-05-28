@@ -928,26 +928,47 @@ def validate_for_purchase_invoice(
 	return capture
 
 
-def _coalesce_defaults(defaults: dict | None) -> dict:
-	"""Allowed keys for ``promote_to_purchase_invoice`` defaults overrides.
+_PROMOTE_DEFAULT_KEYS = (
+	"company",
+	"item_code",
+	"qty",
+	"uom",
+	"warehouse",
+	"expense_account",
+	"cost_center",
+)
 
-	Phase 1 is header-only. Tests pass the standard ERPNext ``_Test ...``
-	values; production wiring of company-level defaults is deliberately
-	out of scope for this slice.
+
+def _coalesce_defaults(defaults: dict | None) -> dict:
+	"""Resolve promote-time defaults for ``promote_to_purchase_invoice``.
+
+	Precedence (highest wins):
+	1. Caller-supplied ``defaults`` dict (tests, UI dialog overrides).
+	2. Site-wide values from the ``AP Closed Loop Settings`` Single doctype.
+
+	Tests pass explicit ``_PROMOTION_DEFAULTS`` and continue to work unchanged.
+	Production flows can leave ``defaults=None`` and rely entirely on the
+	settings doctype, which is what the form-based Promote button does.
 	"""
 
-	allowed = {
-		"company",
-		"item_code",
-		"qty",
-		"uom",
-		"warehouse",
-		"expense_account",
-		"cost_center",
-	}
-	if not defaults:
-		return {}
-	return {k: v for k, v in defaults.items() if k in allowed and v is not None}
+	merged: dict = {}
+
+	try:
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_promote_defaults,
+		)
+		merged.update(get_promote_defaults())
+	except Exception:
+		# Settings doctype may not be installed yet (early test runs against
+		# stale sites). Falling back to caller-supplied defaults is fine.
+		pass
+
+	if defaults:
+		for k, v in defaults.items():
+			if v is not None:
+				merged[k] = v
+
+	return {k: v for k, v in merged.items() if k in _PROMOTE_DEFAULT_KEYS}
 
 
 def promote_to_purchase_invoice(

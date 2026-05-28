@@ -8,6 +8,7 @@ frappe.ui.form.on("AP Invoice Capture", {
 		render_inline_upload_button(frm);
 		render_inline_confirm_button(frm);
 		render_inline_validation_actions(frm);
+		render_inline_promote_button(frm);
 		render_inline_manager_buttons(frm);
 	},
 });
@@ -333,7 +334,15 @@ function open_create_supplier_dialog(frm) {
 			const supplier_name = r.message.name;
 
 			await frm.set_value("final_supplier", supplier_name);
-			await frm.save();
+			// Only save when set_value actually dirtied the form. If the
+			// capture's final_supplier was already this name (common case:
+			// the user accepted the OCR proposal in Confirm Fields, then
+			// hit Create Supplier with the same name), frm.save() rejects
+			// with "No changes in document" and aborts the rest of this
+			// chain — leaving the dialog open and the user confused.
+			if (frm.is_dirty()) {
+				await frm.save();
+			}
 
 			d.hide();
 			frappe.show_alert({
@@ -342,6 +351,159 @@ function open_create_supplier_dialog(frm) {
 				]),
 				indicator: "green",
 			});
+		},
+	});
+	d.show();
+}
+
+// Promote surfaces at validation_status=Validated AND not yet promoted.
+// The dialog pre-fills from AP Closed Loop Settings (Single DocType) so a
+// well-configured site is one click away from creating the PI; per-invoice
+// overrides are still allowed for unusual spend.
+function render_inline_promote_button(frm) {
+	if (frm.is_new()) return;
+	if (frm.doc.validation_status !== "Validated") return;
+	if (frm.doc.promotion_status === "Promoted") return;
+
+	append_inline_actions(
+		frm,
+		"promotion_section",
+		build_inline_action_row([
+			{
+				label: __("Promote to Purchase Invoice"),
+				style: "primary",
+				on_click: () => open_promote_dialog(frm),
+			},
+		]),
+	);
+}
+
+async function open_promote_dialog(frm) {
+	// Pull settings defaults up front so the dialog opens already populated.
+	// Single doctype name == record name; pass both to frappe.db.get_doc.
+	let settings = {};
+	try {
+		settings = (await frappe.db.get_doc(
+			"AP Closed Loop Settings",
+			"AP Closed Loop Settings",
+		)) || {};
+	} catch (_) {
+		settings = {};
+	}
+
+	const default_company =
+		settings.default_company || frappe.defaults.get_user_default("company") || "";
+
+	const d = new frappe.ui.Dialog({
+		title: __("Promote to Purchase Invoice"),
+		size: "large",
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "intro",
+				options: `<div class="text-muted small mb-3">${__(
+					"Promote this validated capture to a Purchase Invoice. The four required fields are organization-level GL coding choices — pre-filled from AP Closed Loop Settings, override per-invoice if needed. The cascade will auto-route approval from here.",
+				)}</div>`,
+			},
+			{
+				fieldtype: "Section Break",
+				label: __("Required"),
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "company",
+				label: __("Company"),
+				options: "Company",
+				reqd: 1,
+				default: default_company,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "item_code",
+				label: __("Item Code"),
+				options: "Item",
+				reqd: 1,
+				default: settings.default_item_code,
+			},
+			{
+				fieldtype: "Column Break",
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "expense_account",
+				label: __("Expense Account"),
+				options: "Account",
+				reqd: 1,
+				default: settings.default_expense_account,
+				get_query() {
+					// Account list is huge; filter to expense/income types.
+					return {
+						filters: {
+							root_type: ["in", ["Expense", "Income"]],
+							is_group: 0,
+						},
+					};
+				},
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "cost_center",
+				label: __("Cost Center"),
+				options: "Cost Center",
+				reqd: 1,
+				default: settings.default_cost_center,
+				get_query() {
+					return { filters: { is_group: 0 } };
+				},
+			},
+			{
+				fieldtype: "Section Break",
+				label: __("Optional"),
+				collapsible: 1,
+				collapsed: 1,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "warehouse",
+				label: __("Warehouse"),
+				options: "Warehouse",
+				default: settings.default_warehouse,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "uom",
+				label: __("UoM"),
+				options: "UOM",
+				default: settings.default_uom,
+			},
+		],
+		primary_action_label: __("Promote"),
+		async primary_action(values) {
+			const defaults = {
+				company: values.company,
+				item_code: values.item_code,
+				expense_account: values.expense_account,
+				cost_center: values.cost_center,
+				warehouse: values.warehouse || null,
+				uom: values.uom || null,
+			};
+			try {
+				await frappe.call({
+					method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.promote_to_purchase_invoice_for",
+					args: {
+						capture: frm.doc.name,
+						defaults: JSON.stringify(defaults),
+					},
+					freeze: true,
+					freeze_message: __("Creating Purchase Invoice — cascade will route approval…"),
+				});
+			} catch (_) {
+				// Frappe shows the server error as a toast; leave dialog
+				// open so the user can correct (bad account, missing item, etc.).
+				return;
+			}
+			d.hide();
+			frm.reload_doc();
 		},
 	});
 	d.show();
