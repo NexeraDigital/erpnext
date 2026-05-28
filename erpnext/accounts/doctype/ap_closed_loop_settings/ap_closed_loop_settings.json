@@ -1,0 +1,102 @@
+{
+ "actions": [],
+ "creation": "2026-05-27 19:30:00.000000",
+ "description": "Site-wide defaults used by AP Invoice Capture when promoting a capture to a Purchase Invoice. These values are not on the invoice image — they are the buyer's internal accounting decisions about which Company is purchasing, which Item to bill against, and how the spend is GL-coded.",
+ "doctype": "DocType",
+ "document_type": "System",
+ "engine": "InnoDB",
+ "field_order": [
+  "promote_defaults_section",
+  "default_company",
+  "default_item_code",
+  "default_expense_account",
+  "default_cost_center",
+  "optional_defaults_section",
+  "default_warehouse",
+  "default_uom"
+ ],
+ "fields": [
+  {
+   "fieldname": "promote_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Promote Defaults"
+  },
+  {
+   "description": "Used as the Company on Purchase Invoices created when promoting AP Invoice Captures. Required by the Purchase Invoice schema.",
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company"
+  },
+  {
+   "description": "Item code applied to the single header-level line on the generated Purchase Invoice. For most pilots this is a catch-all expense item (e.g. 'AP General Expenses').",
+   "fieldname": "default_item_code",
+   "fieldtype": "Link",
+   "label": "Default Item Code",
+   "options": "Item"
+  },
+  {
+   "description": "Expense account that the Purchase Invoice line will debit when posted to the GL.",
+   "fieldname": "default_expense_account",
+   "fieldtype": "Link",
+   "label": "Default Expense Account",
+   "options": "Account"
+  },
+  {
+   "description": "Cost center allocated to the Purchase Invoice line.",
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "optional_defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Optional Defaults"
+  },
+  {
+   "description": "Optional. Used when the default Item is a stock item. Leave blank for pure-expense items.",
+   "fieldname": "default_warehouse",
+   "fieldtype": "Link",
+   "label": "Default Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "description": "Optional. Falls back to the Item's stock UOM if blank.",
+   "fieldname": "default_uom",
+   "fieldtype": "Link",
+   "label": "Default UoM",
+   "options": "UOM"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-27 19:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Closed Loop Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

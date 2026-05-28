@@ -1,0 +1,662 @@
+{
+ "actions": [],
+ "autoname": "format:APIC-{YYYY}-{#####}",
+ "creation": "2026-05-13 12:00:00",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "source_section",
+  "source_filename",
+  "file_extension",
+  "intake_channel",
+  "column_break_source",
+  "source_file",
+  "source_file_url",
+  "received_at",
+  "lifecycle_section",
+  "status",
+  "is_supported_format",
+  "column_break_lifecycle",
+  "action_required",
+  "action_required_reason",
+  "context_section",
+  "source_context",
+  "validation_message",
+  "ocr_section",
+  "ocr_provider",
+  "ocr_status",
+  "ocr_extracted_at",
+  "column_break_ocr",
+  "proposed_supplier",
+  "proposed_supplier_invoice_no",
+  "proposed_invoice_date",
+  "proposed_total_amount",
+  "proposed_currency",
+  "proposed_missing_fields",
+  "proposed_ambiguous_fields",
+  "ocr_raw_response",
+  "review_section",
+  "final_supplier",
+  "final_supplier_invoice_no",
+  "final_invoice_date",
+  "final_total_amount",
+  "final_currency",
+  "column_break_review",
+  "reviewed_by",
+  "reviewed_at",
+  "review_notes",
+  "validation_section",
+  "matched_supplier",
+  "supplier_match_status",
+  "purchase_order_reference",
+  "purchase_receipt_reference",
+  "column_break_validation",
+  "purchase_reference_status",
+  "validation_status",
+  "validation_result",
+  "validated_by",
+  "validated_at",
+  "validation_source",
+  "promotion_section",
+  "purchase_invoice",
+  "promotion_status",
+  "approval_section",
+  "approval_status",
+  "approval_threshold",
+  "approval_threshold_source",
+  "routing_reason",
+  "column_break_approval",
+  "assigned_approver_role",
+  "decision_by",
+  "decision_at",
+  "decision_notes",
+  "payment_readiness",
+  "mock_payment_section",
+  "payment_entry",
+  "payment_lifecycle_status",
+  "mock_payment_provider",
+  "mock_payment_reference",
+  "column_break_mock_payment",
+  "mock_payment_status",
+  "mock_payment_amount",
+  "mock_payment_issued_at",
+  "mock_payment_response"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "description": "Original filename as uploaded.",
+   "fieldname": "source_filename",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Filename",
+   "reqd": 1
+  },
+  {
+   "description": "Detected file extension (lowercase, no dot).",
+   "fieldname": "file_extension",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File Extension",
+   "read_only": 1
+  },
+  {
+   "default": "Manual ERPNext Upload",
+   "description": "Intake channel that originated this capture. Phase 1 is manual ERPNext upload.",
+   "fieldname": "intake_channel",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Intake Channel",
+   "options": "Manual ERPNext Upload",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Native Frappe File record that preserves the original upload. Either this or Source File URL must be present.",
+   "fieldname": "source_file",
+   "fieldtype": "Link",
+   "label": "Source File",
+   "options": "File"
+  },
+  {
+   "description": "Direct URL or traceable reference to the original source image. Populated automatically from the linked File when available.",
+   "fieldname": "source_file_url",
+   "fieldtype": "Data",
+   "label": "Source File URL"
+  },
+  {
+   "default": "now",
+   "description": "Time the source artifact was received for intake.",
+   "fieldname": "received_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Received At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "default": "Pending Review",
+   "description": "Pre-accounting lifecycle state. This capture is NOT a Purchase Invoice and does not imply approval or payment.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "1 if the uploaded source format is supported (PDF/PNG/JPG/JPEG).",
+   "fieldname": "is_supported_format",
+   "fieldtype": "Check",
+   "label": "Supported Format",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "1 if AP clerk action is required before this capture can progress.",
+   "fieldname": "action_required",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action Required"
+  },
+  {
+   "depends_on": "eval:doc.action_required",
+   "description": "Short reason action is required (e.g. 'Pending AP review', 'Unsupported format').",
+   "fieldname": "action_required_reason",
+   "fieldtype": "Data",
+   "label": "Action Required Reason"
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "description": "Optional human-readable context about where this source came from.",
+   "fieldname": "source_context",
+   "fieldtype": "Small Text",
+   "label": "Source Context"
+  },
+  {
+   "description": "Validation/rejection details. Populated when the file is unsupported or otherwise blocked.",
+   "fieldname": "validation_message",
+   "fieldtype": "Small Text",
+   "label": "Validation Message",
+   "read_only": 1
+  },
+  {
+   "description": "Assistive AI/OCR proposal. NON-AUTHORITATIVE — values here are suggestions only and require AP review before any downstream use.",
+   "fieldname": "ocr_section",
+   "fieldtype": "Section Break",
+   "label": "AI / OCR Proposal (Non-Authoritative)"
+  },
+  {
+   "description": "Identifier of the extraction provider that produced this proposal (e.g. 'fake-deterministic-v1').",
+   "fieldname": "ocr_provider",
+   "fieldtype": "Data",
+   "label": "OCR Provider",
+   "read_only": 1
+  },
+  {
+   "default": "Not Extracted",
+   "description": "Lifecycle of the OCR proposal independent of overall capture status.",
+   "fieldname": "ocr_status",
+   "fieldtype": "Select",
+   "label": "OCR Status",
+   "options": "Not Extracted\nProposed\nConfirmed\nNeeds Correction",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the OCR proposal was generated.",
+   "fieldname": "ocr_extracted_at",
+   "fieldtype": "Datetime",
+   "label": "OCR Extracted At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ocr",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Proposed supplier name (assistive). Not authoritative until AP review.",
+   "fieldname": "proposed_supplier",
+   "fieldtype": "Data",
+   "label": "Proposed Supplier",
+   "read_only": 1
+  },
+  {
+   "description": "Proposed supplier invoice / receipt number (assistive).",
+   "fieldname": "proposed_supplier_invoice_no",
+   "fieldtype": "Data",
+   "label": "Proposed Supplier Invoice No",
+   "read_only": 1
+  },
+  {
+   "description": "Proposed invoice date (assistive).",
+   "fieldname": "proposed_invoice_date",
+   "fieldtype": "Date",
+   "label": "Proposed Invoice Date",
+   "read_only": 1
+  },
+  {
+   "description": "Proposed total amount (assistive).",
+   "fieldname": "proposed_total_amount",
+   "fieldtype": "Float",
+   "label": "Proposed Total Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Proposed ISO-4217 currency code (assistive).",
+   "fieldname": "proposed_currency",
+   "fieldtype": "Data",
+   "label": "Proposed Currency",
+   "read_only": 1
+  },
+  {
+   "description": "Comma-separated list of mandatory header fields the extractor could not propose. Blocks silent progression.",
+   "fieldname": "proposed_missing_fields",
+   "fieldtype": "Small Text",
+   "label": "Proposed Missing Fields",
+   "read_only": 1
+  },
+  {
+   "description": "Comma-separated list of mandatory header fields the extractor flagged as ambiguous / low-confidence.",
+   "fieldname": "proposed_ambiguous_fields",
+   "fieldtype": "Small Text",
+   "label": "Proposed Ambiguous Fields",
+   "read_only": 1
+  },
+  {
+   "description": "Raw JSON payload from the OCR provider, preserved for auditability.",
+   "fieldname": "ocr_raw_response",
+   "fieldtype": "Long Text",
+   "label": "OCR Raw Response",
+   "read_only": 1
+  },
+  {
+   "description": "AP-reviewed values. These are the authoritative header values intended for downstream use; remain empty until AP review confirms or corrects the proposal.",
+   "fieldname": "review_section",
+   "fieldtype": "Section Break",
+   "label": "AP Review (Authoritative)"
+  },
+  {
+   "description": "AP-reviewed supplier name. Authoritative.",
+   "fieldname": "final_supplier",
+   "fieldtype": "Data",
+   "label": "Supplier (Reviewed)"
+  },
+  {
+   "description": "AP-reviewed supplier invoice / receipt number. Authoritative.",
+   "fieldname": "final_supplier_invoice_no",
+   "fieldtype": "Data",
+   "label": "Supplier Invoice No (Reviewed)"
+  },
+  {
+   "description": "AP-reviewed invoice date. Authoritative.",
+   "fieldname": "final_invoice_date",
+   "fieldtype": "Date",
+   "label": "Invoice Date (Reviewed)"
+  },
+  {
+   "description": "AP-reviewed total amount. Authoritative.",
+   "fieldname": "final_total_amount",
+   "fieldtype": "Float",
+   "label": "Total Amount (Reviewed)",
+   "precision": "2"
+  },
+  {
+   "description": "AP-reviewed currency. Authoritative.",
+   "fieldname": "final_currency",
+   "fieldtype": "Data",
+   "label": "Currency (Reviewed)"
+  },
+  {
+   "fieldname": "column_break_review",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "User who confirmed / corrected the OCR proposal.",
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the AP review was recorded.",
+   "fieldname": "reviewed_at",
+   "fieldtype": "Datetime",
+   "label": "Reviewed At",
+   "read_only": 1
+  },
+  {
+   "description": "Optional notes left by the AP reviewer (e.g. corrections rationale).",
+   "fieldname": "review_notes",
+   "fieldtype": "Small Text",
+   "label": "Review Notes"
+  },
+  {
+   "description": "Validation outcome of the AP-reviewed capture against existing ERPNext records prior to Purchase Invoice promotion.",
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Validation & Match"
+  },
+  {
+   "description": "Existing ERPNext Supplier matched from the reviewed final_supplier value. Unknown suppliers are not auto-created.",
+   "fieldname": "matched_supplier",
+   "fieldtype": "Link",
+   "label": "Matched Supplier",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "default": "Not Validated",
+   "description": "Outcome of the supplier match step.",
+   "fieldname": "supplier_match_status",
+   "fieldtype": "Select",
+   "label": "Supplier Match Status",
+   "options": "Not Validated\nMatched\nUnknown\nAmbiguous",
+   "read_only": 1
+  },
+  {
+   "description": "Optional explicit reference to an existing Purchase Order.",
+   "fieldname": "purchase_order_reference",
+   "fieldtype": "Link",
+   "label": "Purchase Order Reference",
+   "options": "Purchase Order"
+  },
+  {
+   "description": "Optional explicit reference to an existing Purchase Receipt.",
+   "fieldname": "purchase_receipt_reference",
+   "fieldtype": "Link",
+   "label": "Purchase Receipt Reference",
+   "options": "Purchase Receipt"
+  },
+  {
+   "fieldname": "column_break_validation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Not Validated",
+   "description": "Explicit classification of how the capture references prior purchasing documents.",
+   "fieldname": "purchase_reference_status",
+   "fieldtype": "Select",
+   "label": "Purchase Reference Status",
+   "options": "Not Validated\nNon-PO / Not Applicable\nPurchase Order\nPurchase Receipt",
+   "read_only": 1
+  },
+  {
+   "default": "Not Validated",
+   "description": "Overall validation outcome. 'Validated' is required before promotion to Purchase Invoice.",
+   "fieldname": "validation_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Validation Status",
+   "options": "Not Validated\nValidated\nBlocked",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable validation outcome detail (e.g. list of blocking issues, or a success summary).",
+   "fieldname": "validation_result",
+   "fieldtype": "Small Text",
+   "label": "Validation Result",
+   "read_only": 1
+  },
+  {
+   "description": "User (or system actor) who recorded the validation outcome.",
+   "fieldname": "validated_by",
+   "fieldtype": "Link",
+   "label": "Validated By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the validation outcome was recorded.",
+   "fieldname": "validated_at",
+   "fieldtype": "Datetime",
+   "label": "Validated At",
+   "read_only": 1
+  },
+  {
+   "description": "Identifier of the validation routine / source (e.g. 'ap-validation-v1').",
+   "fieldname": "validation_source",
+   "fieldtype": "Data",
+   "label": "Validation Source",
+   "read_only": 1
+  },
+  {
+   "description": "Promotion of the validated capture into the native Purchase Invoice lifecycle.",
+   "fieldname": "promotion_section",
+   "fieldtype": "Section Break",
+   "label": "Purchase Invoice Promotion"
+  },
+  {
+   "description": "Native ERPNext Purchase Invoice created from this capture (header-only Phase 1).",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "default": "Not Promoted",
+   "description": "Whether this capture has been promoted into the native Purchase Invoice lifecycle.",
+   "fieldname": "promotion_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Promotion Status",
+   "options": "Not Promoted\nPromoted",
+   "read_only": 1
+  },
+  {
+   "description": "Approval routing and decision audit. Phase 1: manager approval also authorizes mock payment release; no separate payment-release authority.",
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approval & Routing"
+  },
+  {
+   "default": "Not Required",
+   "description": "Approval routing outcome. Captures that are not yet routed remain at Not Required.",
+   "fieldname": "approval_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "options": "Not Required\nAuto Approved\nPending Manager\nManager Approved\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "Auto-approval threshold used for this routing decision.",
+   "fieldname": "approval_threshold",
+   "fieldtype": "Float",
+   "label": "Approval Threshold",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Identifier of the configuration source for the threshold (e.g. 'ap-approval-v1').",
+   "fieldname": "approval_threshold_source",
+   "fieldtype": "Data",
+   "label": "Approval Threshold Source",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable explanation of why this capture auto-approved or routed to manager.",
+   "fieldname": "routing_reason",
+   "fieldtype": "Small Text",
+   "label": "Routing Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_approval",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Role required to record the manager decision when routed for manager approval.",
+   "fieldname": "assigned_approver_role",
+   "fieldtype": "Data",
+   "label": "Assigned Approver Role",
+   "read_only": 1
+  },
+  {
+   "description": "User (or system actor) that recorded the approval / rejection decision.",
+   "fieldname": "decision_by",
+   "fieldtype": "Link",
+   "label": "Decision By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the approval / rejection decision was recorded.",
+   "fieldname": "decision_at",
+   "fieldtype": "Datetime",
+   "label": "Decision At",
+   "read_only": 1
+  },
+  {
+   "description": "Optional notes left by the approver or rejector.",
+   "fieldname": "decision_notes",
+   "fieldtype": "Small Text",
+   "label": "Decision Notes"
+  },
+  {
+   "default": "Not Ready",
+   "description": "Whether this capture may proceed to the later mock payment slice. Phase 1 only: no Payment Entry or Bank Transaction is created here.",
+   "fieldname": "payment_readiness",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Payment Readiness",
+   "options": "Not Ready\nReady for Payment\nBlocked",
+   "read_only": 1
+  },
+  {
+   "description": "Deterministic mock payment writeback. This section uses native Payment Entry and must never imply real funds or bank reconciliation.",
+   "fieldname": "mock_payment_section",
+   "fieldtype": "Section Break",
+   "label": "Mock Payment"
+  },
+  {
+   "description": "Native ERPNext Payment Entry created for the mock payment.",
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "default": "Not Requested",
+   "description": "Derived payment lifecycle status for the pilot.",
+   "fieldname": "payment_lifecycle_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Payment Lifecycle Status",
+   "options": "Not Requested\nConfirmed\nClosed\nBlocked",
+   "read_only": 1
+  },
+  {
+   "description": "Mock/null payment provider identifier.",
+   "fieldname": "mock_payment_provider",
+   "fieldtype": "Data",
+   "label": "Mock Payment Provider",
+   "read_only": 1
+  },
+  {
+   "description": "Deterministic mock provider transaction/reference id.",
+   "fieldname": "mock_payment_reference",
+   "fieldtype": "Data",
+   "label": "Mock Payment Reference",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_mock_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Mock provider status returned for this payment.",
+   "fieldname": "mock_payment_status",
+   "fieldtype": "Data",
+   "label": "Mock Payment Status",
+   "read_only": 1
+  },
+  {
+   "description": "Amount confirmed by the deterministic mock provider.",
+   "fieldname": "mock_payment_amount",
+   "fieldtype": "Float",
+   "label": "Mock Payment Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the deterministic mock payment was issued.",
+   "fieldname": "mock_payment_issued_at",
+   "fieldtype": "Datetime",
+   "label": "Mock Payment Issued At",
+   "read_only": 1
+  },
+  {
+   "description": "Raw deterministic mock provider response for audit.",
+   "fieldname": "mock_payment_response",
+   "fieldtype": "Long Text",
+   "label": "Mock Payment Response",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-13 19:00:00",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Invoice Capture",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "source_filename",
+ "track_changes": 1
+}

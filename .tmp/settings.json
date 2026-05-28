@@ -1,0 +1,22 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}/env/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/apps/frappe",
+        "${workspaceFolder}/apps/erpnext"
+    ],
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "**/node_modules": true,
+        "**/.pytest_cache": true
+    },
+    "search.exclude": {
+        "**/env": true,
+        "**/node_modules": true,
+        "**/sites/assets": true,
+        "**/dist": true,
+        "**/*.bundle.*.js": true,
+        "**/*.bundle.*.css": true
+    }
+}

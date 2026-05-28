@@ -265,8 +265,13 @@ class BootStrapTestData:
 
 		for x in records:
 			filters = get_filters(x)
+			# frappe.db.exists(dt, dict) returns a false negative when the dict
+			# includes the autoname source field alongside other filters (e.g.
+			# {"price_list_name": …, "enabled": 1, …} on Price List). The
+			# ignore_if_duplicate guard keeps the bootstrap idempotent on sites
+			# where the standard records already exist.
 			if not frappe.db.exists(doctype, filters):
-				frappe.get_doc(x).insert()
+				frappe.get_doc(x).insert(ignore_if_duplicate=True)
 
 	def make_price_list(self):
 		records = [
