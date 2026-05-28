@@ -375,8 +375,14 @@ class APInvoiceCapture(Document):
 		  inside the existing request rather than depending on a real worker.
 		"""
 
-		full_path = (
-			f"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.{method_name}"
+		# Route async hops through `_run_cascade_step`, which catches any
+		# exception, logs it to Error Log, AND updates the capture with
+		# action_required + a human-readable reason. Without that wrapper,
+		# worker-side failures only land in Error Log and the user sees a
+		# capture parked silently in an in-between state.
+		wrapper_path = (
+			"erpnext.accounts.doctype.ap_invoice_capture."
+			"ap_invoice_capture._run_cascade_step"
 		)
 		# enqueue_after_commit defers the job until the current transaction
 		# commits, so a real RQ worker sees committed state. In tests we run
@@ -387,8 +393,9 @@ class APInvoiceCapture(Document):
 		# test mode keeps the whole cascade inside the rollback boundary.
 		in_test = bool(frappe.flags.get("in_test"))
 		frappe.enqueue(
-			full_path,
+			wrapper_path,
 			capture=self.name,
+			method_name=method_name,
 			queue="short",
 			job_id=f"ap-progress-{self.name}-{method_name}",
 			deduplicate=True,
@@ -426,6 +433,57 @@ class APInvoiceCapture(Document):
 		if not self.source_filename:
 			raise AmbiguousSourceError(
 				_("AP Invoice Capture requires a Source Filename for traceability.")
+			)
+
+
+def _run_cascade_step(capture: str, method_name: str):
+	"""Worker entry point for an auto-progression cascade hop.
+
+	The cascade's `_enqueue_next` routes every async step through here so
+	that exceptions:
+
+	1. Land in Error Log (`frappe.log_error`) — same as Frappe's default
+	   worker behaviour, kept explicit so the title is clearer.
+	2. Surface on the capture itself via ``action_required=1`` +
+	   ``action_required_reason``. The form's banner + indicator already
+	   read these fields, so the user gets a visible signal instead of
+	   discovering the silent stall later.
+
+	We deliberately do NOT re-raise. If we re-raised, RQ would either
+	retry the job (causing re-failure loops) or mark it failed in a way
+	that isn't user-visible. The capture's own action_required flag is
+	the canonical signal; the Error Log is for engineers.
+	"""
+
+	import importlib
+
+	try:
+		module = importlib.import_module(__name__)
+		fn = getattr(module, method_name)
+		fn(capture)
+	except Exception as e:
+		frappe.log_error(
+			title=f"AP Cascade Step Failed: {method_name} on {capture}",
+			message=frappe.get_traceback(),
+		)
+		try:
+			error_msg = str(e)[:160] or e.__class__.__name__
+			frappe.db.set_value(
+				"AP Invoice Capture",
+				capture,
+				{
+					"action_required": 1,
+					"action_required_reason": _("Auto-step '{0}' failed: {1}").format(
+						method_name, error_msg
+					),
+				},
+				update_modified=True,
+			)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				title=f"AP Cascade Step Failed AND Surface Failed: {capture}",
+				message=frappe.get_traceback(),
 			)
 
 

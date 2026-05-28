@@ -11,8 +11,46 @@ frappe.ui.form.on("AP Invoice Capture", {
 		render_inline_validation_actions(frm);
 		render_inline_promote_button(frm);
 		render_inline_manager_buttons(frm);
+		render_inline_issue_payment_button(frm);
 	},
 });
+
+// State-based retry for the final cascade hop. Visible when a capture is
+// approved-and-ready but no Payment Entry exists — the exact "stuck after
+// async cascade failure" state. Calling issue_mock_payment_for synchronously
+// surfaces any error via frappe.call's toast instead of burying it in
+// Error Log like the worker-side enqueue path does.
+function render_inline_issue_payment_button(frm) {
+	if (frm.is_new()) return;
+	const approved = ["Auto Approved", "Manager Approved"].includes(frm.doc.approval_status);
+	if (!approved) return;
+	if (frm.doc.payment_readiness !== "Ready for Payment") return;
+	if (frm.doc.payment_entry) return;
+
+	append_inline_actions(
+		frm,
+		"mock_payment_section",
+		build_inline_action_row([
+			{
+				label: __("Issue Mock Payment"),
+				style: "primary",
+				on_click: async () => {
+					try {
+						await frappe.call({
+							method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.issue_mock_payment_for",
+							args: { capture: frm.doc.name },
+							freeze: true,
+							freeze_message: __("Issuing mock payment…"),
+						});
+					} catch (_) {
+						return;
+					}
+					frm.reload_doc();
+				},
+			},
+		]),
+	);
+}
 
 // Change Currency is a post-confirmation override for the canonical case
 // where the fake OCR (hash-driven, ignores image content) proposed a
@@ -695,10 +733,14 @@ function render_status_display(frm) {
 }
 
 function action_severity_color(frm) {
+	const reason = frm.doc.action_required_reason || "";
 	if (
 		frm.doc.status === "Unsupported" ||
 		frm.doc.approval_status === "Rejected" ||
-		frm.doc.payment_lifecycle_status === "Blocked"
+		frm.doc.payment_lifecycle_status === "Blocked" ||
+		// Auto-step failures (surfaced by _run_cascade_step) are real
+		// errors, not "waiting for human review" — render them red.
+		reason.startsWith("Auto-step")
 	) {
 		return "red";
 	}
