@@ -2,6 +2,8 @@
 
 > **The technical companion to this doc is `docs/architecture/FORK-CHANGES.md`.**
 > This file says the same thing without jargon.
+>
+> **As of 2026-05-28 this fork runs on stable ERPNext v16** (specifically `v16.20.0`, branch `russ/migrateToV16`). It was previously built on the pre-release `develop` branch (v17-in-progress); the rebase to v16 was done so the pilot can be deployed to a customer site, since v17 hasn't been released. The original develop-based history is archived at the `pre-v16-migration` tag.
 
 ---
 

@@ -1,8 +1,9 @@
 # Fork Changes — AP Closed Loop Receipt Processing
 
-> **Fork:** NexeraDigital/erpnext (this repo, branch `develop`)
-> **Upstream baseline:** `frappe/erpnext` commit `b3526599dd` (`Merge pull request #51343 …`)
-> **All fork commits are descendants of that upstream commit.**
+> **Fork:** NexeraDigital/erpnext (this repo, branch `russ/migrateToV16`)
+> **Upstream baseline:** `frappe/erpnext` `version-16` at `ff46d20b25` — `chore(release): Bumped to Version 16.20.0` (2026-05-27).
+> **Current fork tip:** `51669ff18b` — `feat: rebase AP closed-loop pilot onto upstream/version-16` (2026-05-28).
+> **Previous develop-based history** is preserved at tag `pre-v16-migration` and branch `russ/bryanwork`. See [`docs/planning/local-v17-to-v16-migration-plan.md`](../planning/local-v17-to-v16-migration-plan.md) and [`docs/planning/v16-upgrade-business-case.md`](../planning/v16-upgrade-business-case.md) for the migration rationale and procedure.
 
 This fork adds a single, narrowly-scoped vertical slice on top of upstream ERPNext: an **Accounts Payable Closed Loop Receipt Processing** pilot for NexeraDigital. It does **not** modify any existing accounting, stock, or buying logic. The only edit outside the new files is a 2-line refactor in `erpnext/setup/utils.py`.
 
@@ -46,6 +47,8 @@ Phase-2 UI + automation layer (added on top of Brandon's pilot):
 ---
 
 ## 2. Commit Timeline
+
+> **Note (2026-05-28):** The fork was rebased onto `upstream/version-16` and now ships as a single squashed commit `51669ff18b feat: rebase AP closed-loop pilot onto upstream/version-16`. The per-feature history below is preserved at tag `pre-v16-migration` and branch `russ/bryanwork` — it describes how the fork was originally built when based on `upstream/develop`. Hashes referenced in the table are reachable via the tag and the old branch, not from the current branch tip.
 
 The fork was built as 8 issue-scoped feature commits + their merges. Each feature is one acceptance-criterion-bounded step in the pilot's vertical slice.
 

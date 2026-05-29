@@ -1,10 +1,12 @@
 # Plan — ERPNext MCP Server for In-Desk AI Chat (Powerful + Secure)
 
-> **Status:** Planning (research complete, design locked, awaiting build go-ahead).
+> **Status:** Planning (research complete, design locked, **re-evaluated against Frappe v16 — see §0.1**, awaiting build go-ahead).
 >
-> **Date drafted:** 2026-05-27.
+> **Date drafted:** 2026-05-27. **Re-evaluated for v16:** 2026-05-28.
 >
-> **Branch:** `russ/bryanwork`.
+> **Branch:** `russ/migrateToV16`.
+>
+> **Base:** Frappe **16.18.3** / ERPNext version-16. (Originally drafted against v15 — the v16 re-evaluation in §0.1 supersedes several v15-era assumptions, chiefly around OAuth.)
 >
 > **Inputs:** `CLAUDE.md` (grounding rule + working rules), `docs/architecture/FORK-CHANGES.md` (current fork scope), `docs/architecture/ARCHITECTURE.md` (system topology), `docs/changes/IMPLEMENTATION-PLAN.md` (AP closed-loop phase plan — runs in parallel, this work does NOT block it).
 >
@@ -13,6 +15,32 @@
 > **Working assumption:** vertical slices, one PR per slice, each slice ends green tests + a verifiable artifact (e.g. `mcp-inspector` can list tools, `tools/call` round-trip succeeds against a low-privilege user). Cadence matches the AP pilot's existing slice rhythm.
 >
 > **Grounding rule (mandatory, from `CLAUDE.md`):** every claim about Frappe / MCP / OAuth behavior cites an upstream URL or a source `file:line`. Local memory is not authoritative.
+
+---
+
+## 0.1 v16 Re-Evaluation (2026-05-28) — what changed since the v15 draft
+
+This plan was drafted against Frappe **v15**. The fork is now on Frappe **16.18.3**. One change is load-bearing; it collapses most of the Phase 2 OAuth work and amends decision **L5**.
+
+**Native OAuth 2.x metadata now ships in core.** Everything the plan's `oauth/` subpackage was built to hand-roll on v15 exists natively in v16, gated behind the new **`OAuth Settings`** Single:
+
+| v15-era plan item (now obsolete) | v16 native provision | Source (`apps/frappe`) |
+|---|---|---|
+| `oauth/discovery.py` — RFC 9728 `/.well-known/oauth-protected-resource` | `handle_wellknown` + `get_protected_resource_metadata` | `frappe/integrations/oauth2.py:269,280,413,426` |
+| RFC 8414 auth-server metadata | `get_authorization_server_metadata` | `frappe/integrations/oauth2.py:275,286,300` |
+| `oauth/token.py` — RFC 6749 §2.3.1 Basic-auth shim | `get_token` delegates to oauthlib (parses Basic auth natively) | `frappe/integrations/oauth2.py:143-160` |
+| `WWW-Authenticate: Bearer resource_metadata=…` on 401 | emitted by **core** | `frappe/app.py:268,322` |
+| PKCE / dynamic client registration shims | native PKCE + `register_client` (`enable_dynamic_client_registration`) | `oauth2.py:335`, `oauth_authorization_code.json` |
+| Origin allowlist for browser clients (O4) | `OAuth Settings.allowed_public_client_origins` (partial) | `oauth_settings.json` |
+
+**Still on us even in v16:** RFC 8707 audience binding — v16 advertises `authorization_servers` but does **not** bind the token to a resource `aud`, so `auth.py` must still validate audience. **No native MCP server** in core ([frappe/frappe#33170](https://github.com/frappe/frappe/issues/33170) still open), so a build is still required.
+
+**L5 amended → hybrid (vendor frappe/mcp's transport).** `frappe/mcp` is **MIT** (not AGPL like FAC), so its v15-era "depend on neither" rationale doesn't apply to it. Its OAuth piggybacks on core's OAuth2 updates, which **are present in v16** (the `frappe#33188` dependency that 404'd on v15 is satisfied). We therefore **vendor its small MIT transport layer** (Streamable HTTP framing + JSON-RPC dispatch for `initialize`/`ping`/`tools/list`/`tools/call` + OAuth-on-core handshake) into `erpnext/mcp/_vendor/`, and build everything that is our actual value — security layers, Pydantic schemas, the AP tool catalogue, the three DocTypes — on top. See **`docs/changes/ADR-MCP-5-vendor-frappe-mcp-transport.md`**.
+
+Three seams the vendored transport does **not** cover, which we patch:
+1. **Schema:** frappe/mcp hand-rolls JSON Schema from `inspect.signature` (the §3.4 anti-pattern). We bypass it — register tools into its `OrderedDict` registry with `PydanticModel.model_json_schema()` as the `inputSchema`.
+2. **JSON-RPC errors:** its `handle_call_tool` swallows all exceptions into `isError=True` text (`TODO: proper JSON-RPC error`). We map to real `-32601/-32602/-32603` codes.
+3. **Transport L1:** Origin allowlist + `MCP-Protocol-Version` validation are absent; we add them in our wrapper.
 
 ---
 
@@ -26,7 +54,7 @@ These were resolved via direct user input on 2026-05-27 and cannot drift without
 | L2 | **v1 tool catalogue scope** | AP-only, read-only — ~5 tools | Smallest surface that proves the architecture end-to-end. Fastest to audit. Write tools (submit/cancel/delete) deferred to Phase 3 with elicitation flow. |
 | L3 | **Authentication** | OAuth 2.1 Resource Server from day one | Spec-compliant out of the gate per MCP `2025-11-25` (https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization). Adds ~1–2 days vs. API-key-only, but means no auth rework when the catalogue grows. |
 | L4 | **Write tools in v1** | No (read-only) | Defers optimistic-locking + elicitation + dry-run work to Phase 3. Read-only is the smallest surface that's still genuinely useful for an AP analyst. |
-| L5 | **Dependency on `frappe/mcp` or Frappe_Assistant_Core** | Neither | Mine patterns from both; vendor no code. Both have material problems (see §3). |
+| L5 | **Dependency on `frappe/mcp` or Frappe_Assistant_Core** | **Amended for v16 (see §0.1): vendor `frappe/mcp`'s MIT transport layer; reject FAC entirely.** | `frappe/mcp` is MIT and its OAuth works on v16 — vendor its transport (`endpoint`/dispatch/OAuth-handshake) and build our own security + tools on top. FAC is AGPL-3.0 → still mine patterns only, vendor no FAC code. Original v15 value ("vendor neither") is superseded. |
 | L6 | **Transport** | Streamable HTTP only (no stdio, no SSE-only legacy) | Per MCP `2025-11-25` (https://modelcontextprotocol.io/specification/2025-11-25/basic/transports). SSE-only is deprecated. Stdio adds complexity for no pilot benefit. |
 | L7 | **`run_python_code`-style tool** | Out of scope for v1 (and v2+) | Even with FAC's subprocess + RLIMIT sandbox, the attack surface is large. Expose typed aggregation tools instead. |
 
@@ -34,7 +62,7 @@ Open follow-ups requiring product/security input *before* Phase 2:
 
 | # | Open item | Default proposal | Lock by |
 |---|---|---|---|
-| O1 | Which OAuth Authorization Server? Frappe's own, or an external IdP? | Frappe's `OAuth Bearer Token` for v1 (built-in, https://docs.frappe.io/framework/user/en/guides/integration/how_to_set_up_oauth); revisit if we need enterprise SSO. | Phase 1 close |
+| O1 | ~~Which OAuth Authorization Server?~~ | **RESOLVED by v16 (§0.1):** Frappe's native AS. v16 ships RFC 9728/8414 metadata + PKCE + dynamic client registration in core — no shims, no external IdP for v1. Configure via `OAuth Settings`. | ✅ Resolved 2026-05-28 |
 | O2 | Rate-limit numbers (per-user / per-tool / per-minute) | 60 calls/min/user, 30/min/tool, 5 concurrent/user; configurable in `MCP Settings` Single. | Phase 2 close |
 | O3 | Audit log retention | 180 days (matches FAC default); GDPR/SOX review by Brandon. | Phase 2 close |
 | O4 | Allowed `Origin` list for browser clients | Local dev only (`http://localhost:*`, `http://127.0.0.1:*`); production list deferred. | Phase 2 close |
@@ -123,9 +151,11 @@ Reading-only audit; we do not vendor any code. License is AGPL-3.0, which would 
 
 ### 3.5 On `frappe/mcp` (https://github.com/frappe/mcp)
 
-Self-described as "highly experimental, expect breaking changes." Single-author repo (Alan Tom, Frappe Technologies — all 31 commits). Last code change Nov 2025. 8 of 12 JSON-RPC methods raise `NotImplementedError`. Advertises Streamable HTTP but only does plain POST with no SSE. OAuth depends on `frappe/frappe#33188` which is in `develop` but **not in v15** (our base). Issue #2 confirms `/.well-known/oauth-protected-resource` 404s on v15.
+Self-described as "highly experimental, expect breaking changes." Single-author repo (Alan Tom, Frappe Technologies — 31 commits, last code change Nov 6 2025, dormant since). Implements `initialize`/`ping`/`tools/list`/`tools/call` + no-op notifications; `resources/*`, `prompts/*`, `completion`, `logging/setLevel` raise `NotImplementedError` (9 methods stubbed). Streamable HTTP only, no SSE. Ships **zero business tools** and **zero permission/audit/rate-limit logic** — it is a transport + `@mcp.tool()` registration library, not a server. **License: MIT.**
 
-**Verdict:** copy the patterns (the JSON-RPC dispatcher at `server.py:120-279`, the `@frappe.whitelist`-as-transport bridge at `server.py:93-116`), don't depend on the package.
+OAuth piggybacks on Frappe core's OAuth2 updates (`frappe/frappe#33188`). On **v15** that was absent → `/.well-known/oauth-protected-resource` 404'd (issue #2). **On v16 (our base now) that dependency is satisfied** — verified in `frappe/integrations/oauth2.py` (§0.1), so its OAuth path works out of the box.
+
+**Verdict (amended for v16, see §0.1 / L5):** the package is MIT and its OAuth works on v16, so we **vendor its transport layer** (the JSON-RPC dispatch + `@frappe.whitelist`-as-transport bridge in `frappe_mcp/server/server.py` and `server/handlers.py`) into `erpnext/mcp/_vendor/`, pinned to a commit SHA — and patch the three seams it leaves (signature-inferred schema, swallowed JSON-RPC errors, no Origin/protocol-version validation). We do **not** take a live git/pip dependency, given the repo's dormancy and "breaks without notice" warning.
 
 ### 3.6 MCP Specification — non-negotiables (MUST requirements)
 
@@ -140,8 +170,8 @@ We build to `2025-11-25` and design for the `2026-07-28` RC's statelessness (no 
 | TLS for any non-loopback URL | Enforced by infra; refuse plaintext in production via `MCP Settings`. |
 | Honor `MCP-Protocol-Version` header on every HTTP request; default `2025-03-26` when absent | Validate in `dispatcher.py`; 400 on unsupported. |
 | OAuth 2.1 Resource Server with token audience binding (RFC 8707) | `auth.py` validates `aud` against this server's canonical URI. |
-| Publish RFC 9728 Protected Resource Metadata | Whitelisted endpoint at `/.well-known/oauth-protected-resource`. |
-| `WWW-Authenticate: Bearer resource_metadata="..." scope="..."` on 401 | Standard error response from `auth.py`. |
+| Publish RFC 9728 Protected Resource Metadata | **Served natively by v16 core** (`frappe/integrations/oauth2.py:handle_wellknown`); we enable it via `OAuth Settings`. (§0.1) |
+| `WWW-Authenticate: Bearer resource_metadata="..." scope="..."` on 401 | **Emitted by v16 core** (`frappe/app.py:322`) when resource metadata is enabled; `auth.py` adds `scope` for 403/`insufficient_scope`. |
 | Reject tokens in query strings; `Authorization: Bearer` only | Enforced in `auth.py`. |
 | **No token passthrough** — server MUST NOT forward tokens to ERPNext API | We map OAuth user → `frappe.set_user()` server-side. |
 | 403 with `insufficient_scope` for missing scope | Per-tool scope check in `registry.py`. |
@@ -188,20 +218,23 @@ Sources: https://docs.frappe.io/framework/user/en/basics/users-and-permissions, 
 
 ### 4.1 Module layout
 
+**v16 hybrid layout** (see §0.1 / ADR-MCP-5): the transport/dispatch/OAuth-handshake plumbing is vendored from `frappe/mcp` (MIT) under `_vendor/`; we own the thin shell that wires our security + Pydantic schemas into it. The v15 `oauth/` subpackage is **removed** — v16 core + the vendored handshake cover it (only `audience.py` survives, for the RFC 8707 gap v16 leaves).
+
 ```
 erpnext/mcp/
 ├── __init__.py
-├── endpoint.py            # @frappe.whitelist() entry → Werkzeug Response (the ONLY HTTP route)
-├── dispatcher.py          # JSON-RPC 2.0 router; initialize/ping/tools/list/tools/call
-├── auth.py                # ONE auth utility: OAuth Bearer → frappe.set_user
+├── _vendor/
+│   └── frappe_mcp/        # VENDORED MIT transport: Streamable HTTP framing + JSON-RPC
+│       └── ...            # dispatch (initialize/ping/tools/list/tools/call). Pinned to a
+│                          # commit SHA; provenance + SHA recorded in ADR-MCP-5.
+├── endpoint.py            # @frappe.whitelist() entry → wraps vendored transport; adds L1
+│                          # (Origin allowlist + MCP-Protocol-Version) + real JSON-RPC error mapping
+├── auth.py                # ONE auth utility: validate v16 OAuth Bearer + audience → frappe.set_user
+├── audience.py            # RFC 8707 audience validation (the one OAuth gap v16 leaves)
 ├── audit.py               # _safe_execute, audit insertion, args sanitization
 ├── permissions.py         # has_permission helpers; "permitted names" pattern
-├── registry.py            # per-request tool registry (NOT module-level)
-├── oauth/
-│   ├── __init__.py
-│   ├── discovery.py       # /.well-known/oauth-protected-resource (RFC 9728)
-│   ├── token.py           # RFC 6749 §2.3.1 Basic-auth shim on Frappe's token endpoint
-│   └── audience.py        # RFC 8707 audience validation
+├── registry.py            # per-request tool registry; injects Pydantic model_json_schema()
+│                          # into the vendored OrderedDict (bypasses its signature-inferred schema)
 ├── tools/
 │   ├── __init__.py
 │   ├── base.py            # BaseTool with Pydantic input/output models
@@ -365,6 +398,8 @@ Aggregations follow the same pattern: derive permitted names from `get_list`, th
 
 ### 4.5 JSON-RPC dispatcher shape
 
+> **v16 note:** the JSON-RPC dispatch itself is **vendored from `frappe/mcp`** (§0.1) — `initialize`/`ping`/`tools/list`/`tools/call` already work there. Our `endpoint.py` wraps it to add the L1 transport checks and to map errors to real `-32601/-32602/-32603` codes (the vendored `handle_call_tool` swallows them into `isError` text). The table below is the behavior we guarantee, vendored or patched.
+
 The dispatcher implements only what we need for v1:
 
 | Method | Status |
@@ -382,11 +417,13 @@ We deliberately do NOT implement: `completion/complete`, `logging/setLevel`, `pr
 
 ### 4.6 OAuth flow
 
-1. Client (Claude Desktop, MCP Inspector) hits `/.well-known/oauth-protected-resource` → we return RFC 9728 metadata pointing to Frappe's authorization server URLs.
-2. Client performs OAuth 2.1 + PKCE authorization code flow against Frappe's `OAuthAuthorize` (`/api/method/frappe.integrations.oauth2.authorize`).
-3. Client exchanges code for token at Frappe's token endpoint (which we override to fix RFC 6749 §2.3.1 Basic-auth parsing for confidential clients).
+On v16 this flow is almost entirely served by core — we configure `OAuth Settings` rather than build endpoints (see §0.1). Steps 1–3 are **native v16**; only audience validation (step 5) and the user mapping (step 6) are our code.
+
+1. Client (Claude Desktop, MCP Inspector) hits `/.well-known/oauth-protected-resource` → **served natively by v16** (`frappe/integrations/oauth2.py:handle_wellknown`) once `OAuth Settings.show_protected_resource_metadata` is enabled. Returns RFC 9728 metadata pointing to Frappe's AS.
+2. Client performs OAuth 2.1 + PKCE authorization code flow against Frappe's native `authorize` (`/api/method/frappe.integrations.oauth2.authorize`) — **PKCE native in v16**.
+3. Client exchanges code for token at Frappe's native `get_token` endpoint — **Basic-auth parsing handled natively by oauthlib in v16** (no override needed; the v15 shim is dropped).
 4. Client calls our MCP endpoint with `Authorization: Bearer <token>`.
-5. `auth.py` validates the token via `frappe.get_doc("OAuth Bearer Token", {"access_token": ...})`, checks `status == "Active"`, expiry, and audience (`aud` claim equals our `MCP Settings.oauth_resource_uri`).
+5. `auth.py` validates the token via `frappe.get_doc("OAuth Bearer Token", {"access_token": ...})`, checks `status == "Active"`, expiry, and **audience** (`audience.py`, RFC 8707 — the one check v16 does NOT do natively; compares against `MCP Settings.oauth_resource_uri`).
 6. `auth.py` calls `frappe.set_user(token.user)` — every downstream tool runs as that user.
 
 **No token passthrough:** the OAuth token is NEVER forwarded to ERPNext APIs. The server-side `frappe.set_user` is the only credential propagation.
@@ -422,7 +459,8 @@ Each tool has:
 
 | Slice | Deliverable | Acceptance |
 |---|---|---|
-| P1.1 | Module skeleton: `endpoint.py`, `dispatcher.py`, `registry.py`, `tools/base.py` (no-op tools/list returning empty array) | `mcp-inspector` connects, `tools/list` returns `[]`, `ping` works |
+| P1.0 | Vendor `frappe/mcp` transport into `erpnext/mcp/_vendor/` (pin SHA; record provenance in ADR-MCP-5); strip its tool examples, keep dispatch + transport | Vendored module imports cleanly; SHA documented |
+| P1.1 | Shell: `endpoint.py` (wraps vendored transport + adds L1 Origin/protocol-version checks + real JSON-RPC error mapping), `registry.py`, `tools/base.py` (no-op tools/list returning empty array) | `mcp-inspector` connects, `tools/list` returns `[]`, `ping` works; unknown method → `-32601` |
 | P1.2 | `MCP Audit Log` DocType + `audit.py` `_safe_execute` wrapper | Calling a stub tool produces one audit row with sanitized args |
 | P1.3 | `MCP Settings` Single + `MCP Tool Config` DocType | Records exist; readable in Desk under System Manager |
 | P1.4 | First tool: `list_ap_invoices` (the example in §4.4) with Pydantic input/output + `permitted_names` helper | Tool appears in `tools/list`; `tools/call` returns rows for System Manager; returns `[]` for a role without `Purchase Invoice` read |
@@ -430,14 +468,15 @@ Each tool has:
 
 Phase 1 ends with `FORK-CHANGES.md` + `FORK-CHANGES-PLAIN.md` updated to register `erpnext/mcp/` as new fork scope, per `CLAUDE.md` working rules.
 
-### Phase 2 — Full OAuth 2.1 RS + audit polish + remaining tools (1–2 days)
+### Phase 2 — OAuth 2.1 RS (mostly config on v16) + audit polish + remaining tools (≈1 day — see §0.1)
+
+> **v16 collapse:** the v15 plan budgeted three build slices (discovery, Basic-auth shim, audience) here. v16 ships discovery + Basic-auth + PKCE + dynamic client registration natively, so P2.1–P2.3 collapse into one **configuration** slice plus the one piece v16 doesn't do (audience binding).
 
 | Slice | Deliverable | Acceptance |
 |---|---|---|
-| P2.1 | `oauth/discovery.py` — `/.well-known/oauth-protected-resource` per RFC 9728 | `curl` against the URL returns valid JSON with `resource`, `authorization_servers`, `scopes_supported`, `bearer_methods_supported`, `resource_documentation` |
-| P2.2 | `oauth/token.py` — RFC 6749 §2.3.1 Basic-auth shim on Frappe's token endpoint | Confidential client can exchange code for token using Basic auth |
-| P2.3 | `oauth/audience.py` — RFC 8707 audience validation | Token minted for a different `resource` is rejected with 401 + `WWW-Authenticate` |
-| P2.4 | `auth.py` consolidated: ONE entry point for token → `frappe.set_user`; per-tool scope check; 403 + `insufficient_scope` | `test_auth.py` passes all scenarios |
+| P2.1 | **Configure** v16 `OAuth Settings`: enable `show_protected_resource_metadata` + `show_auth_server_metadata`, set `resource_name`/`scopes_supported`/`allowed_public_client_origins` | `curl /.well-known/oauth-protected-resource` (served by core) returns valid RFC 9728 JSON with `resource`, `authorization_servers`, `scopes_supported`, `bearer_methods_supported` |
+| P2.3 | `audience.py` — RFC 8707 audience validation (v16 does NOT do this natively) | Token minted for a different `resource` is rejected with 401 + `WWW-Authenticate` (header emitted by core) |
+| P2.4 | `auth.py` consolidated: ONE entry point — validate v16 OAuth Bearer + audience → `frappe.set_user`; per-tool scope check; 403 + `insufficient_scope` | `test_auth.py` passes all scenarios |
 | P2.5 | Rate limiter via `frappe.rate_limiter` per (user, tool); concurrency cap; per-tool timeout | `test_tools.py::test_rate_limit_enforced` passes |
 | P2.6 | Remaining four tools: `get_ap_invoice`, `list_vendors`, `get_vendor_balance`, `get_doctype_meta` | All five tools in `tools/list`; integration tests green |
 | P2.7 | Permission-regression test suite | Every tool tested with low-priv role; CI runs the suite |
@@ -478,11 +517,11 @@ For the server:
 
 ### 7.2 Permission-bypass canary
 
-A separate `test_canaries.py` runs as part of CI:
+A separate `test_canaries.py` runs as part of CI (the vendored `erpnext/mcp/_vendor/` tree is **excluded** from these greps — it is third-party MIT code reviewed at vendor time, not our tool surface):
 
 - Grep `erpnext/mcp/tools/` for `ignore_permissions=True` or `get_all(` — fail if found.
-- Grep `erpnext/mcp/` for `frappe.db.sql(` with f-string or `%` interpolation — fail if found.
-- Grep `erpnext/mcp/` for `sampling/` references — fail if found.
+- Grep `erpnext/mcp/` (excluding `_vendor/`) for `frappe.db.sql(` with f-string or `%` interpolation — fail if found.
+- Grep `erpnext/mcp/` (excluding `_vendor/`) for `sampling/` references — fail if found.
 
 These run on every PR touching `erpnext/mcp/`.
 
@@ -490,7 +529,7 @@ These run on every PR touching `erpnext/mcp/`.
 
 - Tool implementations: 90%+ line coverage.
 - `auth.py`, `audit.py`, `permissions.py`: 100% line coverage (security-critical).
-- `dispatcher.py`: every JSON-RPC error path tested.
+- `endpoint.py` (our wrapper over the vendored dispatch): every JSON-RPC error path tested — `-32601/-32602/-32603` mapping, plus L1 Origin/protocol-version rejections. Vendored `_vendor/` code is not a coverage target.
 
 ---
 
@@ -512,14 +551,15 @@ Per `CLAUDE.md` working rules:
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Frappe v15 ships without RFC 9728 metadata; OAuth flow doesn't work out of the box for MCP clients | High | Medium | We publish the metadata ourselves at `/.well-known/oauth-protected-resource` (see `oauth/discovery.py`). |
+| ~~Frappe v15 ships without RFC 9728 metadata~~ — **RESOLVED by v16** | — | — | v16 serves RFC 9728/8414 metadata, PKCE, and dynamic client registration natively (§0.1). No self-published metadata needed; we only configure `OAuth Settings` + validate audience. |
+| Vendored `frappe/mcp` transport has a latent bug or the upstream "breaks without notice" before we pull a fix | Medium | Low | Vendored at a pinned SHA, so upstream changes can't reach us unexpectedly; the transport is small and reviewed in PR. We own the seams (schema, error mapping, L1). Re-sync is a deliberate, reviewed action. |
 | Prompt injection via ERPNext text fields (vendor name, invoice description) hijacks downstream LLM | Medium | High (vendor-controlled fields are externally writable) | L10 output sanitization strips control sequences; tool descriptions instruct LLM to treat tool output as untrusted data, not instructions. Reference: https://modelcontextprotocol.io/specification/2025-11-25/basic/security_best_practices |
 | Tool poisoning — malicious instructions in a tool description influence the LLM | Low (we author the descriptions) | High | Tool descriptions versioned and reviewed in PR. Clients are warned in MCP spec to treat annotations as untrusted; we are the server, so the threat is internal authoring discipline. |
 | Permission bypass via `frappe.get_all` slipping into a tool implementation | Medium | Critical | CI canary (§7.2) greps for the pattern; permission-regression tests catch behavioral leaks. |
 | Rate limiter misconfigured, allows a single user to exhaust gunicorn workers | Medium | High | Concurrency cap per user (default 5) enforced even if per-minute rate limit fails. Slow-tool timeout (default 30s) prevents indefinite blocking. |
 | OAuth token theft → impersonation | Low (TLS, short token lifetime) | High | Token expiry from Frappe's `OAuth Bearer Token` defaults (1 hour access, refresh required). Audit log captures `ip_address` for forensics. |
 | Audit log size explodes | Medium | Low | Output capped at 50 KB per row (default); daily retention scheduler prunes per `audit_retention_days` (default 180). |
-| `frappe/mcp` upstream stabilizes and we want to switch to it later | Low | Low | Our dispatcher pattern is small (~500 LOC equivalent); switching cost is bounded. We watch upstream and revisit on Frappe v16 release. |
+| Vendored `frappe/mcp` upstream matures (fills `NotImplementedError` stubs, adds resources/prompts) and we want those features | Low | Low | Re-sync from the tracked SHA is a bounded, reviewed merge. We watch upstream; on v16 the OAuth blocker is already gone (§0.1), so a future re-sync is low-friction. |
 | MCP `2026-07-28` RC breaks our `2025-11-25` implementation | Medium | Medium | Design uses request-scoped state (no session-as-auth); the RC removes `Mcp-Session-Id` but we already treat it as correlation-only. Migration window is 12+ months per the RC. |
 
 ---
@@ -538,13 +578,16 @@ Per `CLAUDE.md` working rules:
 - https://docs.frappe.io/framework/user/en/guides/app-development/running-background-jobs
 - https://docs.frappe.io/framework/user/en/guides/integration/how_to_set_up_oauth
 
-### Frappe source (version-15 branch)
-- https://github.com/frappe/frappe/blob/version-15/frappe/__init__.py (whitelist, set_user, get_list/get_all, has_permission wrapper)
-- https://github.com/frappe/frappe/blob/version-15/frappe/permissions.py (has_permission impl, get_role_permissions, get_doc_permissions)
-- https://github.com/frappe/frappe/blob/version-15/frappe/model/db_query.py (DatabaseQuery, apply_fieldlevel_read_permissions, build_match_conditions)
-- https://github.com/frappe/frappe/blob/version-15/frappe/model/document.py (Document.apply_fieldlevel_read_permissions)
-- https://github.com/frappe/frappe/blob/version-15/frappe/client.py (frappe.client.* whitelisted methods)
-- https://github.com/frappe/frappe/blob/version-15/frappe/rate_limiter.py
+### Frappe source (version-16 branch — our base, Frappe 16.18.3)
+- https://github.com/frappe/frappe/blob/version-16/frappe/__init__.py (whitelist, set_user, get_list/get_all, has_permission wrapper)
+- https://github.com/frappe/frappe/blob/version-16/frappe/permissions.py (has_permission impl, get_role_permissions, get_doc_permissions)
+- https://github.com/frappe/frappe/blob/version-16/frappe/model/db_query.py (DatabaseQuery, apply_fieldlevel_read_permissions, build_match_conditions)
+- https://github.com/frappe/frappe/blob/version-16/frappe/model/document.py (Document.apply_fieldlevel_read_permissions)
+- https://github.com/frappe/frappe/blob/version-16/frappe/client.py (frappe.client.* whitelisted methods)
+- https://github.com/frappe/frappe/blob/version-16/frappe/rate_limiter.py
+- https://github.com/frappe/frappe/blob/version-16/frappe/integrations/oauth2.py (**v16 native OAuth metadata** — `handle_wellknown`, `get_protected_resource_metadata` (RFC 9728), `get_authorization_server_metadata` (RFC 8414), `register_client` (RFC 7591), `introspect_token` (RFC 7662); see §0.1)
+- https://github.com/frappe/frappe/blob/version-16/frappe/app.py (`WWW-Authenticate: Bearer resource_metadata=…` emitted by core on 401/403)
+- https://github.com/frappe/frappe/blob/version-16/frappe/integrations/doctype/oauth_settings/oauth_settings.json (`OAuth Settings` Single — new in v16)
 
 ### MCP specification
 - https://modelcontextprotocol.io/specification (landing)
