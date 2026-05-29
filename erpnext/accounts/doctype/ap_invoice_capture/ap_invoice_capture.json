@@ -102,6 +102,7 @@
    "description": "Detected file extension (lowercase, no dot).",
    "fieldname": "file_extension",
    "fieldtype": "Data",
+   "hidden": 1,
    "in_list_view": 1,
    "label": "File Extension",
    "read_only": 1
@@ -124,6 +125,7 @@
    "description": "Native Frappe File record that preserves the original upload. Either this or Source File URL must be present.",
    "fieldname": "source_file",
    "fieldtype": "Link",
+   "hidden": 1,
    "label": "Source File",
    "options": "File"
   },
@@ -131,6 +133,7 @@
    "description": "Direct URL or traceable reference to the original source image. Populated automatically from the linked File when available.",
    "fieldname": "source_file_url",
    "fieldtype": "Data",
+   "hidden": 1,
    "label": "Source File URL"
   },
   {
@@ -145,6 +148,7 @@
   {
    "fieldname": "lifecycle_section",
    "fieldtype": "Section Break",
+   "hidden": 1,
    "label": "Lifecycle"
   },
   {
