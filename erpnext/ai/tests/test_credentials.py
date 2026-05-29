@@ -132,3 +132,82 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		openai_creds = get_ai_credentials("openai")
 		self.assertEqual(openai_creds.api_key, _FAKE_OPENAI_KEY)
 		self.assertFalse(openai_creds.zdr_enabled)
+
+
+class TestPasswordPlaceholderProtection(IntegrationTestCase):
+	"""Regression tests for the desk-form bug where a no-change save echoes
+	the masked-asterisks placeholder back as the field value, which the
+	framework would otherwise persist verbatim — silently replacing any
+	real stored key with raw asterisks."""
+
+	def setUp(self) -> None:
+		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
+		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
+		frappe.db.commit()
+
+	def tearDown(self) -> None:
+		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
+		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
+		frappe.db.commit()
+
+	def test_placeholder_save_with_no_prior_key_does_not_store_anything(self) -> None:
+		"""User opens the form, clicks Save without typing. Frontend echoes
+		back asterisks. After save, the field should remain empty."""
+
+		settings = frappe.get_single(SETTINGS_DOCTYPE)
+		settings.anthropic_api_key = "*" * 30  # simulates desk frontend placeholder
+		settings.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		with self.assertRaises(AICredentialsNotConfigured):
+			get_ai_credentials("anthropic")
+
+	def test_placeholder_save_with_existing_key_preserves_the_key(self) -> None:
+		"""User has a real key stored. They open the form to toggle some
+		other field (e.g., ZDR) and save. Frontend echoes back asterisks for
+		the password field. The real key must survive."""
+
+		# Step 1: store a real key
+		settings = frappe.get_single(SETTINGS_DOCTYPE)
+		settings.anthropic_api_key = _FAKE_KEY
+		settings.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		# Step 2: re-fetch the doc and simulate a no-change save where the
+		# frontend has substituted asterisks for the password field
+		settings = frappe.get_single(SETTINGS_DOCTYPE)
+		settings.anthropic_api_key = "*" * 30
+		settings.anthropic_zdr_enabled = 1  # the field the user actually intended to change
+		settings.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		# Step 3: the real key must still be retrievable
+		creds = get_ai_credentials("anthropic")
+		self.assertEqual(creds.api_key, _FAKE_KEY)
+		self.assertTrue(creds.zdr_enabled)
+
+	def test_real_value_with_only_some_asterisks_is_stored_as_typed(self) -> None:
+		"""Defensive: if a key happens to contain asterisks among other
+		characters (mixed input), it should still be stored as-typed —
+		only pure-placeholder values are restored."""
+
+		mixed_value = "sk-ant-real***key***xyz"
+		settings = frappe.get_single(SETTINGS_DOCTYPE)
+		settings.anthropic_api_key = mixed_value
+		settings.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		creds = get_ai_credentials("anthropic")
+		self.assertEqual(creds.api_key, mixed_value)
+
+	def test_bullet_placeholder_also_protected(self) -> None:
+		"""Some Frappe versions render the masked placeholder with bullet
+		characters (•) instead of asterisks. Both must be detected."""
+
+		settings = frappe.get_single(SETTINGS_DOCTYPE)
+		settings.anthropic_api_key = "•" * 12
+		settings.save(ignore_permissions=True)
+		frappe.db.commit()
+
+		with self.assertRaises(AICredentialsNotConfigured):
+			get_ai_credentials("anthropic")

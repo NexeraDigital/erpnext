@@ -26,3 +26,10 @@ erpnext/www/banking.html
 
 # Git worktrees created under the repo (e.g. by EnterWorktree)
 .claude/worktrees/
+
+# Playwright MCP config — machine-specific (absolute browser path). Each dev
+# generates their own via docs/testplans/BROWSER-TESTING-SETUP.md
+.mcp.json
+
+# Playwright MCP runtime artifacts (snapshots, console logs, traces)
+.playwright-mcp/

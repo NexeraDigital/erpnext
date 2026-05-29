@@ -64,6 +64,16 @@ Automated tests cannot be executed in this WSL development environment — the a
 - **Maintenance:** when a feature changes, update its test plan in the same commit. Out-of-date test plans are worse than missing ones — they look authoritative while being wrong.
 - **How to apply:** when planning a new feature, write the test-plan skeleton early (right after the planning doc), then refine as the feature shapes up. The skeleton forces design clarity. The finished plan ships with the code.
 
+## Browser testing (Playwright MCP)
+
+UI test steps are executed by Claude Code driving a real browser through the **Playwright MCP server**. This is **not** committed config — the MCP setup is machine-specific (it pins an absolute path to the local Chromium binary), so each developer's machine sets it up once.
+
+- **Setup runbook:** `docs/testplans/BROWSER-TESTING-SETUP.md` is the authoritative, reproducible recipe. Follow it exactly — it encodes a known WSL gotcha (Playwright's auto-download extracts incompletely on WSL, so we install Chromium normally and point the MCP at it via `--executable-path`).
+- **If `.mcp.json` is missing or the `playwright` MCP isn't registered** (check with `claude mcp list`), and the user asks to run a UI test or "test in the browser": offer to set it up by following `docs/testplans/BROWSER-TESTING-SETUP.md`. Walk its steps — `claude mcp add playwright --scope project`, `npx playwright install chromium`, install system libs (sudo — ask first per the SSH/sudo rule below), write `.mcp.json` with the discovered binary path, then tell the user to **restart Claude Code** (MCP config loads only at startup).
+- **`.mcp.json` and `.playwright-mcp/` are gitignored.** Never commit them. Never hand-edit `.mcp.json` to a path from another machine.
+- **Screenshots are test evidence and ARE committed.** Save them under `docs/testplans/screenshots/<feature-slug>/<descriptive-name>.png` — always pass that path as the screenshot `filename` so they don't land in the repo root. The transient `.playwright-mcp/` runtime dir (snapshots, console logs, traces) stays gitignored.
+- **The DB is the source of truth, not the screenshot.** After a UI action that writes data, verify the result with `bench --site … mariadb` / `bench … execute`, then clean up any test data written through the UI.
+
 ## Remote (SSH) access to customer machines
 
 The customer's UAT/test machine and any other remote host reachable via SSH are **read-only by default**.
