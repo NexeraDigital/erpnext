@@ -20,6 +20,10 @@ from erpnext.mcp.tools.vendors import GetVendorBalance, ListVendors
 
 
 class TestToolsIntegration(IntegrationTestCase):
+	# Declaring the doctype makes IntegrationTestCase provision Purchase Invoice's
+	# full test-record dependency chain (Company, Supplier, Item, Customer, …).
+	doctype = "Purchase Invoice"
+
 	@classmethod
 	def setUpClass(cls):
 		super().setUpClass()

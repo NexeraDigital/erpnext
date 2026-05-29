@@ -78,7 +78,9 @@ class TestEndpoint(IntegrationTestCase):
 		self.assertEqual(handle_mcp().status_code, 401)
 
 	def test_token_in_query_string_401(self):
-		frappe.set_request(
+		from frappe.utils import set_request
+
+		set_request(
 			method="POST",
 			json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
 			query_string=f"access_token={self.admin_token}",

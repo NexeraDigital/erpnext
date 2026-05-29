@@ -22,12 +22,15 @@ def _make_audit_row(tool: str, age_days: int):
 
 class TestPruneAuditLogs(IntegrationTestCase):
 	def setUp(self):
-		s = frappe.get_single("MCP Settings")
-		s.audit_retention_days = 180
-		s.save(ignore_permissions=True)
-		frappe.clear_document_cache("MCP Settings", "MCP Settings")
+		# Monkeypatch the retention accessor for deterministic isolation — mutating
+		# the MCP Settings Single in-process is subject to document-cache staleness.
+		self._orig_retention = tasks.config.audit_retention_days
+
+	def tearDown(self):
+		tasks.config.audit_retention_days = self._orig_retention
 
 	def test_prunes_old_keeps_recent(self):
+		tasks.config.audit_retention_days = lambda: 180
 		old = _make_audit_row("t_old", age_days=400)
 		recent = _make_audit_row("t_recent", age_days=5)
 		tasks.prune_audit_logs()
@@ -35,10 +38,7 @@ class TestPruneAuditLogs(IntegrationTestCase):
 		self.assertTrue(frappe.db.exists("MCP Audit Log", recent))
 
 	def test_retention_zero_is_noop(self):
-		s = frappe.get_single("MCP Settings")
-		s.audit_retention_days = 0
-		s.save(ignore_permissions=True)
-		frappe.clear_document_cache("MCP Settings", "MCP Settings")
+		tasks.config.audit_retention_days = lambda: 0
 		old = _make_audit_row("t_old2", age_days=400)
 		tasks.prune_audit_logs()
 		self.assertTrue(frappe.db.exists("MCP Audit Log", old))
