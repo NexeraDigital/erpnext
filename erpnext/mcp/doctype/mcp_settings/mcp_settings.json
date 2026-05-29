@@ -1,0 +1,108 @@
+{
+ "actions": [],
+ "creation": "2026-05-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "require_tls",
+  "transport_section",
+  "allowed_origins",
+  "allowed_protocol_versions",
+  "oauth_section",
+  "oauth_resource_uri",
+  "audit_section",
+  "audit_retention_days",
+  "audit_output_max_bytes"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Master switch. When unchecked, the MCP endpoint rejects all requests with a 503.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "default": "1",
+   "description": "Refuse plaintext (non-TLS, non-loopback) requests. MCP spec MUST for non-loopback URLs.",
+   "fieldname": "require_tls",
+   "fieldtype": "Check",
+   "label": "Require TLS (reject plaintext non-loopback)"
+  },
+  {
+   "fieldname": "transport_section",
+   "fieldtype": "Section Break",
+   "label": "Transport"
+  },
+  {
+   "default": "[\"http://localhost\", \"http://127.0.0.1\"]",
+   "description": "JSON list of allowed Origin header values (DNS-rebinding defense). A request whose Origin is not in this list is rejected with 403. Entries are matched as prefixes (so ports are allowed).",
+   "fieldname": "allowed_origins",
+   "fieldtype": "Code",
+   "label": "Allowed Origins (JSON list)",
+   "options": "JSON"
+  },
+  {
+   "default": "[\"2025-11-25\", \"2025-06-18\", \"2025-03-26\"]",
+   "description": "JSON list of accepted MCP-Protocol-Version header values. An unsupported version is rejected with 400.",
+   "fieldname": "allowed_protocol_versions",
+   "fieldtype": "Code",
+   "label": "Allowed Protocol Versions (JSON list)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "oauth_section",
+   "fieldtype": "Section Break",
+   "label": "OAuth"
+  },
+  {
+   "description": "This server's canonical resource URI. Used for RFC 8707 audience binding: a bearer token whose audience does not match this is rejected. Leave blank to skip audience checks (NOT recommended in production).",
+   "fieldname": "oauth_resource_uri",
+   "fieldtype": "Data",
+   "label": "OAuth Resource URI (audience)"
+  },
+  {
+   "fieldname": "audit_section",
+   "fieldtype": "Section Break",
+   "label": "Audit"
+  },
+  {
+   "default": "180",
+   "description": "MCP Audit Log rows older than this are pruned by the daily scheduler.",
+   "fieldname": "audit_retention_days",
+   "fieldtype": "Int",
+   "label": "Audit Retention (days)"
+  },
+  {
+   "default": "51200",
+   "description": "Maximum size of a tool result captured in the audit log (bytes). Larger results are truncated in the log (not in the response).",
+   "fieldname": "audit_output_max_bytes",
+   "fieldtype": "Int",
+   "label": "Audit Output Max Bytes"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "MCP",
+ "name": "MCP Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

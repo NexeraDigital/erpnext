@@ -126,6 +126,25 @@ bench --site erpnext.localhost run-tests --module erpnext.accounts.doctype.ap_in
 
 ---
 
+## The AI assistant layer (new — the "MCP server")
+
+There's now a second new thing in the fork: a safe doorway that lets an **AI assistant** (like Claude) *read* accounts-payable data out of ERPNext — and nothing else, yet.
+
+Think of it as a locked reception desk for an AI:
+
+- **It can only answer five questions for now**, all read-only: list AP invoices, show one invoice, list vendors, show a vendor's outstanding balance, and describe the shape of a record. It cannot create, change, pay, or delete anything.
+- **Everyone who knocks must show ID.** The AI has to log in with the same kind of secure token ERPNext already uses (OAuth) — and the token has to be stamped specifically for *this* door, so a key cut for another building won't work.
+- **It only ever sees what the logged-in person is allowed to see.** If an accountant can't open a particular invoice in ERPNext, the AI can't either — the same permission rules apply, with no shortcuts. We wrote a batch of tests whose whole job is to *try* to leak data to an under-privileged user and prove it fails.
+- **Every single request is written down.** Who asked, which tool, when, how long it took, success or failure — all kept in a tamper-resistant log, with passwords/keys scrubbed out, and old entries auto-deleted after a set number of days.
+- **There are speed bumps.** Each user is capped to so many requests per minute per tool, so one chatty AI can't hammer the system.
+- **An admin can flip any tool off instantly** without a code deploy.
+
+Under the hood we reused a small, MIT-licensed open-source "plumbing" component from the Frappe team for the messaging format, pinned to an exact version so it can't change underneath us, and built all the security and the actual AP tools ourselves on top.
+
+It's gated off by default (an admin has to switch it on) and adds **no new buttons or pages** to the ERPNext screens.
+
+---
+
 ## TL;DR
 
-One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **No UI yet. No real OCR. No real payments. No changes to existing ERPNext accounting.**
+Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

@@ -65,6 +65,14 @@ setup_wizard_stages = "erpnext.setup.setup_wizard.setup_wizard.get_setup_stages"
 
 after_install = "erpnext.setup.install.after_install"
 
+# Seed/refresh MCP Tool Config rows after every migrate (idempotent).
+after_migrate = ["erpnext.mcp.install.sync_tool_configs"]
+
+# Row-level scoping for the MCP audit log list view (mirrors API-side scoping).
+permission_query_conditions = {
+	"MCP Audit Log": "erpnext.mcp.doctype.mcp_audit_log.mcp_audit_log.get_permission_query_conditions",
+}
+
 boot_session = "erpnext.startup.boot.boot_session"
 notification_config = "erpnext.startup.notifications.get_notification_config"
 get_help_messages = "erpnext.utilities.activation.get_help_messages"
@@ -449,7 +457,9 @@ scheduler_events = {
 		"erpnext.erpnext_integrations.doctype.plaid_settings.plaid_settings.automatic_synchronization",
 		"erpnext.utilities.doctype.video.video.update_youtube_data",
 	],
-	"daily": [],
+	"daily": [
+		"erpnext.mcp.tasks.prune_audit_logs",
+	],
 	"daily_long": [],
 	"daily_maintenance": [
 		"erpnext.support.doctype.issue.issue.auto_close_tickets",
