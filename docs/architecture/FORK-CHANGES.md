@@ -50,10 +50,34 @@ OCR Phase 0 — shared AI provider credentials infrastructure (added on `russ/mi
  erpnext/ai/tests/test_credentials.py                                             |  130 ++ (6 IntegrationTestCase tests)
  erpnext/workspace_sidebar/erpnext_settings.json                                  |    +/- (sidebar link to AI Provider Settings, after System Settings)
  erpnext/setup/workspace/erpnext_settings/erpnext_settings.json                   |    +/- (shortcut card + content cell for AI Provider Settings)
- docs/testplans/ai-provider-settings-phase0.md                                    |  ~280 ++ (external-instance test plan)
+ test/testplans/ai-provider-settings-phase0.md                                    |  ~280 ++ (external-instance test plan)
  docs/planning/ocr-provider-choice-claude.md                                      |  ~250 ++ (provider-choice justification)
  docs/planning/real-ocr-implementation-plan.md                                    |  ~700 ++ (8-phase implementation plan)
 ```
+
+OCR Phase 1 — provider adapter seam (no behaviour change):
+
+```
+ erpnext/accounts/ap_closed_loop/extractors/__init__.py                           |    0
+ erpnext/accounts/ap_closed_loop/extractors/base.py                               |   ~90 (OCRProvider ABC + ExtractionResult + PROPOSAL_KEYS)
+ erpnext/accounts/ap_closed_loop/extractors/fake.py                               |   ~75 (FakeExtractor wrapping the existing deterministic proposal)
+ erpnext/accounts/ap_closed_loop/extractors/registry.py                           |   ~35 (get_extractor)
+ erpnext/accounts/ap_closed_loop/extractors/test_extractors.py                    |  ~150 (15 IntegrationTestCase tests)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |    +/- (run_fake_extraction -> run_extraction, dispatches via registry; alias kept)
+ test/testplans/ocr-phase1-adapter.md                                             |  ~200 ++ (external-instance test plan)
+```
+
+OCR Phase 2 — Anthropic Claude extractor (real OCR):
+
+```
+ pyproject.toml                                                                   |    +1 (anthropic>=0.40.0 dependency)
+ erpnext/accounts/ap_closed_loop/extractors/anthropic.py                          |  ~290 (AnthropicExtractor: file read, doc/image block, forced tool use, ExtractionResult mapping, smoke_test)
+ erpnext/accounts/ap_closed_loop/extractors/registry.py                           |    +/- (register "anthropic")
+ erpnext/accounts/ap_closed_loop/extractors/test_anthropic.py                     |  ~230 (14 mocked unit tests + 1 opt-in live test)
+ test/testplans/real-ocr-anthropic.md                                             |  ~250 ++ (external-instance test plan)
+```
+
+Note: Phase 2 registers the real provider but does NOT yet flip the live default — the cascade still uses `fake` until Phase 3 wires `AP Closed Loop Settings.ocr_provider`.
 
 MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §10):
 

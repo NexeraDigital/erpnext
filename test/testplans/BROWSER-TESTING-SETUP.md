@@ -1,6 +1,6 @@
 # Browser Testing Setup — Playwright MCP for Claude Code
 
-> **Purpose:** Give Claude Code the ability to drive a real browser against the local ERPNext site (click, type, screenshot, assert) so it can run the UI portions of the test plans in `docs/testplans/`.
+> **Purpose:** Give Claude Code the ability to drive a real browser against the local ERPNext site (click, type, screenshot, assert) so it can run the UI portions of the test plans in `test/testplans/`.
 >
 > **Audience:** A developer (or their Claude Code agent) setting up browser testing on a fresh checkout. The steps are written so Claude Code can execute them end-to-end.
 >
@@ -152,12 +152,12 @@ If it still errors after restart, the project-scoped `.mcp.json` may need approv
 Playwright MCP saves screenshots relative to the repo root by default, which clutters it. **Always pass a `filename` under the per-feature screenshot folder:**
 
 ```
-docs/testplans/screenshots/<feature-slug>/<descriptive-name>.png
+test/testplans/screenshots/<feature-slug>/<descriptive-name>.png
 ```
 
-Example: `docs/testplans/screenshots/phase0-ai-provider-settings/phase0-after-save.png`.
+Example: `test/testplans/screenshots/phase0-ai-provider-settings/phase0-after-save.png`.
 
-The `docs/testplans/screenshots/` tree is committed (screenshots are test evidence), but the MCP's transient runtime dir `.playwright-mcp/` (accessibility snapshots, console logs, traces) is gitignored.
+The `test/testplans/screenshots/` tree is committed (screenshots are test evidence), but the MCP's transient runtime dir `.playwright-mcp/` (accessibility snapshots, console logs, traces) is gitignored.
 
 ---
 
@@ -170,7 +170,7 @@ browser_type         → fill Email = Administrator, Password = admin
 browser_click        → Login
 browser_navigate     → http://erpnext.localhost:8000/app/<doctype-slug>
 browser_snapshot     → find the field/button refs you need
-browser_take_screenshot (filename: docs/testplans/screenshots/<slug>/...)
+browser_take_screenshot (filename: test/testplans/screenshots/<slug>/...)
 ... drive the feature, asserting on snapshot text and screenshots ...
 ```
 

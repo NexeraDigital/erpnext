@@ -647,25 +647,32 @@ def _detect_simulation_markers(filename: str) -> tuple[set[str], set[str]]:
 	return missing, ambiguous
 
 
-def run_fake_extraction(
+def run_extraction(
 	capture: "APInvoiceCapture | str",
 	*,
 	simulate_missing: list[str] | tuple[str, ...] | None = None,
 	simulate_ambiguous: list[str] | tuple[str, ...] | None = None,
 	save: bool = True,
 ) -> "APInvoiceCapture":
-	"""Run deterministic fake OCR against a capture and persist the proposal.
+	"""Run OCR against a capture and persist the proposal.
 
-	The proposal lives only in ``proposed_*`` fields plus ``ocr_*`` metadata
-	— it is non-authoritative. ``final_*`` fields are intentionally left
-	untouched so downstream consumers cannot mistake an unconfirmed proposal
-	for an AP-reviewed value.
+	Provider-agnostic entry point: the proposal is produced by the configured
+	``OCRProvider`` (Phase 1 ships only the deterministic ``fake`` provider;
+	later phases select a real provider via ``AP Closed Loop Settings``). The
+	proposal lives only in ``proposed_*`` fields plus ``ocr_*`` metadata — it
+	is non-authoritative. ``final_*`` fields are intentionally left untouched
+	so downstream consumers cannot mistake an unconfirmed proposal for an
+	AP-reviewed value.
 
 	``simulate_missing`` / ``simulate_ambiguous`` override / extend any
 	filename-based simulation markers and are intended for explicit test
-	cases. They accept the logical field names declared in
-	``MANDATORY_HEADER_FIELDS``.
+	cases (honoured by the fake provider). They accept the logical field names
+	declared in ``MANDATORY_HEADER_FIELDS``.
 	"""
+
+	# Late import keeps the module load cycle-free (registry -> fake -> base,
+	# none of which import this module at load time).
+	from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor
 
 	if isinstance(capture, str):
 		capture = frappe.get_doc("AP Invoice Capture", capture)
@@ -675,24 +682,19 @@ def run_fake_extraction(
 			_("Cannot run extraction on an unsupported source format.")
 		)
 
-	filename_missing, filename_ambiguous = _detect_simulation_markers(
-		capture.source_filename or ""
+	# Phase 1: always the fake provider. Phase 2 reads the provider name from
+	# AP Closed Loop Settings and passes it here.
+	result = get_extractor("fake").extract(
+		capture,
+		simulate_missing=simulate_missing,
+		simulate_ambiguous=simulate_ambiguous,
 	)
-	missing_fields: set[str] = set(filename_missing)
-	ambiguous_fields: set[str] = set(filename_ambiguous)
-	if simulate_missing:
-		missing_fields.update(simulate_missing)
-	if simulate_ambiguous:
-		ambiguous_fields.update(simulate_ambiguous)
-
-	proposal = _propose_for_seed(_seed_for_capture(capture))
-	# Strip values for any field the caller / filename marks as missing.
-	for logical_name in missing_fields:
-		if logical_name in proposal:
-			proposal[logical_name] = None
+	proposal = result.proposal
+	missing_fields = result.missing_fields
+	ambiguous_fields = result.ambiguous_fields
 
 	now = now_datetime()
-	capture.ocr_provider = FAKE_OCR_PROVIDER
+	capture.ocr_provider = result.provider_name
 	capture.ocr_extracted_at = now
 	capture.ocr_status = OCR_STATUS_PROPOSED
 
@@ -712,7 +714,7 @@ def run_fake_extraction(
 	)
 	capture.ocr_raw_response = json.dumps(
 		{
-			"provider": FAKE_OCR_PROVIDER,
+			"provider": result.provider_name,
 			"extracted_at": now.isoformat() if hasattr(now, "isoformat") else str(now),
 			"proposal": proposal,
 			"missing_fields": sorted(missing_fields),
@@ -730,6 +732,11 @@ def run_fake_extraction(
 	if save:
 		capture.save()
 	return capture
+
+
+# Backward-compatible alias. The pilot's test suite and the cascade call this
+# by name; ``run_extraction`` is the forward-looking provider-agnostic name.
+run_fake_extraction = run_extraction
 
 
 # ---------------------------------------------------------------------------

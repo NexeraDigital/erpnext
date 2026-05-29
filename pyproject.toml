@@ -24,6 +24,9 @@ dependencies = [
 
     # MT940 parser for bank statements
     "mt-940>=4.26.0",
+
+    # AI / OCR — Anthropic Claude for AP Invoice Capture extraction (fork pilot)
+    "anthropic>=0.40.0",
 ]
 
 [build-system]

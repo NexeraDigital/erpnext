@@ -28,7 +28,7 @@ Before doing non-trivial work, read the doc that matches your task.
 | `docs/changes/NewUpdates.md` | The 13-step AP workflow design (ambition spec, broader than what's shipped) | Workflow design changes — distinct from current implementation |
 | `docs/changes/GAP-ANALYSIS.md` | Gap between current ERPNext capability and pilot target | Pilot scope or upstream capability changes |
 | `docs/changes/IMPLEMENTATION-PLAN.md` | Build sequence and milestones for the pilot | Pilot milestones move or new tasks are added |
-| `docs/testplans/*.md` | Per-feature, self-contained test plans executed by an **external** Claude instance (WSL here can't run automated tests locally) | Any feature is added or modified — see "Test plans" section below |
+| `test/testplans/*.md` | Per-feature, self-contained test plans executed by an **external** Claude instance for independent clean-room verification (local `bench run-tests` works too — see "Automated tests") | Any feature is added or modified — see "Test plans" section below |
 | `AGENTS.md` (root) | Codex ↔ Claude ↔ Obsidian orchestration for the pilot (Brandon's working notes) | Codex/Claude workflow itself changes — not for code work |
 
 ## Working rules
@@ -39,13 +39,24 @@ Before doing non-trivial work, read the doc that matches your task.
 - **Don't duplicate Frappe docs.** If something is generic ERPNext/Frappe behavior, link to upstream docs rather than restating in this repo.
 - **Existing convention is to keep `FORK-CHANGES.md` and `FORK-CHANGES-PLAIN.md` paired** — if you update one, update both.
 - **When the user references a screenshot or image file by name without a full path** (e.g. *"see Screenshot 2026-05-27 093723.png"*), look in `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/` first. That's their Windows Pictures → Screenshots folder mounted via WSL — note the literal folder name `Screenshots 1` (with the trailing space and `1`). A Windows-style path like `C:\Users\russw\OneDrive\Pictures\Screenshots 1\...` translates to `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/...`.
-- **For every feature added or modified**, write a test plan in `docs/testplans/` per the "Test plans" section below. A code change without a paired test plan is incomplete.
+- **For every feature added or modified**, write a test plan in `test/testplans/` per the "Test plans" section below. A code change without a paired test plan is incomplete.
+
+## Automated tests (mandatory for every feature with testable logic)
+
+**Every feature that adds or changes Python logic MUST ship automated tests in the same commit/PR as the code.** This is separate from — and complementary to — the test *plan* (below): automated tests are the local, repeatable regression guard that runs under `bench run-tests`; the test plan is the runbook an external instance follows for end-to-end / UI verification. A feature needs **both**, not one or the other.
+
+- **What to test:** any new function, DocType controller, helper, or adapter with branching logic. Unit-level behavior (a function returns the right value, raises the right error), plus the state transitions a controller drives. If a code change is purely a no-behavior-change refactor, the regression proof is that the **existing** suites pass unchanged — but new code paths (new modules, new providers, new registry entries) still need their own new tests.
+- **Where:** mirror the existing convention — `test_*.py` co-located with the code (e.g. `erpnext/<module>/tests/test_*.py` or `erpnext/<module>/doctype/<dt>/test_<dt>.py`). New standalone packages get a `test_<package>.py` inside them.
+- **Base class:** use `from frappe.tests import IntegrationTestCase` (the v16 convention used across this fork). Roll back DB writes in `tearDown` so suites are reentrant.
+- **Coverage bar:** positive case, negative case (the error path / guard), and at least one edge case per public function. For registries/adapters: resolution of each registered key AND the unknown-key error.
+- **How to apply:** write the tests as you write the code, run them locally with `bench --site <site> run-tests --module <dotted.path>`, and confirm green before declaring the feature done. "Verified via throwaway console probes" is NOT sufficient — probes vanish with the session; commit the assertions as tests.
+- **Exemption:** pure docs, JSON-only DocType field additions with no controller logic, and trivial config edits don't need automated tests (but may still need a test plan if they change user-visible behavior).
 
 ## Test plans (mandatory for every feature)
 
-Automated tests cannot be executed in this WSL development environment — the actual test runs happen in a **separate, isolated Claude instance** (cloud VM or dedicated bench) that has **no prior context** about this repo, the conversation that produced the feature, or the developer's local state. Every new or modified feature MUST ship with a self-contained test plan that the external instance can execute without asking clarifying questions.
+Local `bench run-tests` works in this WSL bench (use it — see "Automated tests" above), but it runs against a developer site carrying accumulated local state. A test plan is the **independent clean-room verification**: the actual runbook is executed by a **separate, isolated Claude instance** (cloud VM or fresh bench) that has **no prior context** about this repo, the conversation that produced the feature, or the developer's local state — so it catches "works on my machine" gaps the local automated tests can't. Every new or modified feature MUST ship with a self-contained test plan that the external instance can execute without asking clarifying questions.
 
-- **Path:** `docs/testplans/<feature-slug>.md`. One file per feature. Slug in kebab-case matching the feature (e.g. `ap-invoice-capture-promote.md`, `real-ocr-anthropic.md`, `v16-upgrade-smoke.md`).
+- **Path:** `test/testplans/<feature-slug>.md`. One file per feature. Slug in kebab-case matching the feature (e.g. `ap-invoice-capture-promote.md`, `real-ocr-anthropic.md`, `v16-upgrade-smoke.md`).
 - **Trigger:** create or update the test plan in the **same commit / PR** that introduces or modifies the feature. Code change without a paired test plan is incomplete.
 - **Audience assumptions:** the external Claude instance has zero prior knowledge. It has not read this `CLAUDE.md`, it has not seen the planning docs, it has no memory of design discussions. It has a checkout of the branch and shell access on a clean bench. Write accordingly — the plan must read like a runbook.
 - **Required sections (in this order):**
@@ -68,10 +79,10 @@ Automated tests cannot be executed in this WSL development environment — the a
 
 UI test steps are executed by Claude Code driving a real browser through the **Playwright MCP server**. This is **not** committed config — the MCP setup is machine-specific (it pins an absolute path to the local Chromium binary), so each developer's machine sets it up once.
 
-- **Setup runbook:** `docs/testplans/BROWSER-TESTING-SETUP.md` is the authoritative, reproducible recipe. Follow it exactly — it encodes a known WSL gotcha (Playwright's auto-download extracts incompletely on WSL, so we install Chromium normally and point the MCP at it via `--executable-path`).
-- **If `.mcp.json` is missing or the `playwright` MCP isn't registered** (check with `claude mcp list`), and the user asks to run a UI test or "test in the browser": offer to set it up by following `docs/testplans/BROWSER-TESTING-SETUP.md`. Walk its steps — `claude mcp add playwright --scope project`, `npx playwright install chromium`, install system libs (sudo — ask first per the SSH/sudo rule below), write `.mcp.json` with the discovered binary path, then tell the user to **restart Claude Code** (MCP config loads only at startup).
+- **Setup runbook:** `test/testplans/BROWSER-TESTING-SETUP.md` is the authoritative, reproducible recipe. Follow it exactly — it encodes a known WSL gotcha (Playwright's auto-download extracts incompletely on WSL, so we install Chromium normally and point the MCP at it via `--executable-path`).
+- **If `.mcp.json` is missing or the `playwright` MCP isn't registered** (check with `claude mcp list`), and the user asks to run a UI test or "test in the browser": offer to set it up by following `test/testplans/BROWSER-TESTING-SETUP.md`. Walk its steps — `claude mcp add playwright --scope project`, `npx playwright install chromium`, install system libs (sudo — ask first per the SSH/sudo rule below), write `.mcp.json` with the discovered binary path, then tell the user to **restart Claude Code** (MCP config loads only at startup).
 - **`.mcp.json` and `.playwright-mcp/` are gitignored.** Never commit them. Never hand-edit `.mcp.json` to a path from another machine.
-- **Screenshots are test evidence and ARE committed.** Save them under `docs/testplans/screenshots/<feature-slug>/<descriptive-name>.png` — always pass that path as the screenshot `filename` so they don't land in the repo root. The transient `.playwright-mcp/` runtime dir (snapshots, console logs, traces) stays gitignored.
+- **Screenshots are test evidence and ARE committed.** Save them under `test/testplans/screenshots/<feature-slug>/<descriptive-name>.png` — always pass that path as the screenshot `filename` so they don't land in the repo root. The transient `.playwright-mcp/` runtime dir (snapshots, console logs, traces) stays gitignored.
 - **The DB is the source of truth, not the screenshot.** After a UI action that writes data, verify the result with `bench --site … mariadb` / `bench … execute`, then clean up any test data written through the UI.
 
 ## Remote (SSH) access to customer machines
