@@ -1,0 +1,17 @@
+{
+  "file": "invoice_16.png",
+  "format": "png",
+  "template": "minimal",
+  "quality": "scanned",
+  "date_style": "us",
+  "expected": {
+    "supplier": "Umbrella Holdings",
+    "supplier_invoice_no": "UMB-0420",
+    "invoice_date": "2026-02-22",
+    "total_amount": 4999.0,
+    "currency": "USD"
+  },
+  "expected_missing": [],
+  "line_item_count": 1,
+  "notes": "minimal; scanned; png; date=us"
+}

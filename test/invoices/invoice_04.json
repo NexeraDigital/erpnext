@@ -1,0 +1,17 @@
+{
+  "file": "invoice_04.jpg",
+  "format": "jpg",
+  "template": "modern",
+  "quality": "degraded",
+  "date_style": "iso",
+  "expected": {
+    "supplier": "Massive Dynamic",
+    "supplier_invoice_no": "MD-2026-7",
+    "invoice_date": "2026-04-09",
+    "total_amount": 2825.0,
+    "currency": "CAD"
+  },
+  "expected_missing": [],
+  "line_item_count": 1,
+  "notes": "modern; degraded; jpg; date=iso"
+}

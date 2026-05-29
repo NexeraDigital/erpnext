@@ -1,0 +1,17 @@
+{
+  "file": "invoice_02.png",
+  "format": "png",
+  "template": "modern",
+  "quality": "scanned",
+  "date_style": "us",
+  "expected": {
+    "supplier": "Cyberdyne Systems",
+    "supplier_invoice_no": "CYB-2026-0808",
+    "invoice_date": "2026-03-11",
+    "total_amount": 3710.7,
+    "currency": "USD"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "modern; scanned; png; date=us"
+}

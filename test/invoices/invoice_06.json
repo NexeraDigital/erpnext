@@ -1,0 +1,17 @@
+{
+  "file": "invoice_06.pdf",
+  "format": "pdf",
+  "template": "classic",
+  "quality": "clean",
+  "date_style": "eu",
+  "expected": {
+    "supplier": "Globex Logistics GmbH",
+    "supplier_invoice_no": "GLX/2026/0091",
+    "invoice_date": "2026-01-31",
+    "total_amount": 15994.0,
+    "currency": "EUR"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "classic; clean; pdf; date=eu"
+}

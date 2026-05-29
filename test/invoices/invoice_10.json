@@ -1,0 +1,17 @@
+{
+  "file": "invoice_10.jpg",
+  "format": "jpg",
+  "template": "classic",
+  "quality": "photo",
+  "date_style": "iso",
+  "expected": {
+    "supplier": "Soylent Foods Co.",
+    "supplier_invoice_no": "SF-2026-118",
+    "invoice_date": "2026-03-29",
+    "total_amount": 2257.5,
+    "currency": "CAD"
+  },
+  "expected_missing": [],
+  "line_item_count": 1,
+  "notes": "classic; photo; jpg; date=iso"
+}

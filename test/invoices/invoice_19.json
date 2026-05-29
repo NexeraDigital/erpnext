@@ -1,0 +1,19 @@
+{
+  "file": "invoice_19.png",
+  "format": "png",
+  "template": "classic",
+  "quality": "scanned",
+  "date_style": "us",
+  "expected": {
+    "supplier": "Wonka Industries",
+    "supplier_invoice_no": null,
+    "invoice_date": "2026-04-11",
+    "total_amount": 856.0,
+    "currency": "USD"
+  },
+  "expected_missing": [
+    "supplier_invoice_no"
+  ],
+  "line_item_count": 2,
+  "notes": "classic; scanned; png; date=us; missing=supplier_invoice_no"
+}

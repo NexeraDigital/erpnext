@@ -1,0 +1,19 @@
+{
+  "file": "invoice_20.jpg",
+  "format": "jpg",
+  "template": "minimal",
+  "quality": "photo",
+  "date_style": "iso",
+  "expected": {
+    "supplier": "Wernham Hogg",
+    "supplier_invoice_no": "WH-2026-9",
+    "invoice_date": null,
+    "total_amount": 672.3,
+    "currency": "GBP"
+  },
+  "expected_missing": [
+    "invoice_date"
+  ],
+  "line_item_count": 2,
+  "notes": "minimal; photo; jpg; date=iso; missing=invoice_date"
+}

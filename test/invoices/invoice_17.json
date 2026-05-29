@@ -1,0 +1,17 @@
+{
+  "file": "invoice_17.jpg",
+  "format": "jpg",
+  "template": "minimal",
+  "quality": "photo",
+  "date_style": "iso",
+  "expected": {
+    "supplier": "Nakatomi Trading",
+    "supplier_invoice_no": "NAK-2026-31",
+    "invoice_date": "2026-02-03",
+    "total_amount": 8937.5,
+    "currency": "AUD"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "minimal; photo; jpg; date=iso"
+}

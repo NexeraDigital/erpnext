@@ -1,0 +1,17 @@
+{
+  "file": "invoice_15.pdf",
+  "format": "pdf",
+  "template": "minimal",
+  "quality": "clean",
+  "date_style": "long",
+  "expected": {
+    "supplier": "Acme Office Supplies",
+    "supplier_invoice_no": "AC-5582",
+    "invoice_date": "2026-04-02",
+    "total_amount": 375.59,
+    "currency": "GBP"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "minimal; clean; pdf; date=long"
+}

@@ -1,0 +1,17 @@
+{
+  "file": "invoice_13.pdf",
+  "format": "pdf",
+  "template": "euvat",
+  "quality": "clean",
+  "date_style": "eu",
+  "expected": {
+    "supplier": "Gekko & Co AG",
+    "supplier_invoice_no": "GEK-2026-301",
+    "invoice_date": "2026-02-28",
+    "total_amount": 23400.0,
+    "currency": "GBP"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "euvat; clean; pdf; date=eu"
+}

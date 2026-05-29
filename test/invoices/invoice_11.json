@@ -1,0 +1,17 @@
+{
+  "file": "invoice_11.pdf",
+  "format": "pdf",
+  "template": "euvat",
+  "quality": "clean",
+  "date_style": "eu",
+  "expected": {
+    "supplier": "Vandelay Industries",
+    "supplier_invoice_no": "VAN-26-0012",
+    "invoice_date": "2026-01-07",
+    "total_amount": 50575.0,
+    "currency": "EUR"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "euvat; clean; pdf; date=eu"
+}

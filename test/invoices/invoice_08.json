@@ -1,0 +1,17 @@
+{
+  "file": "invoice_08.png",
+  "format": "png",
+  "template": "classic",
+  "quality": "faxed",
+  "date_style": "us",
+  "expected": {
+    "supplier": "Tyrell Corporation",
+    "supplier_invoice_no": "TYR-880",
+    "invoice_date": "2026-03-22",
+    "total_amount": 47088.75,
+    "currency": "USD"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "classic; faxed; png; date=us"
+}

@@ -1,0 +1,17 @@
+{
+  "file": "invoice_01.pdf",
+  "format": "pdf",
+  "template": "modern",
+  "quality": "clean",
+  "date_style": "iso",
+  "expected": {
+    "supplier": "Northwind Traders Ltd.",
+    "supplier_invoice_no": "NW-2026-00417",
+    "invoice_date": "2026-03-18",
+    "total_amount": 1274.81,
+    "currency": "EUR"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "modern; clean; pdf; date=iso"
+}

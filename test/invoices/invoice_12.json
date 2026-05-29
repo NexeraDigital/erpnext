@@ -1,0 +1,17 @@
+{
+  "file": "invoice_12.png",
+  "format": "png",
+  "template": "euvat",
+  "quality": "scanned",
+  "date_style": "eu",
+  "expected": {
+    "supplier": "Pied Piper B.V.",
+    "supplier_invoice_no": "PP-2026-44",
+    "invoice_date": "2026-04-25",
+    "total_amount": 2298.94,
+    "currency": "EUR"
+  },
+  "expected_missing": [],
+  "line_item_count": 1,
+  "notes": "euvat; scanned; png; date=eu"
+}

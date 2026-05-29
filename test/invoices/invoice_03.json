@@ -1,0 +1,17 @@
+{
+  "file": "invoice_03.jpg",
+  "format": "jpg",
+  "template": "modern",
+  "quality": "photo",
+  "date_style": "long",
+  "expected": {
+    "supplier": "Stark Components",
+    "supplier_invoice_no": "STK-2026-77",
+    "invoice_date": "2026-04-18",
+    "total_amount": 6720.0,
+    "currency": "GBP"
+  },
+  "expected_missing": [],
+  "line_item_count": 2,
+  "notes": "modern; photo; jpg; date=long"
+}
