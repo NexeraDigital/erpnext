@@ -79,6 +79,20 @@ OCR Phase 2 — Anthropic Claude extractor (real OCR):
 
 Note: Phase 2 registers the real provider but does NOT yet flip the live default — the cascade still uses `fake` until Phase 3 wires `AP Closed Loop Settings.ocr_provider`.
 
+OCR Phase 3 — settings-driven provider selection (turns real OCR on in the workflow):
+
+```
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json   |    +/- (ocr_provider/model/fallback_model/confidence_threshold/max_file_mb/force_reextract fields)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py     |    +/- (validate(): require key when Anthropic + range check; get_ocr_config() accessor)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction reads get_ocr_config(); dispatches provider/model/threshold)
+ erpnext/accounts/ap_closed_loop/extractors/registry.py                          |    +/- (get_extractor forwards model/confidence_threshold kwargs)
+ erpnext/accounts/ap_closed_loop/extractors/fake.py                              |    +/- (FakeExtractor ignores provider-config kwargs)
+ erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py|  ~180 (8 tests: get_ocr_config, validate, dispatch — transaction-scoped, no commits)
+ test/testplans/ocr-phase3-settings.md                                           |  ~180 ++ (external-instance test plan)
+```
+
+After Phase 3: an operator sets **AP Closed Loop Settings → OCR Provider = Anthropic Claude** (with a key in **AI Provider Settings**) and the live capture cascade calls Claude. Default remains **Fake (Deterministic)** so an unconfigured site makes no API calls. The `anthropic_api_key` lives only on `AI Provider Settings` (System Manager); AP Managers choose the provider but cannot see the credential.
+
 MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §10):
 
 ```

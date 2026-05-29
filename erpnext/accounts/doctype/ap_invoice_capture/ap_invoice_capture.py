@@ -673,6 +673,9 @@ def run_extraction(
 	# Late import keeps the module load cycle-free (registry -> fake -> base,
 	# none of which import this module at load time).
 	from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_ocr_config,
+	)
 
 	if isinstance(capture, str):
 		capture = frappe.get_doc("AP Invoice Capture", capture)
@@ -682,9 +685,15 @@ def run_extraction(
 			_("Cannot run extraction on an unsupported source format.")
 		)
 
-	# Phase 1: always the fake provider. Phase 2 reads the provider name from
-	# AP Closed Loop Settings and passes it here.
-	result = get_extractor("fake").extract(
+	# Phase 3: provider, model, and confidence threshold come from
+	# AP Closed Loop Settings, defaulting to the deterministic fake provider
+	# when unconfigured (so a fresh site makes no real API calls).
+	ocr_config = get_ocr_config()
+	result = get_extractor(
+		ocr_config["provider"],
+		model=ocr_config["model"],
+		confidence_threshold=ocr_config["confidence_threshold"],
+	).extract(
 		capture,
 		simulate_missing=simulate_missing,
 		simulate_ambiguous=simulate_ambiguous,

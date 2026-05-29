@@ -24,8 +24,11 @@ _PROVIDERS = {
 }
 
 
-def get_extractor(name: str = "fake") -> OCRProvider:
+def get_extractor(name: str = "fake", **kwargs) -> OCRProvider:
 	"""Return an OCRProvider instance for the named provider.
+
+	Extra keyword args (e.g. ``model``, ``confidence_threshold``) are passed
+	to the provider constructor; providers that don't use them ignore them.
 
 	Raises ValueError for an unknown provider so a misconfigured setting
 	fails loudly rather than silently skipping extraction.
@@ -36,4 +39,4 @@ def get_extractor(name: str = "fake") -> OCRProvider:
 		raise ValueError(
 			f"Unknown OCR provider {name!r}. Registered: {', '.join(sorted(_PROVIDERS))}."
 		)
-	return provider_cls()
+	return provider_cls(**kwargs)

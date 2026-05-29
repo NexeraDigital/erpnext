@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 class FakeExtractor(OCRProvider):
 	"""Deterministic, hash-seeded fake extractor used in tests and dev."""
 
+	def __init__(self, **_kwargs):
+		# Accept and ignore provider-config kwargs (model, confidence_threshold,
+		# etc.) so the registry can pass a uniform config to any provider.
+		pass
+
 	def name(self) -> str:
 		# Lazy import keeps module load cycle-free; the constant is the single
 		# source of truth for the provider id.
