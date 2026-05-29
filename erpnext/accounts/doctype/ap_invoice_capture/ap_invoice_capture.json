@@ -28,11 +28,11 @@
   "ocr_provider",
   "ocr_status",
   "ocr_extracted_at",
-  "column_break_ocr",
   "proposed_supplier",
   "proposed_supplier_invoice_no",
   "proposed_invoice_date",
   "proposed_total_amount",
+  "column_break_ocr",
   "proposed_currency",
   "proposed_missing_fields",
   "proposed_ambiguous_fields",
@@ -237,10 +237,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "column_break_ocr",
-   "fieldtype": "Column Break"
-  },
-  {
    "description": "Proposed supplier name (assistive). Not authoritative until AP review.",
    "fieldname": "proposed_supplier",
    "fieldtype": "Data",
@@ -268,6 +264,10 @@
    "label": "Proposed Total Amount",
    "precision": "2",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ocr",
+   "fieldtype": "Column Break"
   },
   {
    "description": "Proposed ISO-4217 currency code (assistive).",
