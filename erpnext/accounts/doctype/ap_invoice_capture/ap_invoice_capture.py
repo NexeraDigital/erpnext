@@ -689,16 +689,37 @@ def run_extraction(
 	# AP Closed Loop Settings, defaulting to the deterministic fake provider
 	# when unconfigured (so a fresh site makes no real API calls).
 	ocr_config = get_ocr_config()
-	result = get_extractor(
-		ocr_config["provider"],
-		model=ocr_config["model"],
-		confidence_threshold=ocr_config["confidence_threshold"],
-		fallback_model=ocr_config.get("fallback_model"),
-	).extract(
-		capture,
-		simulate_missing=simulate_missing,
-		simulate_ambiguous=simulate_ambiguous,
-	)
+	provider = ocr_config["provider"]
+	# Phase 5: real-provider calls are audited via Integration Request. The fake
+	# provider makes no API call and has no cost, so it is not logged.
+	audit = provider != "fake"
+	try:
+		result = get_extractor(
+			provider,
+			model=ocr_config["model"],
+			confidence_threshold=ocr_config["confidence_threshold"],
+			fallback_model=ocr_config.get("fallback_model"),
+		).extract(
+			capture,
+			simulate_missing=simulate_missing,
+			simulate_ambiguous=simulate_ambiguous,
+		)
+	except Exception as exc:
+		if audit:
+			from erpnext.accounts.ap_closed_loop.extractors.audit import (
+				write_integration_request,
+			)
+
+			write_integration_request(capture, status="Failed", error=str(exc))
+		raise
+
+	if audit:
+		from erpnext.accounts.ap_closed_loop.extractors.audit import (
+			write_integration_request,
+		)
+
+		write_integration_request(capture, result=result, status="Completed")
+
 	proposal = result.proposal
 	missing_fields = result.missing_fields
 	ambiguous_fields = result.ambiguous_fields

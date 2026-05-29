@@ -165,13 +165,21 @@ class AnthropicExtractor(OCRProvider):
 		simulate_missing=None,  # noqa: ARG002 - real provider ignores test affordances
 		simulate_ambiguous=None,  # noqa: ARG002
 	) -> ExtractionResult:
+		import time
+
 		file_bytes, media_type = self._read_source(capture)
 		file_bytes, media_type = self._prepare_image(file_bytes, media_type)
 		client = self._get_client()
 		content = self._build_content(file_bytes, media_type)
 
+		# Accumulate per-call telemetry across primary + any fallback so cost and
+		# token usage in the audit log reflect EVERY call, not just the last one.
+		calls: list[dict] = []
+		t0 = time.monotonic()
+
 		primary_model = self._resolve_model()
 		tool_input, response = self._call_model(client, content, primary_model)
+		calls.append(self._call_usage(primary_model, response))
 		result = self._to_extraction_result(
 			tool_input, response, model=primary_model, outcome="primary"
 		)
@@ -182,10 +190,24 @@ class AnthropicExtractor(OCRProvider):
 		needs_fallback = bool(result.missing_fields or result.ambiguous_fields)
 		if fb and fb != primary_model and needs_fallback:
 			tool_input, response = self._call_model(client, content, fb)
+			calls.append(self._call_usage(fb, response))
 			result = self._to_extraction_result(
 				tool_input, response, model=fb, outcome="fallback_invoked"
 			)
+
+		# Per-call breakdown + total latency for the audit log (Phase 5).
+		result.raw_response["calls"] = calls
+		result.raw_response["latency_ms"] = int((time.monotonic() - t0) * 1000)
 		return result
+
+	@staticmethod
+	def _call_usage(model: str, response) -> dict:
+		usage = getattr(response, "usage", None)
+		return {
+			"model": model,
+			"input_tokens": getattr(usage, "input_tokens", None) if usage else None,
+			"output_tokens": getattr(usage, "output_tokens", None) if usage else None,
+		}
 
 	def _call_model(self, client, content, model):
 		"""One forced-tool extraction call. Returns (tool_input, response)."""

@@ -105,6 +105,19 @@ OCR Phase 4 — low-confidence fallback (Haiku → Sonnet):
 
 Phase 4 behaviour: the primary model (default Haiku) handles every invoice; only when it can't confidently read a required field does the extractor retry **once** with `ocr_fallback_model` (e.g. Sonnet). At most one retry — no looping, no Opus escalation. Empty fallback model = disabled (the default). On the synthetic corpus Haiku already scores 100%, so fallback's value is on messy real-world invoices.
 
+OCR Phase 5 — audit logging & cost tracking (via Integration Request):
+
+```
+ erpnext/accounts/ap_closed_loop/extractors/pricing.py                           |  ~70 (per-model token rate table + estimate_cost_usd)
+ erpnext/accounts/ap_closed_loop/extractors/audit.py                             |  ~120 (write_integration_request + sanitize; never logs the key)
+ erpnext/accounts/ap_closed_loop/extractors/anthropic.py                         |    +/- (accumulate per-call usage + total latency_ms into raw_response)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction logs Completed/Failed Integration Request for the real provider)
+ erpnext/accounts/ap_closed_loop/extractors/test_audit.py                        |  ~190 (11 tests: pricing, sanitize, IR write, run_extraction integration)
+ test/testplans/ocr-phase5-audit.md                                              |  ~150 ++ (external-instance test plan)
+```
+
+Phase 5 behaviour: each real extraction (and failure) is recorded as a Frappe **`Integration Request`** (`integration_request_service="anthropic"`, referenced to the capture) with model(s), per-call + total token usage, estimated USD cost, latency, outcome, and a sanitized error on failure. The fake provider is not logged (no call, no cost). API keys are never persisted in any field. Operators view the trail at `/app/integration-request` filtered by service. Verified live: one extraction → `Completed` row, real tokens/cost/latency, no key leak.
+
 OCR OCR test corpus + benchmark (supporting the above phases):
 
 ```
