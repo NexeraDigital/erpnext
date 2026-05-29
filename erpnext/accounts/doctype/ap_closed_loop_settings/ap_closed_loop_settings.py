@@ -143,6 +143,7 @@ def get_ocr_config() -> dict:
 	return {
 		"provider": provider_key,
 		"model": stored.get("ocr_model") or None,
+		"fallback_model": stored.get("ocr_fallback_model") or None,
 		"confidence_threshold": threshold,
 		"max_file_mb": max_mb,
 		"force_reextract": bool(stored.get("ocr_force_reextract")),

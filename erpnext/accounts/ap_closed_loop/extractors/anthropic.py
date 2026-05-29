@@ -124,10 +124,15 @@ class AnthropicExtractor(OCRProvider):
 		client=None,
 		model: str | None = None,
 		confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+		fallback_model: str | None = None,
 	):
 		self._client = client
 		self._model = model
 		self._confidence_threshold = confidence_threshold
+		# Phase 4: when the primary (e.g. Haiku) pass leaves a required field
+		# missing/ambiguous, retry once with this stronger model. Empty/None
+		# disables fallback.
+		self._fallback_model = fallback_model or None
 
 	def name(self) -> str:
 		return PROVIDER_NAME
@@ -163,15 +168,35 @@ class AnthropicExtractor(OCRProvider):
 		file_bytes, media_type = self._read_source(capture)
 		file_bytes, media_type = self._prepare_image(file_bytes, media_type)
 		client = self._get_client()
+		content = self._build_content(file_bytes, media_type)
+
+		primary_model = self._resolve_model()
+		tool_input, response = self._call_model(client, content, primary_model)
+		result = self._to_extraction_result(
+			tool_input, response, model=primary_model, outcome="primary"
+		)
+
+		# Phase 4 fallback: if the primary pass couldn't confidently read every
+		# required field, retry ONCE with the configured fallback model.
+		fb = self._fallback_model
+		needs_fallback = bool(result.missing_fields or result.ambiguous_fields)
+		if fb and fb != primary_model and needs_fallback:
+			tool_input, response = self._call_model(client, content, fb)
+			result = self._to_extraction_result(
+				tool_input, response, model=fb, outcome="fallback_invoked"
+			)
+		return result
+
+	def _call_model(self, client, content, model):
+		"""One forced-tool extraction call. Returns (tool_input, response)."""
 		response = client.messages.create(
-			model=self._resolve_model(),
+			model=model,
 			max_tokens=MAX_TOKENS,
 			tools=[INVOICE_EXTRACTION_TOOL],
 			tool_choice={"type": "tool", "name": "extract_invoice_fields"},
-			messages=[{"role": "user", "content": self._build_content(file_bytes, media_type)}],
+			messages=[{"role": "user", "content": content}],
 		)
-		tool_input = self._parse_tool_use(response)
-		return self._to_extraction_result(tool_input, response)
+		return self._parse_tool_use(response), response
 
 	# -- helpers (each independently testable) -----------------------------
 
@@ -267,7 +292,9 @@ class AnthropicExtractor(OCRProvider):
 			frappe._("Claude did not return a structured invoice extraction.")
 		)
 
-	def _to_extraction_result(self, tool_input: dict, response=None) -> ExtractionResult:
+	def _to_extraction_result(
+		self, tool_input: dict, response=None, *, model: str | None = None, outcome: str | None = None
+	) -> ExtractionResult:
 		confidences = tool_input.get("confidence_per_field") or {}
 		proposal: dict = {}
 		missing: set[str] = set()
@@ -290,7 +317,9 @@ class AnthropicExtractor(OCRProvider):
 				"input_tokens": getattr(usage, "input_tokens", None),
 				"output_tokens": getattr(usage, "output_tokens", None),
 			}
-		raw["model"] = self._resolve_model()
+		raw["model"] = model or self._resolve_model()
+		if outcome:
+			raw["outcome"] = outcome
 
 		return ExtractionResult(
 			proposal=proposal,

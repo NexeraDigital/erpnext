@@ -232,6 +232,82 @@ class TestAnthropicExtractEndToEnd(IntegrationTestCase):
 		self.assertIsInstance(get_extractor("anthropic"), AnthropicExtractor)
 
 
+class TestAnthropicFallback(IntegrationTestCase):
+	"""Phase 4: low-confidence/missing primary result triggers exactly one
+	retry with the configured fallback model."""
+
+	def _low_conf_input(self):
+		data = dict(_GOOD_INPUT)
+		data["confidence_per_field"] = dict(data["confidence_per_field"])
+		data["confidence_per_field"]["invoice_date"] = 0.30  # below threshold
+		return data
+
+	def _extractor(self, client, fallback="claude-sonnet-4-7"):
+		ex = AnthropicExtractor(
+			client=client, model="claude-haiku-4-5-20251001", fallback_model=fallback
+		)
+		ex._read_source = lambda capture: (b"img", "image/png")
+		ex._prepare_image = lambda b, m: (b, m)
+		return ex
+
+	def _cap(self):
+		c = frappe.new_doc("AP Invoice Capture")
+		c.source_filename = "fb.png"
+		c.file_extension = "png"
+		c.intake_channel = "Manual ERPNext Upload"
+		c.is_supported_format = 1
+		return c
+
+	def test_low_confidence_triggers_single_fallback(self):
+		client = MagicMock()
+		# 1st (Haiku) low-confidence, 2nd (Sonnet) clean.
+		client.messages.create.side_effect = [
+			_response([_tool_use_block(self._low_conf_input())]),
+			_response([_tool_use_block(_GOOD_INPUT)]),
+		]
+		result = self._extractor(client).extract(self._cap())
+		self.assertEqual(client.messages.create.call_count, 2)
+		# second call used the fallback model
+		self.assertEqual(client.messages.create.call_args_list[1].kwargs["model"], "claude-sonnet-4-7")
+		self.assertEqual(result.raw_response["outcome"], "fallback_invoked")
+		self.assertEqual(result.raw_response["model"], "claude-sonnet-4-7")
+		self.assertEqual(result.ambiguous_fields, set())  # resolved by fallback
+
+	def test_high_confidence_no_fallback(self):
+		client = MagicMock()
+		client.messages.create.side_effect = [_response([_tool_use_block(_GOOD_INPUT)])]
+		result = self._extractor(client).extract(self._cap())
+		self.assertEqual(client.messages.create.call_count, 1)
+		self.assertEqual(result.raw_response["outcome"], "primary")
+
+	def test_no_fallback_model_means_no_retry(self):
+		client = MagicMock()
+		client.messages.create.side_effect = [_response([_tool_use_block(self._low_conf_input())])]
+		result = self._extractor(client, fallback=None).extract(self._cap())
+		self.assertEqual(client.messages.create.call_count, 1)  # no retry despite low conf
+		self.assertIn("invoice_date", result.ambiguous_fields)
+
+	def test_fallback_equal_to_primary_skips_retry(self):
+		client = MagicMock()
+		client.messages.create.side_effect = [_response([_tool_use_block(self._low_conf_input())])]
+		ex = self._extractor(client, fallback="claude-haiku-4-5-20251001")  # same as primary
+		result = ex.extract(self._cap())
+		self.assertEqual(client.messages.create.call_count, 1)
+		self.assertEqual(result.raw_response["outcome"], "primary")
+
+	def test_fallback_fires_once_only_even_if_still_low(self):
+		client = MagicMock()
+		# both passes low-confidence; must NOT loop — exactly 2 calls total.
+		client.messages.create.side_effect = [
+			_response([_tool_use_block(self._low_conf_input())]),
+			_response([_tool_use_block(self._low_conf_input())]),
+		]
+		result = self._extractor(client).extract(self._cap())
+		self.assertEqual(client.messages.create.call_count, 2)
+		self.assertEqual(result.raw_response["outcome"], "fallback_invoked")
+		self.assertIn("invoice_date", result.ambiguous_fields)  # still flagged for human
+
+
 class TestAnthropicLive(IntegrationTestCase):
 	"""Opt-in real API call. Skipped unless ENABLE_LIVE_OCR_TESTS=1 and a key
 	is configured. Asserts the call succeeds and returns a schema-valid result;

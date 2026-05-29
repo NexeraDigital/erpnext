@@ -93,6 +93,28 @@ OCR Phase 3 — settings-driven provider selection (turns real OCR on in the wor
 
 After Phase 3: an operator sets **AP Closed Loop Settings → OCR Provider = Anthropic Claude** (with a key in **AI Provider Settings**) and the live capture cascade calls Claude. Default remains **Fake (Deterministic)** so an unconfigured site makes no API calls. The `anthropic_api_key` lives only on `AI Provider Settings` (System Manager); AP Managers choose the provider but cannot see the credential.
 
+OCR Phase 4 — low-confidence fallback (Haiku → Sonnet):
+
+```
+ erpnext/accounts/ap_closed_loop/extractors/anthropic.py                         |    +/- (one-shot fallback: retry once with ocr_fallback_model when a required field is missing/ambiguous; raw_response records outcome + model)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py     |    +/- (get_ocr_config returns fallback_model)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction forwards fallback_model)
+ erpnext/accounts/ap_closed_loop/extractors/test_anthropic.py                    |    +/- (5 mocked fallback tests; 23 total)
+ test/testplans/ocr-phase4-fallback.md                                           |  ~150 ++ (external-instance test plan)
+```
+
+Phase 4 behaviour: the primary model (default Haiku) handles every invoice; only when it can't confidently read a required field does the extractor retry **once** with `ocr_fallback_model` (e.g. Sonnet). At most one retry — no looping, no Opus escalation. Empty fallback model = disabled (the default). On the synthetic corpus Haiku already scores 100%, so fallback's value is on messy real-world invoices.
+
+OCR OCR test corpus + benchmark (supporting the above phases):
+
+```
+ test/invoices/{templates.py,generate_invoices.py,README.md}                     |   HTML/CSS invoice generator (Chromium-rendered) + 20 invoices + ground-truth JSON
+ erpnext/accounts/ap_closed_loop/extractors/benchmark.py                         |  ~160 (run() scores corpus vs ground truth; pure match_field logic)
+ erpnext/accounts/ap_closed_loop/extractors/test_benchmark.py                    |  ~90 (9 scoring unit tests)
+```
+
+The corpus surfaced two production fixes: image downscaling before send (oversized scans hit Anthropic's 5MB limit) and not inferring an unprinted currency. Benchmark baseline (Haiku 4.5): **20/20 invoices, 100/100 fields.**
+
 MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §10):
 
 ```

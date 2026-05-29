@@ -693,6 +693,7 @@ def run_extraction(
 		ocr_config["provider"],
 		model=ocr_config["model"],
 		confidence_threshold=ocr_config["confidence_threshold"],
+		fallback_model=ocr_config.get("fallback_model"),
 	).extract(
 		capture,
 		simulate_missing=simulate_missing,
