@@ -36,6 +36,31 @@ Phase-2 UI + automation layer (added on top of Brandon's pilot):
  erpnext/tests/utils.py                                                           |    +/- (bootstrap fix)
 ```
 
+MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §10):
+
+```
+ erpnext/modules.txt                                            |    +1 (MCP module)
+ erpnext/hooks.py                                               |    +/- (after_migrate, scheduler, permission_query_conditions)
+ erpnext/mcp/__init__.py                                        |   ~25 (vendor sys.path shim)
+ erpnext/mcp/endpoint.py                                        |  ~130 (the only HTTP route; L1 + dispatch)
+ erpnext/mcp/auth.py                                            |  ~120 (OAuth bearer -> set_user)
+ erpnext/mcp/audience.py                                        |   ~50 (RFC 8707 audience binding)
+ erpnext/mcp/audit.py                                           |  ~180 (_safe_execute, sanitize, rate limit)
+ erpnext/mcp/permissions.py                                     |   ~60 (permitted_names idiom)
+ erpnext/mcp/registry.py                                        |   ~90 (per-request registry + scope gate)
+ erpnext/mcp/config.py                                          |  ~110 (MCP Settings / Tool Config accessors)
+ erpnext/mcp/exceptions.py                                      |   ~50 (typed errors -> HTTP status)
+ erpnext/mcp/install.py                                         |   ~45 (after_migrate: seed Tool Config rows)
+ erpnext/mcp/tasks.py                                           |   ~25 (daily audit-log prune)
+ erpnext/mcp/tools/{base,_scope,ap_invoices,vendors,schema}.py  |  ~430 (5 tools + BaseTool)
+ erpnext/mcp/doctype/mcp_settings/*                             |   Single
+ erpnext/mcp/doctype/mcp_tool_config/*                          |   one row per tool
+ erpnext/mcp/doctype/mcp_audit_log/*                            |   immutable audit
+ erpnext/mcp/tests/test_*.py                                    |  ~430 (6 test modules)
+ erpnext/mcp/_vendor/frappe_mcp/**                              |   VENDORED frappe/mcp @ 0ea7d0e (MIT)
+ docs/changes/ADR-MCP-5-vendor-frappe-mcp-transport.md          |   decision record
+```
+
 **Net effect:**
 - Two new DocTypes: `AP Invoice Capture` (transaction), `AP Closed Loop Settings` (Single, site-wide defaults).
 - One new service module (`ap_closed_loop/`).
@@ -43,6 +68,7 @@ Phase-2 UI + automation layer (added on top of Brandon's pilot):
 - Form UI with inline state-driven buttons (Upload, Confirm Fields, Re-run Validation, Create Supplier, Promote, Approve/Reject) anchored to the section they act on.
 - Auto-progression cascade that advances every step the system can decide on its own; pauses at the three unavoidable human-decision points (OCR review, manual promote — now form-driven, manager decision).
 - Two new sidebar entries (Invoice Capture under Payables; AP Closed Loop Settings — to be wired).
+- **New top-level `erpnext/mcp/` module** (the AP MCP server): three DocTypes (`MCP Settings`, `MCP Tool Config`, `MCP Audit Log`), a new `MCP` app module, five read-only AP tools, and a vendored MIT transport. See §10.
 
 ---
 
@@ -536,3 +562,65 @@ bench --site <test-site> run-tests \
 ```
 
 Both rely on the upstream `before_tests` bootstrap (`erpnext.setup.utils.before_tests`) for `_Test Company`, `_Test Supplier`, `_Test Item`, `_Test Cost Center - _TC`, `_Test Bank - _TC`, `_Test Warehouse - _TC`, and `_Test Account Cost for Goods Sold - _TC`. Each test rolls back in `tearDown`, so the suite is reentrant.
+
+---
+
+## 10. MCP Server (`erpnext/mcp/`)
+
+> **Status (2026-05-28):** built on branch `russ/mcp-server` (off `russ/migrateToV16`). v1 = AP-only, **read-only**. Plan: `docs/planning/mcp-server-plan.md`. Decision record: `docs/changes/ADR-MCP-5-vendor-frappe-mcp-transport.md`.
+
+A secure, audit-logged, permission-respecting **Model Context Protocol** server that lets an LLM client (Claude Desktop, MCP Inspector) query AP data over JSON-RPC. Authenticated with Frappe v16's **native** OAuth 2.x (RFC 9728/8414/7591/PKCE — no shims needed on v16); audience binding (RFC 8707) is the one OAuth check we add ourselves.
+
+### 10.1 Module map
+
+| File | Role |
+|---|---|
+| `endpoint.py` | The ONLY HTTP route (`/api/method/erpnext.mcp.endpoint.handle_mcp`). L1 (Origin / `MCP-Protocol-Version` / TLS), auth, pre-dispatch scope gate, then delegates JSON-RPC to the vendored transport. |
+| `auth.py` | One auth utility: validate v16 OAuth Bearer token (status + expiry), bind audience, `frappe.set_user`. No token passthrough. |
+| `audience.py` | RFC 8707 audience binding against `MCP Settings.oauth_resource_uri`. |
+| `audit.py` | `safe_execute` funnel: per-(user,tool) rate-limit + concurrency cap, run, then write exactly one `MCP Audit Log` row (args sanitized twice). |
+| `permissions.py` | The "permitted names" idiom — `get_list(...).pluck("name")` then constrain `qb` joins. |
+| `registry.py` | Per-request `MCP` instance (no module-level singleton); registers only the caller's visible tools; `assert_can_call` 403 gate. |
+| `config.py` | Cached accessors for `MCP Settings` (Single) and `MCP Tool Config` rows. |
+| `tools/` | `BaseTool` (Pydantic input/output → JSON Schema), `_scope.py` (visibility), and the 5 AP tools. |
+| `install.py` / `tasks.py` | `after_migrate` seeds Tool Config rows; daily scheduler prunes the audit log. |
+| `_vendor/frappe_mcp/` | Vendored `frappe/mcp` @ `0ea7d0e` (MIT). Transport + JSON-RPC dispatch only. One lazy-import patch (see `_vendor/PROVENANCE.md`). |
+
+### 10.2 New DocTypes (module `MCP`)
+
+- **`MCP Settings`** (Single) — master switch, Origin allowlist, allowed protocol versions, audit retention/size caps, OAuth resource URI. System Manager only.
+- **`MCP Tool Config`** (one row per tool) — enable/disable kill switch, required role, required OAuth scope, rate limit, concurrency cap, timeout. Seeded idempotently by `after_migrate`.
+- **`MCP Audit Log`** (immutable) — one row per `tools/call`; row-level scoped via `permission_query_conditions` (System Manager + Auditor see all; users see their own).
+
+### 10.3 v1 tools (read-only)
+
+`list_ap_invoices`, `get_ap_invoice`, `list_vendors`, `get_vendor_balance`, `get_doctype_meta` (allowlisted DocTypes only). Each declares a Pydantic input/output model, an OAuth scope, `readOnlyHint` annotations, and ships with permission-regression tests.
+
+### 10.4 hooks.py additions
+
+```python
+after_migrate = ["erpnext.mcp.install.sync_tool_configs"]
+permission_query_conditions = {"MCP Audit Log": "erpnext.mcp.doctype.mcp_audit_log.mcp_audit_log.get_permission_query_conditions"}
+scheduler_events["daily"] += ["erpnext.mcp.tasks.prune_audit_logs"]
+```
+
+### 10.5 Running the MCP tests
+
+```bash
+# DB-free unit tests (canaries, schema, sanitization, auth, scope) — fast:
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_canaries
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_tools
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_audit
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_auth
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_registry
+# Integration (need a site): dispatcher round-trip + permission regression:
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_dispatcher
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_permissions
+```
+
+### 10.6 What v1 deliberately does NOT do
+
+- **No write tools** (no create/submit/cancel/delete) — deferred to Phase 3 with elicitation.
+- **No `run_python_code`-style tool** — out of scope permanently (attack surface).
+- **No `sampling/`, `resources/`, `prompts/`** — server never calls back into the client LLM (enforced by a CI canary).
+- **No new Desk navigation** — no UI-SITEMAP change in v1.

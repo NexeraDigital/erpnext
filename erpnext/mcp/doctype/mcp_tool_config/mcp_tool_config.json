@@ -1,0 +1,109 @@
+{
+ "actions": [],
+ "autoname": "field:tool_name",
+ "creation": "2026-05-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "tool_name",
+  "enabled",
+  "column_break_gate",
+  "required_role",
+  "required_oauth_scope",
+  "limits_section",
+  "rate_limit_per_minute",
+  "concurrency_cap",
+  "column_break_limits",
+  "timeout_seconds"
+ ],
+ "fields": [
+  {
+   "description": "MCP tool name (matches the tool's registered name, e.g. list_ap_invoices). Unique.",
+   "fieldname": "tool_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tool Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "description": "Ops kill switch. When unchecked the tool is hidden from tools/list and rejected on tools/call.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_gate",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Optional. If set, the caller must have this role for the tool to be listed or called.",
+   "fieldname": "required_role",
+   "fieldtype": "Link",
+   "label": "Required Role",
+   "options": "Role"
+  },
+  {
+   "description": "OAuth scope the caller's token must carry, e.g. erpnext:ap_invoice:read.",
+   "fieldname": "required_oauth_scope",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Required OAuth Scope"
+  },
+  {
+   "fieldname": "limits_section",
+   "fieldtype": "Section Break",
+   "label": "Limits"
+  },
+  {
+   "default": "30",
+   "description": "Max calls per minute per user for this tool. 0 disables the per-tool limit.",
+   "fieldname": "rate_limit_per_minute",
+   "fieldtype": "Int",
+   "label": "Rate Limit (per minute, per user)"
+  },
+  {
+   "default": "5",
+   "description": "Max concurrent in-flight calls per user for this tool. 0 disables the concurrency cap.",
+   "fieldname": "concurrency_cap",
+   "fieldtype": "Int",
+   "label": "Concurrency Cap (per user)"
+  },
+  {
+   "fieldname": "column_break_limits",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "30",
+   "description": "Soft timeout for the tool in seconds (advisory; recorded on the audit row).",
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "MCP",
+ "name": "MCP Tool Config",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
