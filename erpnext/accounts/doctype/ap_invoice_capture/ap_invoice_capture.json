@@ -214,6 +214,7 @@
    "description": "Identifier of the extraction provider that produced this proposal (e.g. 'fake-deterministic-v1').",
    "fieldname": "ocr_provider",
    "fieldtype": "Data",
+   "hidden": 1,
    "label": "OCR Provider",
    "read_only": 1
   },
@@ -222,6 +223,7 @@
    "description": "Lifecycle of the OCR proposal independent of overall capture status.",
    "fieldname": "ocr_status",
    "fieldtype": "Select",
+   "hidden": 1,
    "label": "OCR Status",
    "options": "Not Extracted\nProposed\nConfirmed\nNeeds Correction",
    "read_only": 1
@@ -230,6 +232,7 @@
    "description": "Timestamp the OCR proposal was generated.",
    "fieldname": "ocr_extracted_at",
    "fieldtype": "Datetime",
+   "hidden": 1,
    "label": "OCR Extracted At",
    "read_only": 1
   },
@@ -291,6 +294,7 @@
    "description": "Raw JSON payload from the OCR provider, preserved for auditability.",
    "fieldname": "ocr_raw_response",
    "fieldtype": "Long Text",
+   "hidden": 1,
    "label": "OCR Raw Response",
    "read_only": 1
   },

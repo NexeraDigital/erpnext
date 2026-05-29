@@ -130,6 +130,14 @@ OCR Phase 6 — production hardening (retry + circuit breaker + size guard + non
 
 Phase 6 behaviour: the real path now tolerates transient provider trouble and never stalls silently. `_call_model` retries 429/5xx/timeout/connection errors with exponential backoff (1/2/4s, honouring a server `Retry-After` on 429) but never retries client errors (400/401/404); after N consecutive transient failures a **process-local circuit breaker** opens for a cooldown so further calls fail fast with no spend, half-opening on the first call past cooldown and resetting on success. Before any API call, `run_extraction` enforces `ocr_max_file_mb` (oversized source → `action_required` + reason + `Failed` Integration Request, no call); the fake provider is exempt. Any extraction failure is surfaced on the capture itself (`action_required=1` + human reason, persisted) **and** logged as a `Failed` Integration Request, then re-raised. Sleep, clock, breaker, and retry count are all injectable, so the 16 tests run deterministically with no network and no real waiting.
 
+OCR proposal — form field visibility:
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             |    +/- (hidden=1 on ocr_provider, ocr_status, ocr_extracted_at, ocr_raw_response)
+```
+
+The four diagnostic fields in the "AI / OCR Proposal" section are hidden from the form (`hidden` is a display-only DocField property — `apps/frappe/frappe/core/doctype/docfield/docfield.json`; honoured at `apps/frappe/frappe/public/js/frappe/form/controls/base_control.js:61`). Data is unchanged and still in the DB/API; the per-call audit trail remains fully visible in **Integration Request** (Phase 5). Clerks now see only the proposed values they review (supplier / invoice no / date / total / currency) plus the missing/ambiguous flags.
+
 OCR test corpus + benchmark (supporting the above phases):
 
 ```
