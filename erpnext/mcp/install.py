@@ -35,5 +35,6 @@ def sync_tool_configs():
 		doc.timeout_seconds = _DEFAULT_TIMEOUT_SECONDS
 		doc.insert(ignore_permissions=True)
 
-	frappe.db.commit()
+	if not frappe.flags.in_test:
+		frappe.db.commit()
 	frappe.cache.delete_value("mcp_tool_config")

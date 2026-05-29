@@ -63,3 +63,63 @@ class TestPermissionRegression(IntegrationTestCase):
 		frappe.set_user("Administrator")
 		# Should not raise.
 		ListAPInvoices().execute(ListAPInvoices.input_model(limit=1))
+
+
+class TestUserPermissionScoping(IntegrationTestCase):
+	"""L7: a User Permission on Supplier must scope both permitted_names and the
+	qb-backed aggregation — no rows or totals leak for the disallowed supplier."""
+
+	SCOPED_USER = "mcp-scoped@example.com"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		import uuid
+
+		from frappe.permissions import add_user_permission
+
+		from erpnext.mcp.tests._helpers import make_submitted_pi, make_supplier
+
+		frappe.set_user("Administrator")
+		cls.supplier_a = make_supplier(f"_MCP Allowed {uuid.uuid4().hex[:6]}")
+		cls.supplier_b = make_supplier(f"_MCP Denied {uuid.uuid4().hex[:6]}")
+		cls.pi_a = make_submitted_pi(cls.supplier_a, rate=100, qty=1)
+		cls.pi_b = make_submitted_pi(cls.supplier_b, rate=200, qty=1)
+
+		if not frappe.db.exists("User", cls.SCOPED_USER):
+			u = frappe.new_doc("User")
+			u.email = cls.SCOPED_USER
+			u.first_name = "Scoped"
+			u.send_welcome_email = 0
+			u.append("roles", {"role": "Accounts User"})
+			u.insert(ignore_permissions=True)
+		else:
+			u = frappe.get_doc("User", cls.SCOPED_USER)
+			if "Accounts User" not in [r.role for r in u.roles]:
+				u.append("roles", {"role": "Accounts User"})
+				u.save(ignore_permissions=True)
+
+		# Restrict this user to supplier_a only.
+		add_user_permission("Supplier", cls.supplier_a, cls.SCOPED_USER, ignore_permissions=True)
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+
+	def test_permitted_names_scoped_to_allowed_supplier(self):
+		frappe.set_user(self.SCOPED_USER)
+		names = permitted_names("Purchase Invoice", filters={}, limit=500)
+		self.assertIn(self.pi_a.name, names)
+		self.assertNotIn(self.pi_b.name, names)
+
+	def test_vendor_balance_no_leak_for_denied_supplier(self):
+		frappe.set_user(self.SCOPED_USER)
+		out = GetVendorBalance().execute(GetVendorBalance.input_model(supplier=self.supplier_b))
+		# The user cannot see supplier_b's invoices, so the aggregate is empty.
+		self.assertEqual(out["open_invoice_count"], 0)
+		self.assertEqual(out["outstanding_total"], 0.0)
+
+	def test_vendor_balance_visible_for_allowed_supplier(self):
+		frappe.set_user(self.SCOPED_USER)
+		out = GetVendorBalance().execute(GetVendorBalance.input_model(supplier=self.supplier_a))
+		self.assertEqual(out["open_invoice_count"], 1)
+		self.assertAlmostEqual(out["outstanding_total"], 100.0, places=2)

@@ -147,7 +147,10 @@ def write_audit(
 		doc.ip_address = getattr(ctx, "ip_address", None)
 		doc.flags.ignore_permissions = True
 		doc.insert(ignore_permissions=True)
-		frappe.db.commit()
+		# Persist immediately so the audit row survives even if later request work
+		# rolls back. Skipped under tests to preserve IntegrationTestCase isolation.
+		if not frappe.flags.in_test:
+			frappe.db.commit()
 	except Exception:
 		# Audit must never break the request; log to the error log instead.
 		frappe.log_error(title="MCP audit write failed", message=frappe.get_traceback())

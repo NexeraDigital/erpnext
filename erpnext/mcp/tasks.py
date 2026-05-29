@@ -20,4 +20,5 @@ def prune_audit_logs():
 		return
 	table = frappe.qb.DocType("MCP Audit Log")
 	frappe.db.delete(table, filters=(table.timestamp < (Now() - Interval(days=days))))
-	frappe.db.commit()
+	if not frappe.flags.in_test:
+		frappe.db.commit()

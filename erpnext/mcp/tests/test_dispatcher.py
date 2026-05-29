@@ -53,6 +53,19 @@ class TestDispatcher(IntegrationTestCase):
 		resp = _post(self._mcp(), {"jsonrpc": "2.0", "id": 2, "method": "does/not/exist"})
 		self.assertEqual(_body(resp)["error"]["code"], -32601)
 
+	def test_missing_id_is_invalid_request(self):
+		resp = _post(self._mcp(), {"jsonrpc": "2.0", "method": "ping"})
+		self.assertEqual(_body(resp)["error"]["code"], -32600)
+
+	def test_missing_method_is_invalid_params(self):
+		resp = _post(self._mcp(), {"jsonrpc": "2.0", "id": 9})
+		self.assertEqual(_body(resp)["error"]["code"], -32602)
+
+	def test_notification_is_accepted_202(self):
+		# Notifications (no id, notifications/* method) get 202 and no body.
+		resp = _post(self._mcp(), {"jsonrpc": "2.0", "method": "notifications/initialized"})
+		self.assertEqual(resp.status_code, 202)
+
 	def test_tools_list_includes_registered_tool(self):
 		resp = _post(self._mcp(), {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
 		names = [t["name"] for t in _body(resp)["result"]["tools"]]

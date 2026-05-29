@@ -8,8 +8,40 @@ import unittest
 from pydantic import ValidationError
 
 from erpnext.mcp.tools import get_catalogue
-from erpnext.mcp.tools.ap_invoices import ListAPInvoices
+from erpnext.mcp.tools.ap_invoices import GetAPInvoice, ListAPInvoices
 from erpnext.mcp.tools.base import _strip_controls
+from erpnext.mcp.tools.schema import GetDoctypeMeta
+from erpnext.mcp.tools.vendors import GetVendorBalance, ListVendors
+
+
+class TestPerToolValidation(unittest.TestCase):
+	def test_get_ap_invoice_requires_name(self):
+		with self.assertRaises(ValidationError):
+			GetAPInvoice.input_model()
+
+	def test_get_vendor_balance_requires_supplier(self):
+		with self.assertRaises(ValidationError):
+			GetVendorBalance.input_model()
+
+	def test_list_vendors_limit_bounds(self):
+		with self.assertRaises(ValidationError):
+			ListVendors.input_model(limit=0)
+		with self.assertRaises(ValidationError):
+			ListVendors.input_model(limit=201)
+		self.assertEqual(ListVendors.input_model(limit=200).limit, 200)
+
+	def test_doctype_meta_rejects_non_allowlisted(self):
+		# The Literal type is the allowlist — anything else fails validation.
+		with self.assertRaises(ValidationError):
+			GetDoctypeMeta.input_model(doctype="User")
+		self.assertEqual(GetDoctypeMeta.input_model(doctype="Supplier").doctype, "Supplier")
+
+	def test_doctype_meta_schema_advertises_enum(self):
+		schema = GetDoctypeMeta.input_schema()
+		# The enum constraint a signature-inferred schema would drop.
+		dt = schema["properties"]["doctype"]
+		enum = dt.get("enum") or (dt.get("allOf") or [{}])[0].get("enum")
+		self.assertIn("Supplier", enum or [])
 
 
 class TestInputValidation(unittest.TestCase):
