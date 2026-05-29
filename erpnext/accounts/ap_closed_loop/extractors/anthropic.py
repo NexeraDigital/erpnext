@@ -41,6 +41,13 @@ DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_CONFIDENCE_THRESHOLD = 0.70
 MAX_TOKENS = 2048
 
+# Anthropic recommends a max long edge of ~1568px for images (optimal
+# quality/cost) and enforces a hard ~5MB-per-image limit. Real scanned invoices
+# are large and noisy (a noisy PNG can be 6MB+), so we downscale + re-encode
+# before sending. See https://platform.claude.com/docs/en/build-with-claude/vision
+MAX_IMAGE_EDGE = 1568
+IMAGE_REENCODE_THRESHOLD_BYTES = 4_000_000
+
 _MEDIA_TYPE_BY_EXT = {
 	"pdf": "application/pdf",
 	"png": "image/png",
@@ -147,6 +154,7 @@ class AnthropicExtractor(OCRProvider):
 		simulate_ambiguous=None,  # noqa: ARG002
 	) -> ExtractionResult:
 		file_bytes, media_type = self._read_source(capture)
+		file_bytes, media_type = self._prepare_image(file_bytes, media_type)
 		client = self._get_client()
 		response = client.messages.create(
 			model=self._resolve_model(),
@@ -159,6 +167,39 @@ class AnthropicExtractor(OCRProvider):
 		return self._to_extraction_result(tool_input, response)
 
 	# -- helpers (each independently testable) -----------------------------
+
+	def _prepare_image(self, file_bytes: bytes, media_type: str) -> tuple[bytes, str]:
+		"""Downscale + re-encode oversized images before sending.
+
+		Real scanned invoices are large and noisy; a noisy PNG easily exceeds
+		Anthropic's ~5MB-per-image limit (and is wastefully large even when it
+		doesn't). PDFs are left untouched (handled as documents). For images
+		that are either over the long-edge guidance or over the byte threshold,
+		downscale to MAX_IMAGE_EDGE and re-encode as JPEG (q85) to keep the
+		payload small and within limits.
+		"""
+		if media_type == "application/pdf":
+			return file_bytes, media_type
+		try:
+			import io
+
+			from PIL import Image
+
+			img = Image.open(io.BytesIO(file_bytes))
+			long_edge = max(img.size)
+			oversize = long_edge > MAX_IMAGE_EDGE or len(file_bytes) > IMAGE_REENCODE_THRESHOLD_BYTES
+			if not oversize:
+				return file_bytes, media_type
+			if long_edge > MAX_IMAGE_EDGE:
+				scale = MAX_IMAGE_EDGE / long_edge
+				img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))))
+			buf = io.BytesIO()
+			img.convert("RGB").save(buf, format="JPEG", quality=85)
+			return buf.getvalue(), "image/jpeg"
+		except Exception:
+			# If anything goes wrong preparing the image, fall back to the
+			# original bytes — the API call may still succeed for small files.
+			return file_bytes, media_type
 
 	def _read_source(self, capture: "APInvoiceCapture") -> tuple[bytes, str]:
 		"""Return (raw bytes, media_type) for the capture's source file."""

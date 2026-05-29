@@ -145,6 +145,67 @@ class TestAnthropicContentBlocks(IntegrationTestCase):
 		self.assertEqual(base64.standard_b64decode(content[0]["source"]["data"]), b"hello")
 
 
+class TestAnthropicImagePrep(IntegrationTestCase):
+	"""Oversized/noisy images must be downscaled + re-encoded before sending,
+	to stay under Anthropic's per-image size limit (regression for the corpus
+	finding where 6MB+ scanned PNGs returned HTTP 400)."""
+
+	def setUp(self):
+		self.extractor = AnthropicExtractor(client=MagicMock())
+
+	def _noisy_png(self, w, h):
+		import io
+
+		import numpy as np
+		from PIL import Image
+
+		arr = (np.random.default_rng(1).integers(0, 256, (h, w, 3))).astype("uint8")
+		buf = io.BytesIO()
+		Image.fromarray(arr).save(buf, format="PNG")
+		return buf.getvalue()
+
+	def test_pdf_passes_through_untouched(self):
+		raw = b"%PDF-1.4 not really"
+		out, mt = self.extractor._prepare_image(raw, "application/pdf")
+		self.assertEqual(out, raw)
+		self.assertEqual(mt, "application/pdf")
+
+	def test_small_image_untouched(self):
+		import io
+
+		from PIL import Image
+
+		buf = io.BytesIO()
+		Image.new("RGB", (400, 300), "white").save(buf, format="PNG")
+		raw = buf.getvalue()
+		out, mt = self.extractor._prepare_image(raw, "image/png")
+		self.assertEqual(out, raw)
+		self.assertEqual(mt, "image/png")
+
+	def test_oversize_noisy_png_downscaled_and_reencoded(self):
+		import io
+
+		from PIL import Image
+
+		raw = self._noisy_png(1700, 2380)  # mimics a 6MB+ scanned PNG
+		self.assertGreater(len(raw), 4_000_000)
+		out, mt = self.extractor._prepare_image(raw, "image/png")
+		self.assertEqual(mt, "image/jpeg")  # re-encoded
+		self.assertLess(len(out), 5_000_000)  # under Anthropic's limit
+		self.assertLessEqual(max(Image.open(io.BytesIO(out)).size), 1568)  # long edge capped
+
+	def test_large_dimension_clean_image_downscaled(self):
+		import io
+
+		from PIL import Image
+
+		buf = io.BytesIO()
+		Image.new("RGB", (3000, 2000), "white").save(buf, format="PNG")
+		out, mt = self.extractor._prepare_image(buf.getvalue(), "image/png")
+		self.assertEqual(mt, "image/jpeg")
+		self.assertLessEqual(max(Image.open(io.BytesIO(out)).size), 1568)
+
+
 class TestAnthropicExtractEndToEnd(IntegrationTestCase):
 	def test_extract_calls_model_and_maps(self):
 		"""extract() with both the file read and the client mocked."""
