@@ -722,6 +722,11 @@ def run_extraction(
 	capture.proposed_ambiguous_fields = (
 		", ".join(sorted(ambiguous_fields)) if ambiguous_fields else None
 	)
+	# Carry the provider's own metadata (model used, outcome, token usage) into
+	# the persisted record so the audit trail reflects what actually happened
+	# — e.g. whether a low-confidence fallback fired and which model produced
+	# the final result. Fake provider has none of these (empty raw_response).
+	provider_raw = result.raw_response or {}
 	capture.ocr_raw_response = json.dumps(
 		{
 			"provider": result.provider_name,
@@ -729,6 +734,9 @@ def run_extraction(
 			"proposal": proposal,
 			"missing_fields": sorted(missing_fields),
 			"ambiguous_fields": sorted(ambiguous_fields),
+			"model": provider_raw.get("model"),
+			"outcome": provider_raw.get("outcome"),
+			"usage": provider_raw.get("usage"),
 		},
 		default=str,
 		sort_keys=True,

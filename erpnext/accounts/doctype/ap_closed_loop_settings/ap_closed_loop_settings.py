@@ -45,10 +45,8 @@ class APClosedLoopSettings(Document):
 		default_uom: DF.Link | None
 		default_warehouse: DF.Link | None
 		ocr_provider: DF.Literal["Fake (Deterministic)", "Anthropic Claude"]
-		ocr_model: DF.Literal[
-			"claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-sonnet-4-7"
-		]
-		ocr_fallback_model: DF.Literal["", "claude-sonnet-4-6", "claude-sonnet-4-7"]
+		ocr_model: DF.Literal["claude-haiku-4-5-20251001", "claude-sonnet-4-6"]
+		ocr_fallback_model: DF.Literal["", "claude-sonnet-4-6"]
 		ocr_confidence_threshold: DF.Float
 		ocr_max_file_mb: DF.Int
 		ocr_force_reextract: DF.Check

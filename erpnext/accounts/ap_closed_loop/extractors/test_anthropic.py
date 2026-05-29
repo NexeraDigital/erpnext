@@ -242,7 +242,7 @@ class TestAnthropicFallback(IntegrationTestCase):
 		data["confidence_per_field"]["invoice_date"] = 0.30  # below threshold
 		return data
 
-	def _extractor(self, client, fallback="claude-sonnet-4-7"):
+	def _extractor(self, client, fallback="claude-sonnet-4-6"):
 		ex = AnthropicExtractor(
 			client=client, model="claude-haiku-4-5-20251001", fallback_model=fallback
 		)
@@ -268,9 +268,9 @@ class TestAnthropicFallback(IntegrationTestCase):
 		result = self._extractor(client).extract(self._cap())
 		self.assertEqual(client.messages.create.call_count, 2)
 		# second call used the fallback model
-		self.assertEqual(client.messages.create.call_args_list[1].kwargs["model"], "claude-sonnet-4-7")
+		self.assertEqual(client.messages.create.call_args_list[1].kwargs["model"], "claude-sonnet-4-6")
 		self.assertEqual(result.raw_response["outcome"], "fallback_invoked")
-		self.assertEqual(result.raw_response["model"], "claude-sonnet-4-7")
+		self.assertEqual(result.raw_response["model"], "claude-sonnet-4-6")
 		self.assertEqual(result.ambiguous_fields, set())  # resolved by fallback
 
 	def test_high_confidence_no_fallback(self):

@@ -47,11 +47,11 @@ class TestGetOcrConfig(IntegrationTestCase):
 
 	def test_resolves_anthropic_label_to_registry_key(self):
 		_set_single("ocr_provider", "Anthropic Claude")
-		_set_single("ocr_model", "claude-sonnet-4-7")
+		_set_single("ocr_model", "claude-sonnet-4-6")
 		_set_single("ocr_confidence_threshold", 0.85)
 		cfg = get_ocr_config()
 		self.assertEqual(cfg["provider"], "anthropic")
-		self.assertEqual(cfg["model"], "claude-sonnet-4-7")
+		self.assertEqual(cfg["model"], "claude-sonnet-4-6")
 		self.assertEqual(cfg["confidence_threshold"], 0.85)
 
 	def test_confidence_threshold_defaults_when_blank(self):
@@ -133,7 +133,7 @@ class TestRunExtractionDispatch(IntegrationTestCase):
 
 		fake_config = {
 			"provider": "anthropic",
-			"model": "claude-sonnet-4-7",
+			"model": "claude-sonnet-4-6",
 			"confidence_threshold": 0.85,
 			"max_file_mb": 25,
 			"force_reextract": False,
@@ -152,7 +152,7 @@ class TestRunExtractionDispatch(IntegrationTestCase):
 		# get_extractor called with the configured provider + model + threshold.
 		args, kwargs = mock_get.call_args
 		self.assertEqual(args[0], "anthropic")
-		self.assertEqual(kwargs["model"], "claude-sonnet-4-7")
+		self.assertEqual(kwargs["model"], "claude-sonnet-4-6")
 		self.assertEqual(kwargs["confidence_threshold"], 0.85)
 		# The capture reflects the provider's result.
 		self.assertEqual(doc.ocr_provider, "anthropic")

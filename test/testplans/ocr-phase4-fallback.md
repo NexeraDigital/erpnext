@@ -73,12 +73,12 @@ cases:
 bench --site <site> console <<'PY'
 from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import get_ocr_config
 import frappe
-frappe.db.set_single_value("AP Closed Loop Settings", "ocr_fallback_model", "claude-sonnet-4-7")
+frappe.db.set_single_value("AP Closed Loop Settings", "ocr_fallback_model", "claude-sonnet-4-6")
 print("FALLBACK:", get_ocr_config()["fallback_model"])
 frappe.db.set_single_value("AP Closed Loop Settings", "ocr_fallback_model", "")  # reset
 PY
 ```
-**Expected:** `FALLBACK: claude-sonnet-4-7`. **Pass:** value flows through.
+**Expected:** `FALLBACK: claude-sonnet-4-6`. **Pass:** value flows through.
 
 ### TC-3 — Default config has no fallback (no surprise Sonnet calls)
 ```bash
@@ -92,7 +92,7 @@ PY
 
 ### TC-4 — LIVE: fallback resolves a low-confidence read (opt-in)
 - **Precondition:** real key configured; set `ocr_provider = Anthropic Claude`,
-  `ocr_model = claude-haiku-4-5-20251001`, `ocr_fallback_model = claude-sonnet-4-7`.
+  `ocr_model = claude-haiku-4-5-20251001`, `ocr_fallback_model = claude-sonnet-4-6`.
   Pick a degraded/faxed corpus invoice (e.g. `invoice_08`).
 - **Action:** run the benchmark on that one file:
   ```bash

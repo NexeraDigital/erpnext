@@ -98,7 +98,7 @@
    "fieldname": "ocr_model",
    "fieldtype": "Select",
    "label": "OCR Model",
-   "options": "claude-haiku-4-5-20251001\nclaude-sonnet-4-6\nclaude-sonnet-4-7"
+   "options": "claude-haiku-4-5-20251001\nclaude-sonnet-4-6"
   },
   {
    "depends_on": "eval:doc.ocr_provider==\"Anthropic Claude\"",
@@ -106,7 +106,7 @@
    "fieldname": "ocr_fallback_model",
    "fieldtype": "Select",
    "label": "OCR Fallback Model",
-   "options": "\nclaude-sonnet-4-6\nclaude-sonnet-4-7"
+   "options": "\nclaude-sonnet-4-6"
   },
   {
    "default": "0.70",

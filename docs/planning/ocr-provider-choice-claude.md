@@ -210,7 +210,7 @@ In `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`:
 
 In `erpnext/accounts/doctype/ap_closed_loop_settings/`:
 
-- Add `ocr_provider` (Select: `Fake (Deterministic)`, `Anthropic Claude`), `ocr_model` (Select: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-sonnet-4-7`), `ocr_confidence_threshold` (Float), `anthropic_api_key` (Password, encrypted).
+- Add `ocr_provider` (Select: `Fake (Deterministic)`, `Anthropic Claude`), `ocr_model` (Select: `claude-haiku-4-5`, `claude-sonnet-4-6`, `claude-sonnet-4-6`), `ocr_confidence_threshold` (Float), `anthropic_api_key` (Password, encrypted).
 - Mirror in `docs/architecture/FORK-CHANGES.md` per the project working rule.
 
 Best-practice patterns to bake in (regardless of model choice):
