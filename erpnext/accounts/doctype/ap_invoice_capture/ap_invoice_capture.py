@@ -647,6 +647,27 @@ def _detect_simulation_markers(filename: str) -> tuple[set[str], set[str]]:
 	return missing, ambiguous
 
 
+def _source_file_size_bytes(capture: "APInvoiceCapture") -> int | None:
+	"""Best-effort size (bytes) of the capture's source File, or None if unknown.
+
+	Uses the File DocType's stored ``file_size`` so we don't have to read the
+	whole file just to size it. Returns None when the file can't be resolved —
+	the guard then defers to the provider's own limits rather than blocking.
+	"""
+	name = None
+	if capture.source_file:
+		name = capture.source_file
+	elif capture.source_file_url:
+		name = frappe.db.get_value("File", {"file_url": capture.source_file_url}, "name")
+	if not name:
+		return None
+	size = frappe.db.get_value("File", name, "file_size")
+	try:
+		return int(size) if size is not None else None
+	except (TypeError, ValueError):
+		return None
+
+
 def run_extraction(
 	capture: "APInvoiceCapture | str",
 	*,
@@ -693,6 +714,30 @@ def run_extraction(
 	# Phase 5: real-provider calls are audited via Integration Request. The fake
 	# provider makes no API call and has no cost, so it is not logged.
 	audit = provider != "fake"
+
+	# Phase 6: enforce the configured file-size ceiling BEFORE sending anything
+	# to the provider, so an oversized scan fails fast (no API call, no cost) and
+	# is surfaced for a human instead of being silently rejected by the API. The
+	# fake provider reads nothing, so the guard applies only to real providers.
+	if audit:
+		max_mb = ocr_config.get("max_file_mb")
+		size_bytes = _source_file_size_bytes(capture)
+		if max_mb and size_bytes is not None and size_bytes > max_mb * 1024 * 1024:
+			reason = _(
+				"Source file is {0:.1f} MB, over the {1} MB OCR limit. "
+				"Reduce/split the file or enter the invoice manually."
+			).format(size_bytes / (1024 * 1024), max_mb)
+			capture.action_required = 1
+			capture.action_required_reason = reason
+			from erpnext.accounts.ap_closed_loop.extractors.audit import (
+				write_integration_request,
+			)
+
+			write_integration_request(capture, status="Failed", error=reason)
+			if save:
+				capture.save()
+			raise OCRExtractionError(reason)
+
 	try:
 		result = get_extractor(
 			provider,
@@ -711,6 +756,23 @@ def run_extraction(
 			)
 
 			write_integration_request(capture, status="Failed", error=str(exc))
+		# Phase 6: never fail silently. Surface the failure on the capture itself
+		# (action_required + human reason) so a clerk sees it and can act, rather
+		# than the capture stalling with no visible cause. We mutate the object
+		# in place (callers holding the reference see it) and persist when saving,
+		# then re-raise so the cascade/job records the error too.
+		capture.action_required = 1
+		capture.action_required_reason = _(
+			"OCR extraction failed ({0}). Retry later or enter the invoice manually."
+		).format(type(exc).__name__)
+		if save:
+			try:
+				capture.save()
+			except Exception:
+				frappe.log_error(
+					title="AP capture: failed to persist OCR failure state",
+					message=frappe.get_traceback(),
+				)
 		raise
 
 	if audit:

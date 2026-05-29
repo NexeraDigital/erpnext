@@ -25,6 +25,7 @@ Design notes:
 from __future__ import annotations
 
 import base64
+import time
 from typing import TYPE_CHECKING
 
 import frappe
@@ -54,6 +55,70 @@ _MEDIA_TYPE_BY_EXT = {
 	"jpg": "image/jpeg",
 	"jpeg": "image/jpeg",
 }
+
+
+def _classify_exception(exc) -> tuple[bool, float | None]:
+	"""Classify an exception from ``messages.create`` for retry purposes.
+
+	Returns ``(retryable, retry_after_seconds)``. Retryable = transient provider
+	conditions worth a second attempt: rate limits (429), server errors (5xx),
+	timeouts, and connection failures. Anything else (400 bad request, 401 auth,
+	404) is fatal — a retry would fail identically.
+
+	The ``anthropic`` exception classes are imported lazily so this module (and
+	its unit tests, which inject a mock client) never require the SDK at import
+	time. If the SDK is absent we fall back to a conservative, status-code-based
+	heuristic.
+	"""
+	try:
+		import anthropic
+	except Exception:  # pragma: no cover — SDK always present in the bench
+		status = getattr(exc, "status_code", None)
+		return (status is None or status == 429 or status >= 500), None
+
+	# Connection-level failures (includes APITimeoutError) — retry.
+	if isinstance(exc, anthropic.APIConnectionError):
+		return True, None
+	# HTTP responses with a status code.
+	if isinstance(exc, anthropic.APIStatusError):
+		status = getattr(exc, "status_code", None)
+		retry_after = _parse_retry_after(exc)
+		if status == 429:
+			return True, retry_after
+		if status is not None and status >= 500:
+			return True, retry_after
+		return False, None  # 400/401/403/404 etc — fatal
+	return False, None
+
+
+def _backoff_seconds(attempt: int, retry_after) -> float:
+	"""Exponential backoff (1s, 2s, 4s…), but never less than a server-sent
+	Retry-After. Deterministic — no jitter — so tests can assert on it."""
+	base = float(2 ** (attempt - 1))
+	if retry_after is not None:
+		try:
+			return max(base, float(retry_after))
+		except (TypeError, ValueError):
+			return base
+	return base
+
+
+def _parse_retry_after(exc) -> float | None:
+	"""Pull a Retry-After (seconds) from a 429 response if the server sent one."""
+	response = getattr(exc, "response", None)
+	headers = getattr(response, "headers", None)
+	if not headers:
+		return None
+	try:
+		raw = headers.get("retry-after")
+	except AttributeError:
+		return None
+	if raw is None:
+		return None
+	try:
+		return float(raw)
+	except (TypeError, ValueError):
+		return None  # HTTP-date form — fall back to exponential backoff
 
 # Forced tool call — the schema IS the output contract. Nullable fields let the
 # model return null for anything it cannot read confidently rather than guess.
@@ -125,6 +190,9 @@ class AnthropicExtractor(OCRProvider):
 		model: str | None = None,
 		confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
 		fallback_model: str | None = None,
+		max_retries: int = 1,
+		breaker=None,
+		sleep=None,
 	):
 		self._client = client
 		self._model = model
@@ -133,6 +201,14 @@ class AnthropicExtractor(OCRProvider):
 		# missing/ambiguous, retry once with this stronger model. Empty/None
 		# disables fallback.
 		self._fallback_model = fallback_model or None
+		# Phase 6 hardening: transient-failure retry + circuit breaker.
+		self._max_retries = max_retries
+		if breaker is None:
+			from erpnext.accounts.ap_closed_loop.extractors.circuit import shared_breaker
+
+			breaker = shared_breaker()
+		self._breaker = breaker
+		self._sleep = sleep if sleep is not None else time.sleep
 
 	def name(self) -> str:
 		return PROVIDER_NAME
@@ -210,15 +286,39 @@ class AnthropicExtractor(OCRProvider):
 		}
 
 	def _call_model(self, client, content, model):
-		"""One forced-tool extraction call. Returns (tool_input, response)."""
-		response = client.messages.create(
-			model=model,
-			max_tokens=MAX_TOKENS,
-			tools=[INVOICE_EXTRACTION_TOOL],
-			tool_choice={"type": "tool", "name": "extract_invoice_fields"},
-			messages=[{"role": "user", "content": content}],
-		)
-		return self._parse_tool_use(response), response
+		"""One forced-tool extraction call. Returns (tool_input, response).
+
+		Phase 6 hardening: a process-local circuit breaker fails fast when the
+		provider has been flapping, and transient failures (429 / 5xx / timeout /
+		connection) are retried with exponential backoff (honouring Retry-After
+		on 429). Client errors (400 bad request, auth, not-found) are NOT retried
+		— they will fail identically on a second attempt.
+		"""
+		self._breaker.check()
+		attempt = 0
+		while True:
+			try:
+				response = client.messages.create(
+					model=model,
+					max_tokens=MAX_TOKENS,
+					tools=[INVOICE_EXTRACTION_TOOL],
+					tool_choice={"type": "tool", "name": "extract_invoice_fields"},
+					messages=[{"role": "user", "content": content}],
+				)
+			except Exception as exc:  # noqa: BLE001 — classified below
+				retryable, retry_after = _classify_exception(exc)
+				if not retryable:
+					# Client-side error: don't retry, don't trip the breaker
+					# (the provider is healthy — our request is the problem).
+					raise
+				attempt += 1
+				if attempt > self._max_retries:
+					self._breaker.record_failure()
+					raise
+				self._sleep(_backoff_seconds(attempt, retry_after))
+				continue
+			self._breaker.record_success()
+			return self._parse_tool_use(response), response
 
 	# -- helpers (each independently testable) -----------------------------
 

@@ -118,7 +118,19 @@ OCR Phase 5 — audit logging & cost tracking (via Integration Request):
 
 Phase 5 behaviour: each real extraction (and failure) is recorded as a Frappe **`Integration Request`** (`integration_request_service="anthropic"`, referenced to the capture) with model(s), per-call + total token usage, estimated USD cost, latency, outcome, and a sanitized error on failure. The fake provider is not logged (no call, no cost). API keys are never persisted in any field. Operators view the trail at `/app/integration-request` filtered by service. Verified live: one extraction → `Completed` row, real tokens/cost/latency, no key leak.
 
-OCR OCR test corpus + benchmark (supporting the above phases):
+OCR Phase 6 — production hardening (retry + circuit breaker + size guard + non-silent failures):
+
+```
+ erpnext/accounts/ap_closed_loop/extractors/circuit.py                            |  ~75 (process-local CircuitBreaker + CircuitOpenError + shared_breaker)
+ erpnext/accounts/ap_closed_loop/extractors/anthropic.py                          |    +/- (_call_model: breaker.check + retry-with-backoff on 429/5xx/timeout/conn, honour Retry-After, never retry 400; _classify_exception, _backoff_seconds, _parse_retry_after; injectable sleep/breaker, max_retries ctor arg)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (_source_file_size_bytes; run_extraction enforces ocr_max_file_mb pre-flight for real providers + surfaces any failure on the capture via action_required + reason)
+ erpnext/accounts/ap_closed_loop/extractors/test_hardening.py                     |  ~310 (16 tests: classify, backoff, breaker, retry loop, size-guard, failure surfacing)
+ test/testplans/ocr-phase6-hardening.md                                          |  ~180 ++ (external-instance test plan)
+```
+
+Phase 6 behaviour: the real path now tolerates transient provider trouble and never stalls silently. `_call_model` retries 429/5xx/timeout/connection errors with exponential backoff (1/2/4s, honouring a server `Retry-After` on 429) but never retries client errors (400/401/404); after N consecutive transient failures a **process-local circuit breaker** opens for a cooldown so further calls fail fast with no spend, half-opening on the first call past cooldown and resetting on success. Before any API call, `run_extraction` enforces `ocr_max_file_mb` (oversized source → `action_required` + reason + `Failed` Integration Request, no call); the fake provider is exempt. Any extraction failure is surfaced on the capture itself (`action_required=1` + human reason, persisted) **and** logged as a `Failed` Integration Request, then re-raised. Sleep, clock, breaker, and retry count are all injectable, so the 16 tests run deterministically with no network and no real waiting.
+
+OCR test corpus + benchmark (supporting the above phases):
 
 ```
  test/invoices/{templates.py,generate_invoices.py,README.md}                     |   HTML/CSS invoice generator (Chromium-rendered) + 20 invoices + ground-truth JSON
