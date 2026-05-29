@@ -62,10 +62,13 @@ def _line_rows(spec, *, money_symbol=True):
 def tmpl_modern(spec) -> str:
 	accent = spec.get("accent", "#2b6cb0")
 	d = fmt_date(spec["invoice_date"], spec["date_style"]) if spec.get("invoice_date") else ""
+	# When show_currency is False, drop the currency marker EVERYWHERE (line
+	# items, subtotal, tax, total) so the invoice genuinely states no currency.
+	sym = spec.get("show_currency", True)
 	rows = "".join(
 		f'<tr class="{"z" if i%2 else ""}"><td>{desc}</td><td class="r">{qty}</td>'
 		f'<td class="r">{unit}</td><td class="r">{tot}</td></tr>'
-		for i, (desc, qty, unit, tot) in enumerate(_line_rows(spec))
+		for i, (desc, qty, unit, tot) in enumerate(_line_rows(spec, money_symbol=sym))
 	)
 	cur = spec["currency"]
 	inv_no_row = (
@@ -73,10 +76,7 @@ def tmpl_modern(spec) -> str:
 		if spec.get("invoice_no") else ""
 	)
 	date_row = f'<div><span>Date</span><b>{d}</b></div>' if d else ""
-	currency_total = (
-		money(spec["total"], cur) if spec.get("show_currency", True)
-		else money(spec["total"], cur, symbol=False)
-	)
+	currency_total = money(spec["total"], cur, symbol=sym)
 	return f"""<!doctype html><html><head><meta charset="utf-8"><style>
 * {{ box-sizing:border-box; }} body {{ font-family:'DejaVu Sans',Arial,sans-serif; color:#1a202c; margin:0; padding:48px; font-size:14px; }}
 .head {{ display:flex; justify-content:space-between; align-items:center; }}
@@ -106,8 +106,8 @@ tr.z td {{ background:#f7fafc; }}
 </div>
 <table><tr><th>Description</th><th class="r">Qty</th><th class="r">Unit</th><th class="r">Amount</th></tr>{rows}</table>
 <div class="totals">
-  <div><span>Subtotal</span><span>{money(spec["subtotal"], cur)}</span></div>
-  <div><span>Tax ({spec["tax_rate"]}%)</span><span>{money(spec["tax_amount"], cur)}</span></div>
+  <div><span>Subtotal</span><span>{money(spec["subtotal"], cur, symbol=sym)}</span></div>
+  <div><span>Tax ({spec["tax_rate"]}%)</span><span>{money(spec["tax_amount"], cur, symbol=sym)}</span></div>
   <div class="g"><span>Total Due</span><span>{currency_total}</span></div>
 </div>
 <div class="foot">Payment due within 30 days. {spec.get("terms","Bank transfer preferred.")}</div>

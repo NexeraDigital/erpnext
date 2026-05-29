@@ -77,7 +77,12 @@ INVOICE_EXTRACTION_TOOL = {
 			"total_amount": {"type": ["number", "null"]},
 			"currency": {
 				"type": ["string", "null"],
-				"description": "ISO 4217 3-letter code (e.g. USD, EUR, INR).",
+				"description": (
+					"ISO 4217 3-letter code (e.g. USD, EUR, INR). Set this ONLY when a "
+					"currency symbol (e.g. $, €, £) or an explicit code is printed on the "
+					"invoice. If amounts are bare numbers with no currency shown, return "
+					"null — do NOT infer or default a currency."
+				),
 			},
 			"confidence_per_field": {
 				"type": "object",
@@ -105,7 +110,9 @@ _TOOL_TO_LOGICAL = {
 
 _PROMPT = (
 	"Extract the invoice header fields using the extract_invoice_fields tool. "
-	"Use null for any field you cannot read confidently."
+	"Use null for any field you cannot read confidently. Do not infer or default "
+	"a currency that is not explicitly printed on the invoice — return null for "
+	"currency in that case so it can be reviewed."
 )
 
 
