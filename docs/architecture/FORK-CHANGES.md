@@ -36,6 +36,25 @@ Phase-2 UI + automation layer (added on top of Brandon's pilot):
  erpnext/tests/utils.py                                                           |    +/- (bootstrap fix)
 ```
 
+OCR Phase 0 — shared AI provider credentials infrastructure (added on `russ/migrateToV16`):
+
+```
+ erpnext/modules.txt                                                              |   +1 (AI module)
+ erpnext/ai/__init__.py                                                           |    0
+ erpnext/ai/doctype/__init__.py                                                   |    0
+ erpnext/ai/doctype/ai_provider_settings/__init__.py                              |    0
+ erpnext/ai/doctype/ai_provider_settings/ai_provider_settings.json                |   89 ++ (Single, System-Manager-only)
+ erpnext/ai/doctype/ai_provider_settings/ai_provider_settings.py                  |   55 ++ (controller + whitespace-trim validate)
+ erpnext/ai/credentials.py                                                        |  110 ++ (AICredentials, get_ai_credentials, AICredentialsNotConfigured)
+ erpnext/ai/tests/__init__.py                                                     |    0
+ erpnext/ai/tests/test_credentials.py                                             |  130 ++ (6 IntegrationTestCase tests)
+ erpnext/workspace_sidebar/erpnext_settings.json                                  |    +/- (sidebar link to AI Provider Settings, after System Settings)
+ erpnext/setup/workspace/erpnext_settings/erpnext_settings.json                   |    +/- (shortcut card + content cell for AI Provider Settings)
+ docs/testplans/ai-provider-settings-phase0.md                                    |  ~280 ++ (external-instance test plan)
+ docs/planning/ocr-provider-choice-claude.md                                      |  ~250 ++ (provider-choice justification)
+ docs/planning/real-ocr-implementation-plan.md                                    |  ~700 ++ (8-phase implementation plan)
+```
+
 MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §10):
 
 ```

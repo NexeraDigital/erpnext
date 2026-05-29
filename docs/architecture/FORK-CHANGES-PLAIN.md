@@ -85,6 +85,10 @@ Existing ERPNext files touched by this fork:
 - `erpnext/setup/utils.py` — Brandon's original 2-line readability refactor (unrelated to AP flow).
 - `erpnext/tests/utils.py` — 1-line fix so the test bootstrap is idempotent on previously-used sites.
 - `erpnext/workspace_sidebar/invoicing.json` — added the "Invoice Capture" entry under Payables.
+- `erpnext/workspace_sidebar/erpnext_settings.json` and `erpnext/setup/workspace/erpnext_settings/erpnext_settings.json` — added "AI Provider Settings" to the ERPNext Settings sidebar and shortcut grid so the new AI infrastructure form is discoverable where operators already look for system-wide settings.
+
+**New AI infrastructure module** (added as Phase 0 of the real-OCR work):
+- `erpnext/ai/` — a new top-level module holding shared AI provider credentials. The `AI Provider Settings` Single DocType (System-Manager-only) stores the Anthropic and OpenAI API keys, default model ids, and the Anthropic ZDR flag. A `get_ai_credentials()` helper is the one entry point every future AI-powered feature will use to fetch keys. No external API call happens at this stage — that comes in later phases.
 
 ---
 

@@ -1,7 +1,7 @@
 {
  "app": "erpnext",
  "charts": [],
- "content": "[{\"id\":\"NO5yYHJopc\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts\\n\\t\\t\\t\\n\\t\\t\\n\\t\\t\\t\\n\\t\\t\\n\\t\\t\\t\\n\\t\\t</b></span>\",\"col\":12}},{\"id\":\"CDxIM-WuZ9\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"System Settings\",\"col\":3}},{\"id\":\"-Uh7DKJNJX\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Settings\",\"col\":3}},{\"id\":\"K9ST9xcDXh\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Stock Settings\",\"col\":3}},{\"id\":\"27IdVHVQMb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Selling Settings\",\"col\":3}},{\"id\":\"Rwp5zff88b\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Buying Settings\",\"col\":3}},{\"id\":\"hkfnQ2sevf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Global Defaults\",\"col\":3}},{\"id\":\"jjxI_PDawD\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Print Settings\",\"col\":3}}]",
+ "content": "[{\"id\":\"NO5yYHJopc\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts\\n\\t\\t\\t\\n\\t\\t\\n\\t\\t\\t\\n\\t\\t\\n\\t\\t\\t\\n\\t\\t</b></span>\",\"col\":12}},{\"id\":\"CDxIM-WuZ9\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"System Settings\",\"col\":3}},{\"id\":\"aiprovset001\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"AI Provider Settings\",\"col\":3}},{\"id\":\"-Uh7DKJNJX\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accounts Settings\",\"col\":3}},{\"id\":\"K9ST9xcDXh\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Stock Settings\",\"col\":3}},{\"id\":\"27IdVHVQMb\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Selling Settings\",\"col\":3}},{\"id\":\"Rwp5zff88b\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Buying Settings\",\"col\":3}},{\"id\":\"hkfnQ2sevf\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Global Defaults\",\"col\":3}},{\"id\":\"jjxI_PDawD\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Print Settings\",\"col\":3}}]",
  "creation": "2022-01-27 13:14:47.349433",
  "custom_blocks": [],
  "docstatus": 0,
@@ -69,7 +69,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-01-09 13:05:08.007297",
+ "modified": "2026-05-29 00:30:00.000000",
  "modified_by": "Administrator",
  "module": "Setup",
  "name": "ERPNext Settings",
@@ -94,6 +94,13 @@
    "doc_view": "List",
    "label": "System Settings",
    "link_to": "System Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "AI Provider Settings",
+   "link_to": "AI Provider Settings",
    "type": "DocType"
   },
   {

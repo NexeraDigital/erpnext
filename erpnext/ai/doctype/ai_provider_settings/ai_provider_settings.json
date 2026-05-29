@@ -1,0 +1,81 @@
+{
+ "actions": [],
+ "creation": "2026-05-28 23:55:00.000000",
+ "description": "Shared infrastructure credentials for AI providers (Anthropic, OpenAI, etc.). System Manager only — feature settings (which provider a feature uses, confidence thresholds, etc.) live elsewhere. Reused by every AI-powered feature in this app so credentials are stored, rotated, and audited in one place.",
+ "doctype": "DocType",
+ "document_type": "System",
+ "engine": "InnoDB",
+ "field_order": [
+  "anthropic_section",
+  "anthropic_api_key",
+  "anthropic_default_model",
+  "anthropic_zdr_enabled",
+  "openai_section",
+  "openai_api_key",
+  "openai_default_model"
+ ],
+ "fields": [
+  {
+   "fieldname": "anthropic_section",
+   "fieldtype": "Section Break",
+   "label": "Anthropic"
+  },
+  {
+   "description": "Anthropic API key (from https://console.anthropic.com). Encrypted at rest via Frappe's Password field encryption. Required for any feature that selects 'Anthropic Claude'.",
+   "fieldname": "anthropic_api_key",
+   "fieldtype": "Password",
+   "label": "Anthropic API Key"
+  },
+  {
+   "default": "claude-haiku-4-5-20251001",
+   "description": "Default Anthropic model id used when a feature does not override its own model. Pin by exact id (with the date suffix) rather than '-latest' to prevent silent quality drift on model rollover.",
+   "fieldname": "anthropic_default_model",
+   "fieldtype": "Data",
+   "label": "Anthropic Default Model"
+  },
+  {
+   "default": "0",
+   "description": "Check this if your Anthropic contract includes Zero Data Retention (ZDR). When checked, AI features will request ZDR-eligible processing so data sent to Anthropic is not retained after the response. This is the customer's responsibility to align with their Anthropic contract.",
+   "fieldname": "anthropic_zdr_enabled",
+   "fieldtype": "Check",
+   "label": "Anthropic ZDR Enabled"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "openai_section",
+   "fieldtype": "Section Break",
+   "label": "OpenAI"
+  },
+  {
+   "description": "Reserved for future features. Leave empty if no OpenAI-backed features are in use.",
+   "fieldname": "openai_api_key",
+   "fieldtype": "Password",
+   "label": "OpenAI API Key"
+  },
+  {
+   "description": "Reserved for future features. Default OpenAI model id used when a feature does not override its own model.",
+   "fieldname": "openai_default_model",
+   "fieldtype": "Data",
+   "label": "OpenAI Default Model"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-28 23:55:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI",
+ "name": "AI Provider Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

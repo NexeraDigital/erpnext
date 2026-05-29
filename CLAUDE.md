@@ -28,6 +28,7 @@ Before doing non-trivial work, read the doc that matches your task.
 | `docs/changes/NewUpdates.md` | The 13-step AP workflow design (ambition spec, broader than what's shipped) | Workflow design changes — distinct from current implementation |
 | `docs/changes/GAP-ANALYSIS.md` | Gap between current ERPNext capability and pilot target | Pilot scope or upstream capability changes |
 | `docs/changes/IMPLEMENTATION-PLAN.md` | Build sequence and milestones for the pilot | Pilot milestones move or new tasks are added |
+| `docs/testplans/*.md` | Per-feature, self-contained test plans executed by an **external** Claude instance (WSL here can't run automated tests locally) | Any feature is added or modified — see "Test plans" section below |
 | `AGENTS.md` (root) | Codex ↔ Claude ↔ Obsidian orchestration for the pilot (Brandon's working notes) | Codex/Claude workflow itself changes — not for code work |
 
 ## Working rules
@@ -38,6 +39,30 @@ Before doing non-trivial work, read the doc that matches your task.
 - **Don't duplicate Frappe docs.** If something is generic ERPNext/Frappe behavior, link to upstream docs rather than restating in this repo.
 - **Existing convention is to keep `FORK-CHANGES.md` and `FORK-CHANGES-PLAIN.md` paired** — if you update one, update both.
 - **When the user references a screenshot or image file by name without a full path** (e.g. *"see Screenshot 2026-05-27 093723.png"*), look in `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/` first. That's their Windows Pictures → Screenshots folder mounted via WSL — note the literal folder name `Screenshots 1` (with the trailing space and `1`). A Windows-style path like `C:\Users\russw\OneDrive\Pictures\Screenshots 1\...` translates to `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/...`.
+- **For every feature added or modified**, write a test plan in `docs/testplans/` per the "Test plans" section below. A code change without a paired test plan is incomplete.
+
+## Test plans (mandatory for every feature)
+
+Automated tests cannot be executed in this WSL development environment — the actual test runs happen in a **separate, isolated Claude instance** (cloud VM or dedicated bench) that has **no prior context** about this repo, the conversation that produced the feature, or the developer's local state. Every new or modified feature MUST ship with a self-contained test plan that the external instance can execute without asking clarifying questions.
+
+- **Path:** `docs/testplans/<feature-slug>.md`. One file per feature. Slug in kebab-case matching the feature (e.g. `ap-invoice-capture-promote.md`, `real-ocr-anthropic.md`, `v16-upgrade-smoke.md`).
+- **Trigger:** create or update the test plan in the **same commit / PR** that introduces or modifies the feature. Code change without a paired test plan is incomplete.
+- **Audience assumptions:** the external Claude instance has zero prior knowledge. It has not read this `CLAUDE.md`, it has not seen the planning docs, it has no memory of design discussions. It has a checkout of the branch and shell access on a clean bench. Write accordingly — the plan must read like a runbook.
+- **Required sections (in this order):**
+  1. **Feature under test.** One-paragraph description of what it does and the user-visible behavior change. Link any relevant planning doc in `docs/planning/` for context (don't restate it).
+  2. **Branch / commit.** Exact branch name and commit SHA the plan applies to.
+  3. **Environment setup.** Bench apps that must be installed, site to create or use, required Frappe apps and versions, environment variables, third-party API keys (named, with instructions on how the human operator obtains them — **never the key itself**). Include the exact `bench` commands to set the environment up from scratch.
+  4. **Test data prerequisites.** Fixtures, DocType records to create, files to upload (give the exact content or a SHA-256 if relevant), users and roles to create with their permissions.
+  5. **Numbered test cases.** Each case has: (a) preconditions, (b) the exact action — full URL to visit, button to click, or API call with full payload and headers, (c) the expected result — specific text / status code / DB state / log line, (d) the pass/fail criterion. Include positive cases, negative cases, edge cases.
+  6. **Cleanup / rollback.** How to reset state between runs, what to delete, what to leave in place.
+  7. **Pass/fail summary template.** A checklist the executor fills in and returns. One row per test case with `[ ]` boxes.
+- **What NOT to write:**
+  - "Verify it works as expected" — say WHAT to verify and HOW.
+  - References to local file paths the external instance can't see (`/home/rsmith/...`, `C:\Users\russw\...`).
+  - Assumptions about other docs being open — link them explicitly if needed.
+  - Secrets (API keys, passwords, customer data). Instructions on how to obtain them, never the values.
+- **Maintenance:** when a feature changes, update its test plan in the same commit. Out-of-date test plans are worse than missing ones — they look authoritative while being wrong.
+- **How to apply:** when planning a new feature, write the test-plan skeleton early (right after the planning doc), then refine as the feature shapes up. The skeleton forces design clarity. The finished plan ships with the code.
 
 ## Remote (SSH) access to customer machines
 

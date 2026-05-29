@@ -2,7 +2,7 @@
 
 > **Purpose:** complete map of every place a user can land in the ERPNext desk UI on this fork. Use this before recommending where new functionality should live so suggestions are grounded in the navigation users actually see.
 >
-> **Last verified against repo:** 2026-05-27 *(Payables now includes Invoice Capture → AP Invoice Capture; Settings tail extended with AP Closed Loop Settings)*
+> **Last verified against repo:** 2026-05-29 *(ERPNext Settings sidebar + shortcut now include AI Provider Settings, alphabetically after System Settings; Payables still includes Invoice Capture → AP Invoice Capture; Settings tail still includes AP Closed Loop Settings)*
 >
 > **Update triggers** — regenerate this doc when any of the following change:
 > - `erpnext/workspace_sidebar/*.json` (primary navigation)
@@ -76,7 +76,7 @@ Every classic workspace has a sidebar equivalent. Sidebar is canonical.
 - **Organization** (`organization.json`) — Company, Letter Head, Department, Branch, User, Role Permissions *(permission-manager Page)*, Email Account
 - **Subscription** (`subscription.json`) — Subscription, Subscription Plan, Subscription Settings · Setup *(3)*
 - **Share Management** (`share_management.json`) — Shareholder, Share Transfer, Share Ledger, Share Balance
-- **ERPNext Settings** (`erpnext_settings.json`) — 11 module Settings doctypes + Other Settings *(8: Subscription Settings, Item Variant Settings, Delivery Settings…)*
+- **ERPNext Settings** (`erpnext_settings.json`) — 12 module Settings doctypes (System Settings, **AI Provider Settings** *(fork-added, System-Manager-only — shared AI provider credentials)*, Accounts Settings, POS Settings, Selling Settings, Buying Settings, Stock Settings, Manufacturing Settings, Projects Settings, CRM Settings, Support Settings, Global Defaults) + Other Settings *(8: Subscription Settings, Item Variant Settings, Delivery Settings…)*
 
 ---
 

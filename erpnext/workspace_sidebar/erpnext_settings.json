@@ -33,6 +33,17 @@
   {
    "child": 0,
    "collapsible": 1,
+   "indent": 0,
+   "keep_closed": 0,
+   "label": "AI Provider Settings",
+   "link_to": "AI Provider Settings",
+   "link_type": "DocType",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 0,
+   "collapsible": 1,
    "icon": "accounting",
    "indent": 0,
    "keep_closed": 0,
@@ -227,7 +238,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-01-10 00:06:12.956275",
+ "modified": "2026-05-29 00:30:00.000000",
  "modified_by": "Administrator",
  "module": "Setup",
  "name": "ERPNext Settings",
