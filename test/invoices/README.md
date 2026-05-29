@@ -105,6 +105,29 @@ values + fixed noise seed) so regenerating keeps the committed `*.json` valid.
 If you edit a spec in `generate_invoices.py`, re-run so the image and its
 definition stay in sync.
 
+## Benchmark harness
+
+A permanent scorer lives in the app package (the runner is code; this folder is
+data):
+
+```bash
+bench --site <site> execute \
+  erpnext.accounts.ap_closed_loop.extractors.benchmark.run
+# subset / different provider:
+bench --site <site> execute \
+  erpnext.accounts.ap_closed_loop.extractors.benchmark.run \
+  --kwargs '{"provider": "anthropic", "files": ["invoice_01", "invoice_18"]}'
+```
+
+It runs each invoice through the provider, scores every field against the
+ground truth (numeric for total, fuzzy for supplier, exact otherwise; missing
+fields pass when reported absent), and prints per-field accuracy + a
+perfect-invoice count. **Run it whenever the Anthropic model version changes**
+to catch accuracy regressions. The pure scoring logic is unit-tested in
+`extractors/test_benchmark.py` (no API calls).
+
+Baseline (Claude Haiku 4.5, this corpus): **20/20 invoices, 100/100 fields.**
+
 ## Cost note
 
 Running the corpus through the **Anthropic** provider is one real API call per
