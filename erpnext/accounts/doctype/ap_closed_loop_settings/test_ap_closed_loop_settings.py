@@ -167,3 +167,98 @@ class TestRunExtractionDispatch(IntegrationTestCase):
 		_set_single("ocr_provider", "Fake (Deterministic)")
 		doc = run_extraction(self._capture(), save=False)
 		self.assertEqual(doc.ocr_provider, "fake-deterministic-v1")
+
+
+class TestFoundationGetters(IntegrationTestCase):
+	"""Spec 01 foundation getters + threshold wiring (AC-01-11..14).
+
+	AC-01-15 (validate rejects an out-of-range confidence threshold) is covered
+	above by TestSettingsValidation.test_out_of_range_confidence_rejected.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set(self, field, value):
+		frappe.db.set_single_value("AP Closed Loop Settings", field, value)
+
+	# AC-01-11
+	def test_get_auto_post_threshold(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_auto_post_threshold,
+		)
+
+		self._set("auto_post_amount_threshold", 2500)
+		self.assertEqual(get_auto_post_threshold(), 2500.0)
+		self._set("auto_post_amount_threshold", None)
+		self.assertEqual(get_auto_post_threshold(), 1000.0)
+		self._set("auto_post_amount_threshold", 0)
+		self.assertEqual(get_auto_post_threshold(), 1000.0)  # non-positive → default
+
+	# AC-01-12
+	def test_resolve_approval_threshold_uses_settings(self):
+		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+			_resolve_approval_threshold,
+		)
+
+		self._set("auto_post_amount_threshold", 2500)
+		val, _src = _resolve_approval_threshold(None, None)
+		self.assertEqual(val, 2500.0)
+
+		self._set("auto_post_amount_threshold", None)
+		val2, _src2 = _resolve_approval_threshold(None, None)
+		self.assertEqual(val2, 1000.0)  # back-compat fallback
+
+		val3, src3 = _resolve_approval_threshold(750, None)
+		self.assertEqual(val3, 750.0)
+		self.assertEqual(src3, "explicit-override")
+
+	# AC-01-13
+	def test_get_confidence_threshold(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_confidence_threshold,
+			get_field_threshold,
+		)
+
+		self._set("ocr_confidence_threshold", 0.8)
+		self._set("field_thresholds", '{"total_amount": 0.95, "supplier": 0.6}')
+		self.assertEqual(get_confidence_threshold("total_amount"), 0.95)
+		self.assertEqual(get_confidence_threshold("supplier"), 0.6)
+		self.assertEqual(get_confidence_threshold("invoice_date"), 0.8)  # not overridden
+		self.assertEqual(get_confidence_threshold(), 0.8)  # no field → scalar
+		self.assertEqual(get_field_threshold("total_amount"), 0.95)  # alias
+		self._set("ocr_confidence_threshold", None)
+		self._set("field_thresholds", None)
+		self.assertEqual(get_confidence_threshold(), 0.70)  # blank → default
+		self.assertEqual(get_confidence_threshold("anything"), 0.70)
+
+	# AC-01-14
+	def test_account_link_fields_roundtrip(self):
+		self._set("credit_card_clearing_account", "Creditors - _TC")
+		self._set("unmapped_card_spend_account", "Cost of Goods Sold - _TC")
+		stored = frappe.db.get_singles_dict("AP Closed Loop Settings")
+		self.assertEqual(stored.get("credit_card_clearing_account"), "Creditors - _TC")
+		self.assertEqual(stored.get("unmapped_card_spend_account"), "Cost of Goods Sold - _TC")
+
+	def test_get_sod_config(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_sod_config,
+		)
+
+		self._set("enforce_sod", 1)
+		self._set("sod_threshold_amount", 250)
+		cfg = get_sod_config()
+		self.assertTrue(cfg["enforce"])
+		self.assertEqual(cfg["threshold"], 250.0)
+		self._set("enforce_sod", 0)
+		self.assertFalse(get_sod_config()["enforce"])
+
+	def test_get_dedupe_window_days(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_dedupe_window_days,
+		)
+
+		self._set("dedupe_window_days", 30)
+		self.assertEqual(get_dedupe_window_days(), 30)
+		self._set("dedupe_window_days", None)
+		self.assertEqual(get_dedupe_window_days(), 90)

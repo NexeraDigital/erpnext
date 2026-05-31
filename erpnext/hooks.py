@@ -65,8 +65,12 @@ setup_wizard_stages = "erpnext.setup.setup_wizard.setup_wizard.get_setup_stages"
 
 after_install = "erpnext.setup.install.after_install"
 
-# Seed/refresh MCP Tool Config rows after every migrate (idempotent).
-after_migrate = ["erpnext.mcp.install.sync_tool_configs"]
+# Seed/refresh MCP Tool Config rows + backfill AP Closed Loop Settings defaults
+# after every migrate (both idempotent).
+after_migrate = [
+	"erpnext.mcp.install.sync_tool_configs",
+	"erpnext.accounts.ap_closed_loop.install.install_ap_defaults",
+]
 
 # Row-level scoping for the MCP audit log list view (mirrors API-side scoping).
 permission_query_conditions = {

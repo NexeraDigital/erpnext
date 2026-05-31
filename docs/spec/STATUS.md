@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🔲 not started (all specs `Draft`)
+> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 1/14 done — **spec 01 ✅** (20/20 ACs green; 22 new tests + 66-test regression suite passing)
 
 ## How to use this file
 
@@ -25,9 +25,9 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 - [ ] **#1 — Stream-R posting model** → recommend **PI `is_paid=1`** (vs direct JE vs PI+Clearing). *Gates 07, 13, 14.* — owner: accounting lead
 - [ ] **#2 — Retire the "no Bank Transaction" guardrail** (+ write the ADR; dual closure `settled`+`bank_cleared`). *Gates 13, 14.*
 - [ ] **#3 — `allow_self_approval` semantics** — verify on the running **v16** instance; app-code SoD backstop regardless. *Gates 11.*
-- [ ] **#4 — Confidence-threshold field reconciliation** (keep `ocr_confidence_threshold` canonical vs add new). *Gates 01, 04, 09.*
+- [x] **#4 — Confidence-threshold field reconciliation** — **LOCKED (spec 01):** keep `ocr_confidence_threshold` canonical + a `get_confidence_threshold(field)` getter; no second scalar. *Gates 04, 09.*
 - [ ] **#5 — `poppler` system binary** installed on every worker host (for `pdf2image`). *Gates 03 (else exact-only dedupe).*
-- [ ] **#6 — Retry-delay realization** (immediate re-enqueue now vs scheduled sweep). *Gates 01.*
+- [x] **#6 — Retry-delay realization** — **LOCKED (spec 01, phase-1):** native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff; scheduled sweep deferred to phase-2.
 - [ ] **#7 — Native `Authorization Rule` vs custom `AP Approval Matrix`** (use native for amount gate). *Gates 11.*
 - [ ] **#8 — SimpleFIN vs native Plaid** (default Plaid unless a business reason). *Gates 13 at pre-cutover only — mock build does not block.*
 - [ ] **#9 — Enable native `check_supplier_invoice_uniqueness`** (config, off by default). *Supports 03.*
@@ -38,7 +38,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 | # | Spec | Phase | Status | ACs | Size | Depends on | Gating decision / blocked-on | PR |
 |---|------|-------|--------|-----|------|-----------|------------------------------|----|
-| 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | 🔲 | 0/20 | L | — | #4, #6 | — |
+| 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | ✅ | 20/20 | L | — | #4, #6 locked | local ✓ (uncommitted) |
 | 02 | [[02-intake-stream-tagging]] | 1 Intake | 🔲 | 0/15 | L | 01 | — | — |
 | 03 | [[03-deduplication]] | 1 Intake | 🔲 | 0/13 | M | 01, 02 | #5 (poppler), #9 | — |
 | 04 | [[04-extraction-confidence-line-items]] | 1 Intake | 🔲 | 0/15 | L | 01 | #4 | — |
@@ -78,28 +78,28 @@ Phase 5  Close              13 · 14
 
 Tick each AC when its automated test is green. Descriptions live in each spec's §6 (kept DRY here — IDs only).
 
-<details><summary><b>01 — Foundations · 0/20</b></summary>
+<details><summary><b>01 — Foundations · 20/20 ✅</b></summary>
 
-- [ ] AC-01-1
-- [ ] AC-01-2
-- [ ] AC-01-3
-- [ ] AC-01-4
-- [ ] AC-01-5
-- [ ] AC-01-6
-- [ ] AC-01-7
-- [ ] AC-01-8
-- [ ] AC-01-9
-- [ ] AC-01-10
-- [ ] AC-01-10a
-- [ ] AC-01-10b
-- [ ] AC-01-10c
-- [ ] AC-01-11
-- [ ] AC-01-12
-- [ ] AC-01-13
-- [ ] AC-01-14
-- [ ] AC-01-15
-- [ ] AC-01-16
-- [ ] AC-01-17
+- [x] AC-01-1
+- [x] AC-01-2
+- [x] AC-01-3
+- [x] AC-01-4
+- [x] AC-01-5
+- [x] AC-01-6
+- [x] AC-01-7
+- [x] AC-01-8
+- [x] AC-01-9
+- [x] AC-01-10
+- [x] AC-01-10a
+- [x] AC-01-10b
+- [x] AC-01-10c
+- [x] AC-01-11
+- [x] AC-01-12
+- [x] AC-01-13
+- [x] AC-01-14
+- [x] AC-01-15
+- [x] AC-01-16
+- [x] AC-01-17
 </details>
 
 <details><summary><b>02 — Intake & Stream Tagging · 0/15</b></summary>

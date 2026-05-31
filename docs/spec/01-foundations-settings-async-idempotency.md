@@ -3,7 +3,7 @@ spec: 01-foundations-settings-async-idempotency
 title: Foundations — Settings, Idempotency, Async Runner
 plan_step: "Cross-cutting: 'Async by default, idempotent everywhere' + the settings backbone for all later steps"
 stream: both
-status: Draft
+status: Done
 depends_on: []
 related: [00-overview, 02-intake-stream-tagging, 04-extraction-confidence-line-items, 06-gl-coding-tax-costcenter, 08-validation-gates, 11-approval-sod-workflow, 12-payment-execution, 13-bank-feed-reconciliation]
 ---

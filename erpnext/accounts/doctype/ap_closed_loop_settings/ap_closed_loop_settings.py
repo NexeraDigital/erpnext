@@ -16,6 +16,8 @@ gathers all six in one round trip via ``frappe.get_single``.
 
 from __future__ import annotations
 
+import json
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -27,6 +29,8 @@ OCR_PROVIDER_REGISTRY_KEY = {
 	"Anthropic Claude": "anthropic",
 }
 DEFAULT_OCR_CONFIDENCE_THRESHOLD = 0.70
+DEFAULT_AUTO_POST_THRESHOLD = 1000.0
+DEFAULT_DEDUPE_WINDOW_DAYS = 90
 
 
 class APClosedLoopSettings(Document):
@@ -50,6 +54,13 @@ class APClosedLoopSettings(Document):
 		ocr_confidence_threshold: DF.Float
 		ocr_max_file_mb: DF.Int
 		ocr_force_reextract: DF.Check
+		auto_post_amount_threshold: DF.Float
+		credit_card_clearing_account: DF.Link | None
+		dedupe_window_days: DF.Int
+		enforce_sod: DF.Check
+		field_thresholds: DF.JSON | None
+		sod_threshold_amount: DF.Float
+		unmapped_card_spend_account: DF.Link | None
 	# end: auto-generated types
 
 	def validate(self) -> None:
@@ -146,6 +157,111 @@ def get_ocr_config() -> dict:
 		"max_file_mb": max_mb,
 		"force_reextract": bool(stored.get("ocr_force_reextract")),
 	}
+
+
+def _settings() -> dict:
+	"""Raw stored Single values (text), via get_singles_dict — never get_single
+	(which auto-populates empty Links from session defaults; see
+	get_promote_defaults)."""
+
+	return frappe.db.get_singles_dict("AP Closed Loop Settings") or {}
+
+
+def get_auto_post_threshold() -> float:
+	"""Stream-I auto-post / auto-approval amount threshold.
+
+	Falls back to DEFAULT_AUTO_POST_THRESHOLD (1000.0) when blank / non-positive
+	so empty-settings sites keep the pre-foundation behaviour. Replaces the
+	hard-coded AUTO_APPROVAL_THRESHOLD_DEFAULT in ap_invoice_capture."""
+
+	raw = _settings().get("auto_post_amount_threshold")
+	try:
+		value = float(raw) if raw not in (None, "") else 0.0
+	except (TypeError, ValueError):
+		value = 0.0
+	return value if value > 0 else DEFAULT_AUTO_POST_THRESHOLD
+
+
+def get_dedupe_window_days() -> int:
+	"""Cross-capture dedupe horizon in days (consumed by the dedup step).
+
+	Falls back to DEFAULT_DEDUPE_WINDOW_DAYS (90) when blank / non-positive."""
+
+	raw = _settings().get("dedupe_window_days")
+	try:
+		value = int(float(raw)) if raw not in (None, "") else 0
+	except (TypeError, ValueError):
+		value = 0
+	return value if value > 0 else DEFAULT_DEDUPE_WINDOW_DAYS
+
+
+def get_confidence_threshold(field: str | None = None) -> float:
+	"""Per-field confidence floor. Resolution order:
+
+	1. a per-field override in the field_thresholds JSON (when ``field`` given),
+	2. the canonical ocr_confidence_threshold scalar,
+	3. DEFAULT_OCR_CONFIDENCE_THRESHOLD (0.70).
+
+	D1: ocr_confidence_threshold stays the single canonical stored scalar — no
+	separate per_field_confidence_threshold field is added."""
+
+	stored = _settings()
+
+	if field:
+		overrides = _coerce_field_thresholds(stored.get("field_thresholds"))
+		if field in overrides:
+			try:
+				return float(overrides[field])
+			except (TypeError, ValueError):
+				pass
+
+	raw = stored.get("ocr_confidence_threshold")
+	try:
+		value = float(raw) if raw not in (None, "") else 0.0
+	except (TypeError, ValueError):
+		value = 0.0
+	return value if value > 0 else DEFAULT_OCR_CONFIDENCE_THRESHOLD
+
+
+def get_field_threshold(field: str) -> float:
+	"""Thin alias for get_confidence_threshold(field)."""
+
+	return get_confidence_threshold(field)
+
+
+def get_sod_config() -> dict:
+	"""Segregation-of-duties config consumed by the approval step (spec 11).
+
+	``enforce`` defaults ON when unset."""
+
+	stored = _settings()
+	raw_enforce = stored.get("enforce_sod")
+	if raw_enforce in (None, ""):
+		enforce = True
+	else:
+		try:
+			enforce = bool(int(float(raw_enforce)))
+		except (TypeError, ValueError):
+			enforce = True
+	try:
+		threshold = float(stored.get("sod_threshold_amount") or 0)
+	except (TypeError, ValueError):
+		threshold = 0.0
+	return {"enforce": enforce, "threshold": threshold}
+
+
+def _coerce_field_thresholds(raw) -> dict:
+	"""Parse the field_thresholds JSON Single value (stored as text) into a dict."""
+
+	if not raw:
+		return {}
+	if isinstance(raw, dict):
+		return raw
+	try:
+		parsed = json.loads(raw)
+	except (TypeError, ValueError):
+		return {}
+	return parsed if isinstance(parsed, dict) else {}
 
 
 @frappe.whitelist()

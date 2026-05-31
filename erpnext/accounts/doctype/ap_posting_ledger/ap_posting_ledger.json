@@ -1,0 +1,105 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:idempotency_key",
+ "creation": "2026-05-31 00:00:00.000000",
+ "description": "Append-only idempotency ledger: one row per (capture, step) document-creating operation. The UNIQUE idempotency_key index guarantees a retried background job creates its downstream ERPNext document at most once. Rows are written server-side by erpnext.accounts.ap_closed_loop.idempotency.with_idempotency; never edited by hand.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "idempotency_key",
+  "capture",
+  "step",
+  "column_break_apl",
+  "result_doctype",
+  "result_name",
+  "posted_at"
+ ],
+ "fields": [
+  {
+   "description": "sha256 hex of (capture, step). UNIQUE — this index is the double-post guard.",
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Idempotency Key",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "capture",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "AP Invoice Capture",
+   "options": "AP Invoice Capture",
+   "reqd": 1
+  },
+  {
+   "description": "Free-text step name, e.g. promote_to_purchase_invoice, request_approval, create_journal_entry.",
+   "fieldname": "step",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Step"
+  },
+  {
+   "fieldname": "column_break_apl",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "result_doctype",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Result DocType"
+  },
+  {
+   "fieldname": "result_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Result Name"
+  },
+  {
+   "fieldname": "posted_at",
+   "fieldtype": "Datetime",
+   "label": "Posted At"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-05-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Posting Ledger",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

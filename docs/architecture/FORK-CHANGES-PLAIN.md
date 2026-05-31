@@ -149,6 +149,18 @@ It's gated off by default (an admin has to switch it on) and adds **no new butto
 
 ---
 
+## Update (2026-05-31): foundations for the bigger AP workflow
+
+We started building the larger "v2" AP workflow (the 14 specs in `docs/spec/`). The first piece — the plumbing everything else needs — is now built and tested:
+
+- **One settings page for everything.** All the AP knobs (the approval dollar limit, the duplicate-check window, the segregation-of-duties switch, special clearing accounts) now live on the existing **AP Closed Loop Settings** page.
+- **A "can't pay it twice" safety latch.** A new behind-the-scenes ledger guarantees that if a background job runs twice, it can't create the same invoice or payment twice.
+- **A standard way to run slow work in the background** so the screen never freezes — with sensible retries and a clear "needs attention" flag when something genuinely fails.
+
+It's invisible to users (no new screens), changes nothing on a site that hasn't switched the new options on, and ships with 22 automated tests (all passing) — the existing 66-test suite still passes too.
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

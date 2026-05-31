@@ -736,3 +736,31 @@ bench --site <test-site> run-tests --module erpnext.mcp.tests.test_permissions
 - **No `run_python_code`-style tool** — out of scope permanently (attack surface).
 - **No `sampling/`, `resources/`, `prompts/`** — server never calls back into the client LLM (enforced by a CI canary).
 - **No new Desk navigation** — no UI-SITEMAP change in v1.
+
+---
+
+## 11. Spec 01 — AP Closed Loop Foundations (Settings, Idempotency, Async Runner)
+
+> **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). First slice of the v2 workflow build — see `docs/spec/01-foundations-settings-async-idempotency.md`. All 17 acceptance criteria green; **22 new automated tests** pass, and the existing **66-test `AP Invoice Capture` suite passes unchanged** (run under the Fake OCR provider — see the test-plan note below).
+
+Cross-cutting foundation every later v2 step builds on: a single settings backbone, document-level idempotency, and a step-aware async runner. Stream-agnostic; **zero behaviour change on an unconfigured site.**
+
+```
+ erpnext/accounts/doctype/ap_posting_ledger/__init__.py                           |    0
+ erpnext/accounts/doctype/ap_posting_ledger/ap_posting_ledger.json                |  NEW DocType — idempotency ledger; UNIQUE idempotency_key; autoname field:idempotency_key
+ erpnext/accounts/doctype/ap_posting_ledger/ap_posting_ledger.py                  |  controller (auto-typed, no logic)
+ erpnext/accounts/ap_closed_loop/idempotency.py                                   |  generate_key (sha256 of capture+step ONLY) + with_idempotency (double-post guard)
+ erpnext/accounts/ap_closed_loop/async_runner.py                                  |  enqueue_step (queue selection) + _dispatch_step (RetryBackgroundJobError | delayed re-enqueue | dead-letter) + RetryLaterError
+ erpnext/accounts/ap_closed_loop/install.py                                       |  install_ap_defaults (after_migrate; backfills Single defaults, blank-only, idempotent)
+ erpnext/accounts/ap_closed_loop/tests/{__init__,test_idempotency,test_async_runner,test_install}.py | 16 new tests
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    |  +/- thresholds_section, sod_section, clearing_accounts_section + 3 reserved collapsible sections; 7 new fields
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      |  +/- get_auto_post_threshold / get_dedupe_window_days / get_confidence_threshold / get_field_threshold / get_sod_config
+ erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py |  +/- TestFoundationGetters (6 tests)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |  +/- _resolve_approval_threshold reads settings; _enqueue_next delegates to async_runner.enqueue_step; _run_cascade_step is now a back-compat alias to _dispatch_step
+ erpnext/hooks.py                                                                 |  +1 after_migrate entry: install_ap_defaults
+ test/testplans/ap-foundations-settings-async-idempotency.md                      |  clean-room runbook
+```
+
+**Decisions locked (spec §8):** idempotency key = `sha256(capture, step)` ONLY, never `settings.modified` (**D9** — the double-post guarantee); `ocr_confidence_threshold` stays the single canonical confidence scalar (**D1**); `field:idempotency_key` autoname (**D3**); `_run_cascade_step` retained as an alias for one release (**D4**); phase-1 retry uses native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff (**D5**); defaults install via `after_migrate` (**D2**). `AUTO_APPROVAL_THRESHOLD_DEFAULT=1000.0` retained as the empty-settings fallback.
+
+**Test-environment note (important):** the existing `test_ap_invoice_capture` suite calls `run_fake_extraction_for`, which is now settings-driven (`run_fake_extraction = run_extraction`). It is deterministic **only when `AP Closed Loop Settings.ocr_provider = "Fake (Deterministic)"`** (the default). On a site configured for `Anthropic Claude` the suite invokes the real provider and fails non-deterministically — pin the Fake provider (or set it in the suite's `setUp`) before running. This is a pre-existing isolation gap in that suite, surfaced — not introduced — by this slice.

@@ -21,7 +21,20 @@
   "ocr_confidence_threshold",
   "ocr_column_break",
   "ocr_max_file_mb",
-  "ocr_force_reextract"
+  "ocr_force_reextract",
+  "thresholds_section",
+  "field_thresholds",
+  "auto_post_amount_threshold",
+  "dedupe_window_days",
+  "sod_section",
+  "enforce_sod",
+  "sod_threshold_amount",
+  "clearing_accounts_section",
+  "credit_card_clearing_account",
+  "unmapped_card_spend_account",
+  "stream_rules_section",
+  "anomaly_section",
+  "bank_feed_section"
  ],
  "fields": [
   {
@@ -133,6 +146,90 @@
    "fieldname": "ocr_force_reextract",
    "fieldtype": "Check",
    "label": "Force Re-extract"
+  },
+  {
+   "fieldname": "thresholds_section",
+   "fieldtype": "Section Break",
+   "label": "Confidence & Approval Thresholds"
+  },
+  {
+   "default": "{}",
+   "description": "Optional per-field confidence overrides as JSON, e.g. {\"total_amount\": 0.9, \"supplier\": 0.6}. A field's effective threshold is its override here, else the OCR Confidence Threshold, else 0.70. Read via get_confidence_threshold(field).",
+   "fieldname": "field_thresholds",
+   "fieldtype": "JSON",
+   "label": "Per-Field Confidence Thresholds"
+  },
+  {
+   "description": "Stream-I auto-post / auto-approval ceiling: captures with a final total at or below this amount auto-approve; above it they route to a manager. Blank falls back to 1000.0. Replaces the former hard-coded default.",
+   "fieldname": "auto_post_amount_threshold",
+   "fieldtype": "Float",
+   "label": "Auto-Post Amount Threshold"
+  },
+  {
+   "default": "90",
+   "description": "How many days back the pre-extraction duplicate check scans for a matching prior capture. Blank falls back to 90.",
+   "fieldname": "dedupe_window_days",
+   "fieldtype": "Int",
+   "label": "Dedupe Window (Days)"
+  },
+  {
+   "fieldname": "sod_section",
+   "fieldtype": "Section Break",
+   "label": "Segregation of Duties"
+  },
+  {
+   "default": "1",
+   "description": "Master switch for the segregation-of-duties backstop (the role that coded a document cannot also approve it). Consumed by the approval step (Stream I).",
+   "fieldname": "enforce_sod",
+   "fieldtype": "Check",
+   "label": "Enforce Segregation of Duties"
+  },
+  {
+   "default": "0",
+   "description": "SoD applies to all amounts when 0; when greater than 0, SoD is enforced only above this amount.",
+   "fieldname": "sod_threshold_amount",
+   "fieldtype": "Float",
+   "label": "SoD Threshold Amount"
+  },
+  {
+   "fieldname": "clearing_accounts_section",
+   "fieldtype": "Section Break",
+   "label": "Clearing & Suspense Accounts"
+  },
+  {
+   "description": "Credit-Card-Clearing account used by the already-paid (Stream R) PI-plus-clearing posting path. Site-wide default; the consuming step validates it against the capture's company.",
+   "fieldname": "credit_card_clearing_account",
+   "fieldtype": "Link",
+   "label": "Credit Card Clearing Account",
+   "options": "Account"
+  },
+  {
+   "description": "Suspense expense account for card spend with no supplier/coding-profile match (Stream R soft path). Site-wide default; validated against the capture's company at point of use.",
+   "fieldname": "unmapped_card_spend_account",
+   "fieldtype": "Link",
+   "label": "Unmapped Card Spend Account",
+   "options": "Account"
+  },
+  {
+   "collapsible": 1,
+   "description": "Reserved — provisional Receipt-vs-Invoice tagging rules and the 72h SLA config are filled by the intake / stream-tagging step.",
+   "fieldname": "stream_rules_section",
+   "fieldtype": "Section Break",
+   "label": "Stream Tagging Rules"
+  },
+  {
+   "collapsible": 1,
+   "description": "Reserved — amount-anomaly detection parameters are filled by the validation-gates step.",
+   "fieldname": "anomaly_section",
+   "fieldtype": "Section Break",
+   "label": "Anomaly Detection"
+  },
+  {
+   "collapsible": 1,
+   "description": "Reserved — bank-feed (SimpleFIN) configuration is filled by the bank-feed reconciliation step.",
+   "fieldname": "bank_feed_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Feed (SimpleFIN)"
   }
  ],
  "issingle": 1,

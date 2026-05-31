@@ -366,42 +366,18 @@ class APInvoiceCapture(Document):
 		return None
 
 	def _enqueue_next(self, method_name: str, reason: str) -> None:
-		"""Schedule the next auto-step via Frappe's job queue.
+		"""Schedule the next auto-step via the AP Closed Loop async runner.
 
-		* ``enqueue_after_commit=True`` so the worker sees committed state.
-		* ``deduplicate=True`` + a per-capture-per-step ``job_name`` coalesces
-		  repeat triggers within the same transaction.
-		* ``now`` runs the job synchronously in tests so the cascade lands
-		  inside the existing request rather than depending on a real worker.
+		Delegates queue selection, retry classification, and dead-letter
+		surfacing to ``async_runner.enqueue_step`` (spec 01). ``job_id``-based
+		dedup and the test-mode handling (``now`` in tests, ``enqueue_after_commit``
+		in production) are preserved inside the runner; only the routing moved
+		out of this controller.
 		"""
 
-		# Route async hops through `_run_cascade_step`, which catches any
-		# exception, logs it to Error Log, AND updates the capture with
-		# action_required + a human-readable reason. Without that wrapper,
-		# worker-side failures only land in Error Log and the user sees a
-		# capture parked silently in an in-between state.
-		wrapper_path = (
-			"erpnext.accounts.doctype.ap_invoice_capture."
-			"ap_invoice_capture._run_cascade_step"
-		)
-		# enqueue_after_commit defers the job until the current transaction
-		# commits, so a real RQ worker sees committed state. In tests we run
-		# the job synchronously (now=True) and MUST stay inside the test's
-		# transaction — otherwise `frappe.db.rollback()` in tearDown can't
-		# undo the cascade's writes (the after-commit callback forces a
-		# `frappe.db.commit()` mid-test). Disabling enqueue_after_commit in
-		# test mode keeps the whole cascade inside the rollback boundary.
-		in_test = bool(frappe.flags.get("in_test"))
-		frappe.enqueue(
-			wrapper_path,
-			capture=self.name,
-			method_name=method_name,
-			queue="short",
-			job_id=f"ap-progress-{self.name}-{method_name}",
-			deduplicate=True,
-			enqueue_after_commit=not in_test,
-			now=in_test,
-		)
+		from erpnext.accounts.ap_closed_loop import async_runner
+
+		async_runner.enqueue_step(self.name, method_name, reason=reason)
 
 	def _hydrate_from_linked_file(self) -> None:
 		"""Pull filename / url off the linked File record when available."""
@@ -437,54 +413,18 @@ class APInvoiceCapture(Document):
 
 
 def _run_cascade_step(capture: str, method_name: str):
-	"""Worker entry point for an auto-progression cascade hop.
+	"""Back-compat alias → ``async_runner._dispatch_step`` (spec 01 §5.3-E / D4).
 
-	The cascade's `_enqueue_next` routes every async step through here so
-	that exceptions:
-
-	1. Land in Error Log (`frappe.log_error`) — same as Frappe's default
-	   worker behaviour, kept explicit so the title is clearer.
-	2. Surface on the capture itself via ``action_required=1`` +
-	   ``action_required_reason``. The form's banner + indicator already
-	   read these fields, so the user gets a visible signal instead of
-	   discovering the silent stall later.
-
-	We deliberately do NOT re-raise. If we re-raised, RQ would either
-	retry the job (causing re-failure loops) or mark it failed in a way
-	that isn't user-visible. The capture's own action_required flag is
-	the canonical signal; the Error Log is for engineers.
+	Retained for one release so any in-flight RQ jobs enqueued under the old
+	wrapper path still resolve. New enqueues go straight to ``_dispatch_step``
+	via ``async_runner.enqueue_step``; the dispatcher now owns queue selection,
+	retry classification, and the dead-letter surfacing (``action_required`` +
+	Error Log) this function used to perform.
 	"""
 
-	import importlib
+	from erpnext.accounts.ap_closed_loop import async_runner
 
-	try:
-		module = importlib.import_module(__name__)
-		fn = getattr(module, method_name)
-		fn(capture)
-	except Exception as e:
-		frappe.log_error(
-			title=f"AP Cascade Step Failed: {method_name} on {capture}",
-			message=frappe.get_traceback(),
-		)
-		try:
-			error_msg = str(e)[:160] or e.__class__.__name__
-			frappe.db.set_value(
-				"AP Invoice Capture",
-				capture,
-				{
-					"action_required": 1,
-					"action_required_reason": _("Auto-step '{0}' failed: {1}").format(
-						method_name, error_msg
-					),
-				},
-				update_modified=True,
-			)
-			frappe.db.commit()
-		except Exception:
-			frappe.log_error(
-				title=f"AP Cascade Step Failed AND Surface Failed: {capture}",
-				message=frappe.get_traceback(),
-			)
+	async_runner._dispatch_step(capture, method_name)
 
 
 def _normalize_extension(value: str) -> str:
@@ -1242,7 +1182,14 @@ def promote_to_purchase_invoice(
 
 def _resolve_approval_threshold(threshold: float | None, source: str | None) -> tuple[float, str]:
 	if threshold is None:
-		return AUTO_APPROVAL_THRESHOLD_DEFAULT, source or APPROVAL_SOURCE_DEFAULT
+		# Settings-driven (spec 01): get_auto_post_threshold() returns the
+		# AP Closed Loop Settings value, falling back to AUTO_APPROVAL_THRESHOLD_DEFAULT
+		# (1000.0) when blank so empty-settings sites are byte-for-byte unchanged.
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_auto_post_threshold,
+		)
+
+		return get_auto_post_threshold(), source or APPROVAL_SOURCE_DEFAULT
 	return float(threshold), source or "explicit-override"
 
 
