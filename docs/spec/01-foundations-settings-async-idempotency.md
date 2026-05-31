@@ -9,7 +9,7 @@ related: [00-overview, 02-intake-stream-tagging, 04-extraction-confidence-line-i
 ---
 
 # 01 — Foundations: Settings, Idempotency, Async Runner
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; §7.3 UI testing N/A (backend-only slice)._
 
 ## 1. Summary
 This spec lays the cross-cutting foundation every later v2 step builds on: it (a) extends the existing `AP Closed Loop Settings` Single into the single settings backbone (new thresholds, SoD config, credit-card/clearing accounts, plus placeholder sections owned by other specs), (b) introduces a real idempotency layer — a new `AP Posting Ledger` DocType plus an `idempotency.py` helper module so a retried job can never double-post an ERPNext document, and (c) generalizes the existing in-controller cascade enqueue into a reusable, step-aware, retry-capable `async_runner.enqueue_step`. It is **stream-agnostic** infrastructure that serves both Stream R (receipts) and Stream I (invoices). It implements the plan's cross-cutting principle "Async by default, idempotent everywhere." Current-state delta: today there is **no idempotency key, no posting ledger, and no `with_idempotency` wrapper** (only per-controller status guards), the async cascade is hardcoded to the `short` queue with no retry/backoff, and the auto-approval threshold is a hardcoded `1000.0` literal — this spec replaces all three with settings-driven, generalized primitives.
@@ -308,6 +308,11 @@ Ship three runbooks under `test/testplans/` (kebab slugs, one per shipped piece)
 - **`test/testplans/ap-async-runner.md`** — scope: queue routing (long/short/default), dead-letter surfacing `action_required`, retry/backoff behavior, and the `_enqueue_next` subsumption (cascade unchanged).
 
 Each plan must include exact `bench` setup, the `AP Closed Loop Settings` field values to set, a sample capture to drive a step twice, and DB assertions (DB is the source of truth) since the UNIQUE row is the guarantee.
+
+### 7.3 UI testing (Playwright MCP)
+**N/A — this slice is backend-only.** There is no user-facing UI beyond the standard `AP Closed Loop Settings` Single form: the new fields (Thresholds / SoD / Clearing-Accounts sections) are plain config inputs, and the new settings are exercised by the §7.1 getter round-trip tests + the §7.2 clean-room runbooks, not by browser interaction. The idempotency ledger, async runner, and threshold wiring are server-side primitives with no desk surface of their own. No Playwright scenarios are required for this slice.
+
+**Optional smoke (only if a browser is already up for an adjacent slice):** open `/app/ap-closed-loop-settings`, confirm the new **Confidence & Approval Thresholds**, **Segregation of Duties**, and **Clearing & Suspense Accounts** sections render and that **Save** succeeds without error; screenshot to `test/testplans/screenshots/ap-foundations-settings-backbone/settings-sections.png` (committed) — pass that path as the screenshot `filename`. Setup (if run): Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart Claude Code after registering; `.mcp.json` / `.playwright-mcp/` stay gitignored). No other scenarios.
 
 ## 8. Open decisions
 - **D1 — Threshold field reconciliation (HIGH).** Should the per-field confidence threshold keep using the existing `ocr_confidence_threshold` field, or add a new `per_field_confidence_threshold` + copy-forward patch? **Options:** (a) keep `ocr_confidence_threshold` as canonical, add only `get_confidence_threshold()` getter — zero migration, no second scalar; (b) add `per_field_confidence_threshold`, patch-copy the old value, getter reads either. **Recommended default: (a)** — the existing field is already documented as per-field; avoids duplication and a migration, and `get_ocr_config`'s 0.70 fallback stays intact. **Owner:** spec 01 author + spec 04 (extraction). **Must lock:** before §5.1-A JSON is written.

@@ -9,7 +9,7 @@ related: [10-ap-review-observability, 14-closure-audit-retention, 12-payment-exe
 ---
 
 # 13 — Bank-Feed Match & Reconciliation (SimpleFIN, mocked in dev)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec implements **Step 12** of `docs/planning/workflow-v2-plan.md`: the **external** bank-feed signal that actually closes an AP transaction. It reuses ERPNext's native Bank Reconciliation engine — it does **not** rebuild matching — and writes a clearance result back onto `AP Invoice Capture` via two new fields (`bank_transaction`, `bank_cleared`). It serves **both streams**: deposit (card) bank lines clear Stream R already-paid **Journal Entries**; withdrawal (ACH/check) bank lines clear Stream I **Payment Entries**. The one-line current-state delta: today closure is a single derived `closed` boolean with an active guardrail asserting **zero** Bank Transactions; this spec **retires that guardrail** and splits closure into `settled` (today's internal derivation) + `bank_cleared` (the new external half), with the live SimpleFIN feed mocked by fixtures during development.
@@ -253,6 +253,19 @@ Use `from frappe.tests import IntegrationTestCase`; roll back DB writes in `tear
 ### 7.2 Clean-room test plan
 
 `test/testplans/bank-feed-match-simplefin-mock.md` — self-contained runbook for an external instance: bench app install; seed a Bank + Bank Account on a card-clearing and an operating account; drive a capture through to a submitted PE (Stream I) and a submitted JE (Stream R); load the inline SimpleFIN-shaped JSON fixture (id / posted / amount / description — given verbatim so no SimpleFIN account is needed); run native reconciliation; assert in the DB (source of truth) that `Bank Transaction.status == "Reconciled"` and the capture's `bank_transaction` + `bank_cleared` + `payment_lifecycle_status == "Bank Cleared"` are set; assert the party-name-only / amount-mismatch case does NOT clear; cover the four §4 grounding links in the plan's context section; cleanup deletes the seeded fixtures.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice exercises — the **native** Bank Reconciliation Tool — via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/bank-feed-match-simplefin-mock/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`, uses the native Bank Reconciliation Tool UI):
+- Seed a mock Bank Transaction (via the dev wrapper), open `/app/bank-reconciliation-tool`, and match the BT to the capture's `Payment Entry` (Stream I withdrawal) → then open the capture → `bank_cleared` is checked and `payment_lifecycle_status = Bank Cleared`; screenshot the match and the capture → DB-assert `bank_transaction`, `bank_cleared=1`, lifecycle.
+- Stream R: match a deposit BT to the capture's Journal Entry (or the `is_paid` PI per spec 07) → capture clears; screenshot → DB-assert.
+- Negative: a party-name-only fuzzy match whose amount does NOT match → does NOT clear; screenshot → DB-assert `bank_cleared=0`.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the `doc_event` writeback wiring, and the SimpleFIN/Plaid live feed (mocked) — §7.1/§7.2.
 
 ## 8. Open decisions
 

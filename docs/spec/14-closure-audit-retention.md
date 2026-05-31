@@ -9,7 +9,7 @@ related: [00-overview, 08-validation-gates, 10-ap-review-observability, 11-appro
 ---
 
 # 14 — Closure & Audit Trail (dual-signal closure, TB drift, 7-year retention)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec closes the loop. It (a) upgrades the closure signal from single (PI Paid + PE submitted) to **dual** — `settled` plus `bank_cleared` — by reading the Bank Transaction match landed by [[13-bank-feed-reconciliation]]; (b) adds **single-record audit retrieval** (`build_audit_trail_for`) that assembles the live closure evidence + a Frappe-`Version` field-level history block + a validation-gates summary + a bank-match block into one composite dict and renders it to one PDF via an `AP Audit Trail` Print Format; (c) ships an **`Accounts Payable Trial Balance Drift`** report comparing current Creditors / Credit-Card-Clearing balances to the prior-period `Account Closing Balance` snapshot; and (d) installs a **flag-only 7-year retention scheduler** (IRS — never deletes). It is stream-agnostic in structure, but `closure_basis` differs by stream: Stream R closes on the bank-match of the Journal Entry, Stream I on the bank-match of the Payment Entry. **Current-state delta:** today closure is single-signal and `closure_basis` asserts "Bank Transaction count must remain 0" — this spec rewrites that to require a Bank Transaction for the bank-cleared leg.
@@ -352,7 +352,20 @@ One `.md` per feature under `test/testplans/`, kebab-case, each following the 7 
 - `test/testplans/closure-dual-signal-bank-cleared.md` — settled vs bank-cleared dual closure and the lifecycle terminals.
 - `test/testplans/ap-trial-balance-drift.md` — TB-drift report against a seeded Period Closing Voucher.
 - `test/testplans/ap-7yr-retention-flagging.md` — flag-only retention scheduler (assert no deletion).
-- `test/testplans/ap-audit-trail-print-format.md` — Playwright-driven (per `test/testplans/BROWSER-TESTING-SETUP.md`); save evidence screenshots under `test/testplans/screenshots/ap-audit-trail-print-format/`.
+- `test/testplans/ap-audit-trail-print-format.md` — the `AP Audit Trail` Print Format render; the browser-driven steps are specified in §7.3.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds — the audit-trail retrieval, the `AP Audit Trail` Print Format, and the TB-drift report — via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbooks.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/ap-audit-trail-print-format/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- On a fully closed capture, trigger the audit-trail view/action → the full chain (image → extraction → validation → approval → payment → bank-match → posting) renders in one place; screenshot.
+- Render the `AP Audit Trail` print format at `/app/print/AP Invoice Capture/<name>?format=AP%20Audit%20Trail` → the PDF/preview renders without truncation for a multi-line invoice (and a reject-and-reopen history); screenshot.
+- Open the `Accounts Payable Trial Balance Drift` report → it renders and flags a synthetic 1¢ drift; screenshot.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the Version-history aggregation, and the 7-year retention flag scheduler — §7.1.
 
 ## 8. Open decisions
 

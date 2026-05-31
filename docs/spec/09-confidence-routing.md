@@ -9,7 +9,7 @@ related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-t
 ---
 
 # 09 — Confidence-Based Routing (Auto-Post vs Review Queue)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 
@@ -261,6 +261,18 @@ Assertions per case (per the brief's test surface): `approval_status`, `payment_
 ### 7.2 Clean-room test plan
 
 `test/testplans/confidence-based-routing.md` — scope: on a clean bench with [[04-extraction-confidence-line-items]], [[08-validation-gates]], [[02-intake-stream-tagging]], [[07-classification-doctype-branching]], and [[10-ap-review-observability]] installed, configure `AP Closed Loop Settings.auto_post_amount_threshold` and `per_field_confidence_threshold`, then drive a capture through the four matrix corners (clean-low-StreamI, clean-StreamR, low-confidence, over-threshold) via the desk UI + whitelisted endpoints, asserting `approval_status`, the surfaced `routing_reason`/`action_required_reason`, the auto-posted Journal Entry (Stream R) vs the approval-workflow entry (Stream I), and the `AP Review Event` rows for the review-routed cases — verifying state in the DB, not the screenshot.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/confidence-based-routing/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- A clean + all-fields-high-confidence + under-threshold capture → auto-approves with ZERO manual clicks (observe the form reach Auto Approved / auto-post); screenshot → DB-assert `approval_status` auto-approved. (Stream R: the JE auto-posts with no approval.)
+- A flagged capture (low confidence on e.g. `total_amount`) → lands in the review queue with `routing_reason` naming the field; screenshot the queue list (`get_ap_lifecycle_rows`) → DB-assert `routing_reason` + queue membership.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the combined-signal evaluator internals (§7.1).
 
 ## 8. Open decisions
 

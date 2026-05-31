@@ -9,7 +9,7 @@ related: [00-overview, 02-intake-stream-tagging, 03-deduplication, 06-gl-coding-
 ---
 
 # 04 — Extraction — Numeric Per-Field Confidence + Line Items
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec EXTENDS the already-shipped real-OCR provider stack (Anthropic Claude via forced tool use, with retry / circuit breaker / file-size guard / Integration-Request audit / Haiku→Sonnet fallback) to (a) persist a **numeric per-field confidence score** for every extracted field and (b) extract and persist **line items**, subtotal, tax, and any visible PO reference. It implements **Step 3** of `docs/planning/workflow-v2-plan.md`. It is stream-agnostic at the *extraction* surface (both Stream R receipts and Stream I invoices get scored line-level extraction) but the line-item write-back on promote diverges by stream (Stream I → Purchase Invoice item rows; Stream R → handled by [[07-classification-doctype-branching]]'s Journal Entry path, out of scope here). **Current-state delta:** the Anthropic model already *returns* `confidence_per_field` but the extractor **discards the numbers** (only deriving missing/ambiguous SETS), and there is **no line-item extraction at all** — this spec stops discarding the scores, adds two new child tables, and makes promote line-aware.
@@ -254,6 +254,18 @@ Run with `bench --site <site> run-tests --module <dotted.path>`. Use `from frapp
 Two runbooks (or one combined) under `test/testplans/`, kebab-case, self-contained for an external instance with zero prior context:
 - **`test/testplans/extraction-per-field-confidence.md`** — scope: configure `AP Closed Loop Settings` (`per_field_confidence_threshold`, `field_thresholds`) + `AI Provider Settings`, run real Anthropic extraction on a sample multi-field invoice (provide SHA-256, key obtain-instructions only — never the key), assert `AP Invoice Capture Confidence` child-row counts and `is_above_threshold` values at/around the boundary, and assert `ocr_raw_response` carries no credential.
 - **`test/testplans/extraction-line-items-promote.md`** — scope: run extraction on a real multi-line invoice fixture (SHA-256 given), assert `AP Invoice Capture Item` row count, then promote (Stream I) and assert PI item count, per-line `purchase_order` mapping, and totals reconciliation within 0.01 (incl. the mismatch → `action_required` negative case).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/extraction-line-items-promote/<name>.png` (committed; pass as the screenshot `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- After extraction, open the capture at `/app/ap-invoice-capture/<name>` → the OCR proposal section shows the `proposed_*` fields, the per-field confidence indicators (low-confidence fields visibly flagged), and the `AP Invoice Capture Item` line-items child grid populated; screenshot → DB-assert `AP Invoice Capture Confidence` rows (with `is_above_threshold`) and `AP Invoice Capture Item` rows exist.
+- Edit a low-confidence field and click "Confirm Fields" → status → Confirmed; screenshot → DB-assert `final_*` reflect the edit.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the Anthropic API extraction call itself (mocked in §7.1), the async enqueue.
 
 ## 8. Open decisions
 

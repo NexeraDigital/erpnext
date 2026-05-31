@@ -9,7 +9,7 @@ related: [00-overview, 11-approval-sod-workflow, 13-bank-feed-reconciliation, 14
 ---
 
 # 12 — Payment Execution (Stream I only; automation secondary)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec hardens the existing "mock payment" leg into the **Step-11 payment-execution control** for **Stream I (unpaid invoices) only**. It makes the phase-1 default an explicit **human-triggered** Payment Entry (a manager clicks the button), gates the auto-progression cascade behind a new per-supplier `auto_pay_eligible` Custom Field (default OFF), replaces the guard-only idempotency with a real idempotency key on the Payment Entry insert (via [[01-foundations-settings-async-idempotency]]), and specs the deferred phase-2 rail seam `issue_real_payment_for(capture, rail)`. For **Stream R (already-paid receipts)** this step is a **no-op**: a short-circuit asserts the offsetting Journal Entry from [[07-classification-doctype-branching]] is already submitted, sets `payment_lifecycle_status = "Confirmed"`, creates no Payment Entry, and advances directly to [[13-bank-feed-reconciliation]]. Current-state delta: today the cascade **auto-pays every** approved+ready capture (gated only by test flags), there is **no** per-supplier flag, **no** key-based idempotency, **no** rail seam, and **no** stream concept — the controller treats every capture as Stream I.
@@ -274,6 +274,18 @@ Cases by public function:
 
 ### 7.2 Clean-room test plan
 `test/testplans/payment-execution-stream-i.md` (one file; confirm the slug does not collide with existing files in `test/testplans/`). One-line scope: **phase-1 human-triggered Payment Entry + `auto_pay_eligible` per-supplier gate + Stream-R no-op confirmation + the `issue_real_payment_for` rail seam (mock wired, ACH/check/card raise), executed through the desk UI / whitelisted API on a fresh bench with one real configured company Bank Account replacing `_Test Bank - _TC`, verified against the DB (Payment Entry docstatus, PI outstanding/status, `capture.payment_lifecycle_status`, Bank Transaction count==0).** Required sections per CLAUDE.md: feature-under-test; branch `russ/migrateToV16` + commit SHA; environment setup (bench + erpnext on a fresh site, configure ONE company Bank Account whose GL account is used as `paid_from`, note no real banking keys needed since only mock is wired); test-data prerequisites (a Supplier with `auto_pay_eligible` OFF and one ON, an approved+ready AP Invoice Capture with a submitted PI, a Stream-R capture with a submitted offsetting Journal Entry); numbered cases mirroring AC-12-1..14 with full `issue_mock_payment_for` / `issue_real_payment_for` / `confirm_already_paid_for` payloads; cleanup (delete created PE + PI + JE + captures, roll back); pass/fail checklist (one row per AC).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/payment-execution-stream-i/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- An approved Stream-I capture for a supplier with `auto_pay_eligible` OFF → it pauses for a human; the form shows the "Issue Payment" action; click it → a `Payment Entry` is created + submitted and `payment_lifecycle_status` updates; screenshot → DB-assert the PE exists + the lifecycle value.
+- A Stream-R already-paid capture → the payment step is a no-op (no "Issue Payment" action; the offsetting voucher already submitted); screenshot the absent/disabled action → DB-assert no new PE created.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the idempotency-key wrap on the PE insert, and the deferred real ACH/NACHA rails (phase-2, external) — §7.1.
 
 ## 8. Open decisions
 

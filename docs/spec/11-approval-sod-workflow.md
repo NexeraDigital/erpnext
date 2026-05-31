@@ -9,7 +9,7 @@ related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-t
 ---
 
 # 11 — Approval Routing with Segregation of Duties (native Workflow)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 
@@ -314,6 +314,20 @@ Run: `bench --site <site> run-tests --module erpnext.accounts.tests.test_ap_appr
 ### 7.2 Clean-room test plan
 
 `test/testplans/approval-routing-sod.md` — runbook scope: from a fresh bench, create Roles (`AP Clerk` / `Treasury Approver` / `Auditor (Read Only)`) + a test user per role; import the two Workflow fixtures (`AP Document Approval`, `Supplier Bank Change Approval`); **explicitly verify `allow_self_approval` runtime on this v16** (apply an above-threshold transition as the PI creator, expect the exact throw text `Self approval is not allowed`); run the positive/negative/edge SoD cases with named users and PI `grand_total` values straddling `1000.0`; verify the **Stream R skip**; verify bank-change routing to `Treasury Approver`. Mark Expense Claim cases **"deferred until hrms installed."** Cleanup deletes test PIs/requests and rolls back role assignments.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/approval-routing-sod/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`) — native ERPNext Workflow drives desk action buttons:
+- On a `Purchase Invoice` in the `AP Document Approval` workflow at `/app/purchase-invoice/<name>`, the desk shows the Workflow action button(s) for the current state (e.g. "Submit for Review" → "Approve"/"Reject"); screenshot the action menu per state → DB-assert `workflow_state`.
+- SoD backstop: logged in as the user who coded/submitted the doc, click "Approve" on an above-threshold transition → it is BLOCKED with an error toast/dialog (the app-code SoD check); screenshot the error → DB-assert `workflow_state` did NOT advance. Then switch to a DIFFERENT approver and Approve → succeeds; screenshot → DB-assert `workflow_state` advanced.
+- `allow_self_approval` verification: confirm on the running v16 instance whether the native transition setting alone blocks the submitter (the spec's stated verify-on-instance item) — capture the observed behavior in a screenshot, then confirm the app-code backstop still blocks regardless.
+- `Supplier Bank Change Approval` workflow: a bank-detail change request routes its action button to the `Treasury Approver` role (a non-AP user); screenshot the role-gated action → DB-assert the request `workflow_state` + that an AP-only user does NOT see the approve action.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the threshold-read-from-settings in the transition condition (verified via §7.1 / a console probe).
 
 ## 8. Open decisions
 

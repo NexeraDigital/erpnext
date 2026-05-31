@@ -9,7 +9,7 @@ related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates,
 ---
 
 # 03 — Pre-Extraction Deduplication (exact + perceptual)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec builds the **firewall against double-booking**: before any OCR call is spent, every freshly-intaken `AP Invoice Capture` is checked against the last 90 days for an **exact file-hash match** (re-uploads of the same bytes) and a **fuzzy near-duplicate match** (re-scans of the same document). It implements **Step 2** of `workflow-v2-plan.md` and is **stream-agnostic** — a re-upload is a duplicate whether the artifact was tagged Stream R (receipt) or Stream I (invoice). Current-state delta: there is **no** `content_hash`, `perceptual_hash`, `duplicate_of`, or `STATUS_DUPLICATE` today, and no dedupe step exists in the cascade — this slots a new pre-OCR hop into the existing `after_insert → _kick_next_step → _determine_next_step` machine so a duplicate never reaches the billable extractor.
@@ -260,6 +260,18 @@ Coverage bar per CLAUDE.md: `detect_duplicates_for` and `get_dedupe_config` each
 ### 7.2 Clean-room test plan
 
 **`test/testplans/pre-extraction-dedup.md`** — scope: an external zero-context Claude on a fresh bench installs the perceptual deps (`pip install imagehash pdf2image` — **Pillow is already present via Frappe, do NOT pip-install it as if missing**) **plus** the `poppler-utils` system binary — `apt-get install poppler-utils`, verified with `pdftoppm -v`; the poppler binary is flagged as the **#1 install/system-dep risk** for the pilot/UAT box (`which pdftoppm` returns nothing on a stock dev bench), uploads the same PDF twice (→ lands in **Duplicate** with `duplicate_of` surfaced and no OCR Integration Request), uploads a re-saved/re-scanned near-identical variant (→ `action_required` "suspected near-duplicate" banner, status **NOT** Duplicate), uploads a clearly different invoice (→ normal flow), and lowers `dedupe_window_days` so an old original no longer matches. DB-is-truth verification via `bench --site … mariadb` on `status` / `duplicate_of` / `content_hash` / `perceptual_hash`; provide SHA-256s for the fixtures; cleanup of all captures + Files created through the UI. **Known risk to flag in the plan:** pHash false positives on identical-template recurring invoices (monthly Amazon/utility) — only an exact `content_hash` match auto-closes pre-OCR; perceptual hits are suspects gated by the follow-on body-text fingerprint (D2).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, executed by driving a real browser through the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP set up per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart Claude Code after registering). `.mcp.json` and `.playwright-mcp/` stay gitignored.
+- **Evidence:** save screenshots to `test/testplans/screenshots/pre-extraction-dedup/<name>.png` (committed) — always pass that path as the screenshot `filename`.
+- **Source of truth stays the DB:** screenshots are UI evidence, but after every UI action that writes data, verify the actual write via `bench --site <site> mariadb` / `bench … execute` (consistent with §7.2), then delete data created through the UI.
+
+**Scenarios** (each `route → action → expected UI → DB assertion`):
+- `/app/ap-invoice-capture/new` (or the list-view **Upload** action) → upload a supported file, then upload the **same bytes** again → the second capture surfaces the duplicate state (`status == "Duplicate"`, `action_required_reason` naming the original "Exact duplicate of …", and the `duplicate_of` link visible on the form) and **no** re-extraction runs; screenshot the duplicate warning → DB-assert `duplicate_of` is set and `status == "Duplicate"` (and no Integration Request row exists for the second capture).
+- Upload a **near-duplicate** (the same invoice re-rendered / re-scanned to different bytes) → a "suspected near-duplicate" `action_required` flag is shown and the capture is **NOT** auto-closed; screenshot → DB-assert `action_required == 1` and `status != "Duplicate"` (`duplicate_of` left unset).
+
+**Not browser-testable in this slice** (covered by §7.1): the 90-day lookback query (`detect_duplicates_for` window filtering) and the pHash compute (`_compute_phash` rasterization) are pure server-side logic verified by the §7.1 automated suites. Note the **poppler** dependency — if `pdftoppm` is absent, the perceptual path degrades to exact-only, so the near-duplicate scenario only fires when poppler is installed on the bench/worker host.
 
 ## 8. Open decisions
 

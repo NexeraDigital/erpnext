@@ -9,7 +9,7 @@ related: [00-overview, 03-deduplication, 04-extraction-confidence-line-items, 07
 ---
 
 # 02 — Intake & Stream Tagging (Receipt vs Invoice)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 
@@ -313,6 +313,18 @@ Base class `from frappe.tests import IntegrationTestCase` (matches `test_ap_invo
 
 - **`test/testplans/intake-stream-tagging.md`** (slug `intake-stream-tagging`) — the primary runbook. Scope: configure `AP Closed Loop Settings` stream rules; manual upload -> `Unclassified`; verify `stream_provisional_source`; verify the Stream-R 72h `sla_due_at` computation; confirm a (simulated) Step-6 revision leaves `stream_revised_from`. Includes the rule-table tuning walkthrough (add a row, re-classify, no code change).
 - **`test/testplans/intake-email-inbound.md`** (slug `intake-email-inbound`) — split-out companion. Scope: stand up the dedicated inbound **Email Account**, set its "Append To" + the `ap_intake_email_account` setting, email a `receipt_*.pdf` to it, and confirm a capture is auto-created as **Stream R** with a 72h `sla_due_at` and `intake_channel = Email Inbound`, driven by the `Communication.after_insert` trigger. Covers the no-op guard (send from a non-AP account -> nothing created). This plan also documents how the operator obtains/configures inbound mail credentials (named, never the secret).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, executed by driving a real browser through the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP set up per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart Claude Code after registering). `.mcp.json` and `.playwright-mcp/` stay gitignored.
+- **Evidence:** save screenshots to `test/testplans/screenshots/intake-stream-tagging/<name>.png` (committed) — always pass that path as the screenshot `filename`.
+- **Source of truth stays the DB:** screenshots are UI evidence, but after every UI action that writes data, verify the actual write via `bench --site <site> mariadb` / `bench … execute` (consistent with §7.2), then delete data created through the UI.
+
+**Scenarios** (each `route → action → expected UI → DB assertion`):
+- `/app/ap-invoice-capture/new` (or the list-view **Upload** action) → attach a supported file named to trigger a stream signal (e.g. `receipt_acme.pdf` vs `invoice_acme.pdf`) and **Save** → the capture is created in `Pending Review` with the `stream` field showing the correct provisional tag (`Receipt (R)` / `Invoice (I)`) and `stream_provisional_source` populated; screenshot the saved form → DB-assert `stream` + `stream_provisional_source` on the new capture.
+- Stream-R upload (`receipt_*.pdf`) → `sla_due_at` is populated (`received_at + 72h`) and visible on the form; screenshot → DB-assert `sla_due_at == add_to_date(received_at, hours=72)`.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the email-in intake path (`Communication.after_insert` hook + `create_capture_from_email` fan-out / guard) and the Phase-3 portal-pull adapter registry — both are backend flows with no desk surface, verified by the §7.1 automated suites and the `intake-email-inbound` clean-room runbook.
 
 ## 8. Open decisions
 

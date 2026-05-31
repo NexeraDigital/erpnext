@@ -9,7 +9,7 @@ related: [00-overview, 02-intake-stream-tagging, 07-classification-doctype-branc
 ---
 
 # 08 — Validation, Anomaly Detection & Three-Way Match
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec adds three new server-side validation gates to the AP capture pipeline — **three-way match** (invoice ↔ Purchase Order ↔ received-qty), **amount-anomaly detection** (per-supplier rolling-average / sigma), and a **vendor bank-detail change detector** (social-engineering-fraud defence) — and wires them into the single existing validation entry point so any failure routes the capture to the review queue. It implements **workflow-v2-plan.md Step 7** for **both** streams but the heavy gates are **Stream I only**: receipts (Stream R) skip 3WM / anomaly-block / bank-change-block because the money already moved and there is nothing to authorize. Current-state delta: today the only validation gate is `validate_for_purchase_invoice` (`ap_invoice_capture.py:1020`), which checks **supplier match + mandatory fields only** — there is **no** totals-consistency, anomaly, three-way-match, or bank-change check anywhere in the fork; all three detectors and the daily baseline scheduler are net-new.
@@ -360,6 +360,19 @@ Use `from frappe.tests import IntegrationTestCase`; roll back DB writes in `tear
 
 ### 7.2 Clean-room test plan
 Ship **`test/testplans/three-way-match-anomaly-bank-change.md`** (one file, kebab-case). Scope: clean-room verification of the three gates and the bank-change promotion block, end to end against a fresh bench. Self-contained per CLAUDE.md: feature-under-test paragraph; branch `russ/migrateToV16` + commit SHA; env setup (bench app + `bench new-site` / `bench --site … install-app erpnext` commands, pandas/numpy already in the venv, **no external API key needed** for these gates); test-data prerequisites (a Supplier with a linked Bank Account + Bank; a submitted Purchase Order with a received Purchase Receipt; 5+ submitted historical Purchase Invoices to seed the anomaly baseline; a submitted Payment Entry to anchor the "since last payment" bank-change check; an Update-Bank-Details `Supplier Master Change Request` for the SoD lift); numbered positive / negative / edge cases with exact whitelisted-method payloads + expected DB state (the DB is the source of truth — assert `three_way_match_status` / `anomaly_status` / `vendor_bank_change_detected` via `bench … mariadb`) + pass/fail criteria; cleanup/rollback; and a pass/fail checklist template (one row per case).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/three-way-match-anomaly-bank-change/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- A capture whose lines exceed the linked PO beyond tolerance → the form shows `three_way_match_status = Exception` + the `three_way_match_result` diff and is blocked from promotion; screenshot → DB-assert the status/result. Then click the clerk override action → `Matched (Override)` with the decision audit; screenshot → DB-assert override fields.
+- An anomalous-amount capture (vs the supplier's 6-mo history) → `anomaly_status = Anomalous` + reason shown, routed to review; screenshot → DB-assert.
+- A vendor-bank-change capture → blocked with the bank-change warning until an approved change exists; screenshot → DB-assert `vendor_bank_change_detected`.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the pandas anomaly math, the Version-diff bank-change query, the daily baseline scheduler (§7.1).
 
 ## 8. Open decisions
 

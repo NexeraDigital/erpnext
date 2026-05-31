@@ -9,7 +9,7 @@ related: [00-overview, 02-intake-stream-tagging, 06-gl-coding-tax-costcenter, 07
 ---
 
 # 05 — Supplier Resolution (3-tier) + Gated Creation
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec builds a three-tier supplier resolver — deterministic alias table, fuzzy match, then a **gated** create-new-supplier request — that replaces today's single-tier `_match_supplier`, while preserving the existing **never-auto-create** guarantee. It serves **both** streams but diverges sharply: on **Stream I** an unresolved supplier is a *blocking* in-process step (no payable against an unknown vendor); on **Stream R** it is a *soft* flag (the JE posts to an "Unmapped Card Spend" account with the raw vendor string as memo). It implements plan **Step 4**. Current-state delta: today there is exactly one tier (exact name → unique `supplier_name` → Unknown/Ambiguous) at `ap_invoice_capture.py:975-1002`, no alias table, no fuzzy match, no creation gate, and no stream awareness anywhere in the fork.
@@ -284,6 +284,19 @@ Coverage bar per CLAUDE.md: positive + negative (guard/error path) + edge for ea
 ### 7.2 Clean-room test plan
 
 `test/testplans/supplier-resolution-3tier.md` — one-line scope: a fresh-bench operator creates Supplier `Amazon` + an `AP Supplier Alias` glob `AMZN Mktp US*`→Amazon, files a capture with `proposed_supplier="AMZN Mktp US*4Z9"`, and verifies Tier-1 resolves to Amazon (Matched/Alias); then verifies (a) a Stream-I unknown vendor stays **BLOCKED** in review; (b) with `enable_gated_supplier_creation` on + high OCR confidence, a `Supplier Master Change Request` appears in **Draft**, and approving it **as a second user** (SoD) creates the Supplier and re-validates the capture to Matched; (c) a Stream-R unknown vendor is **non-blocking** and the downstream JE memo carries the raw vendor string against the Unmapped Card Spend account. Written to the CLAUDE.md test-plan template (feature-under-test, branch/commit, env setup with the named Anthropic key obtained by the operator, test-data prerequisites, numbered cases with full URL/API payload + expected DB state/text + pass/fail box, cleanup, summary checklist).
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/supplier-resolution-3tier/<name>.png` (committed; pass as the screenshot `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- Open a capture whose extracted vendor is unknown → form shows `supplier_match_status = Unknown` plus a "Create Supplier"/request action; click it → a Draft `Supplier Master Change Request` is created and linked (`supplier_change_request`), capture stays Blocked; screenshot both → DB-assert the request doc + the link.
+- As a manager, open the `Supplier Master Change Request` and approve it (its Workflow action) → the Supplier is created and the capture re-validates to Matched; screenshot → DB-assert Supplier exists + capture `supplier_match_status = Matched`.
+- Alias path: a capture whose vendor string matches an `AP Supplier Alias` glob resolves to the canonical Supplier (status Matched); screenshot → DB-assert `matched_supplier`.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the rapidfuzz scoring + the three-tier resolution internals (§7.1).
 
 ## 8. Open decisions
 

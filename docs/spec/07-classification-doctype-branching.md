@@ -9,7 +9,7 @@ related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates,
 ---
 
 # 07 — Document-Type Classification & Doctype Branching (stream-aware)
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec adds the Step-6 fork that classifies a confirmed capture into an ERPNext document type and routes it to the correct posting doctype: **Unpaid Bill → Purchase Invoice** (Stream I, existing path), **Already Paid → Purchase Invoice with `is_paid=1`** (Stream R, NEW path — recommended native posting: ONE submitted PI books both the expense and its offsetting payment — the invoice legs (DR expense / CR supplier) plus the Is-Paid payment legs (DR supplier / CR bank) — netting the supplier to zero yet keeping it visible in spend-by-supplier/AP reports; alternative postings are a direct Journal Entry or PI + clearing account — see D-07-1), **Employee Reimbursement → Expense Claim** (Stream R-employee, DEFERRED — hrms absent, routed to Manual Review), **Other / stream conflict → Manual Review**. It is the heart of correct ERPNext AP automation: routing every document to one doctype double-counts liabilities and breaks trial-balance reconciliation. Current-state delta: today the pipeline is hardwired to a single doctype (Purchase Invoice) with no `document_type` field, no stream tag, and no already-paid posting path; this spec inserts a classification hop into the auto-progression cascade and forks on the result. The strongest native already-paid posting is `Purchase Invoice.is_paid=1` (recommended — it reuses the existing `promote_to_purchase_invoice` field-mapping path, adding only `is_paid` / `cash_bank_account` / `paid_amount`, and keeps the Supplier visible in spend-by-supplier/AP reports); the posting mechanism stays config-swappable behind a single seam (D-07-1).
@@ -311,6 +311,19 @@ bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_captu
 
 ### 7.2 Clean-room test plan
 Ship `test/testplans/document-type-classification-branching.md` (kebab slug). Scope: a fresh-bench operator classifies and promotes two captures (one card-marked → JE, one plain bill → PI) plus an employee-group supplier capture (→ Manual Review because hrms is absent), verifying each via `bench mariadb`/`bench execute` against the DB (JE `voucher_type` + balanced rows + `capture.document_type`/`journal_entry`), not screenshots. Required sections per CLAUDE.md, with the **explicit note** that the Expense Claim path is *expected* to land in Manual Review because hrms is absent on this bench (and that installing hrms makes the reserved `expense_claim` field linkable — a future-state note, not a step). Test-data prereqs: a Supplier in a Supplier Group configured as `employee_supplier_group`; `AP Closed Loop Settings` with `default_company`/`default_expense_account`/`default_cost_center`/`default_card_clearing_account` set; two captures with exact OCR text/markers given inline. Cleanup deletes the test JE/PI/captures.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/document-type-classification-branching/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- After Confirm, open the capture → `document_type` is classified and shown (e.g. "Already Paid" with the `card_charge_marker` visible); screenshot → DB-assert `document_type`, `classified_stream`, `stream_tag_agreement`.
+- A stream-conflict capture (intake said Invoice, classifier reads a PAID card marker) → lands in `Manual Review` with `action_required_reason` naming the conflict; screenshot → DB-assert status `Manual Review` + `stream_tag_agreement='Disagree'`.
+- Clerk override: set `classification_override` on the form and re-run classify → classification changes accordingly; screenshot → DB-assert `document_type` == override.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the JE-vs-PI `is_paid` GL posting internals (§7.1); hrms-absent Employee-Reimbursement deferral is asserted via DB.
 
 ## 8. Open decisions
 

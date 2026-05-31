@@ -9,7 +9,7 @@ related: [02-intake-stream-tagging, 04-extraction-confidence-line-items, 05-supp
 ---
 
 # 10 — AP Review (Exception Handling) — instrumented feedback gate
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 
@@ -328,6 +328,20 @@ Confirm green before declaring done (per CLAUDE.md "Automated tests").
 **`test/testplans/ap-review-event-gate.md`** — scope: create a capture → correct a field via the form (one `AP Review Event` written, verified in DB) → reject-back-to-vendor (status `Rejected`, `rejection_log` child row) → reopen (status restored, trail preserved) → confirm the weekly "Top step-9 root causes" report renders and the auto-rate Dashboard Chart groups by `root_cause_tag`. Must include the required CLAUDE.md sections (Feature under test, Branch/commit, Environment setup, Test data prerequisites, Numbered test cases incl. the promoted-reject-blocked negative case, Cleanup/rollback, Pass/fail summary template).
 
 **`test/testplans/ap-capture-reject-reopen.md`** *(optional companion)* — reject/reopen-only runbook (no report/chart) for fast regression of just the transition pair.
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/ap-review-event-gate/<name>.png` (committed; pass as `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- On a capture in review, click "Reject" → a reason field + the fixed `root_cause_tag` vocabulary picker appears; submit → status `Rejected`, an `AP Capture Rejection Log` row + an `AP Review Event` are written; screenshot the dialog and the resulting state → DB-assert the rejection-log row and the `AP Review Event` row (with `root_cause_tag`, `action_taken`).
+- Click "Reopen" on the rejected capture → it returns to the prior stage, a "Reopened" log row is added; screenshot → DB-assert status reverted + log row.
+- Open the weekly "Top step-9 root causes" report at `/app/query-report/<report-name>` → it renders grouped counts by `root_cause_tag`; screenshot.
+- Open the auto-rate Dashboard Chart (the Group-By chart) on the workspace/dashboard → it renders; screenshot.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the `emit_review_event` call-site wiring across other specs (each verified in its own §7.1).
 
 ## 8. Open decisions
 

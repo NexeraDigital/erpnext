@@ -198,8 +198,11 @@ These shape doctype fields or branching and should be decided early:
 - **Grounding (mandatory):** every framework surface cites an upstream Frappe v15 / ERPNext / GitHub source
   (per `CLAUDE.md`). Each spec's §4 carries the verified citations.
 - **Tests (mandatory):** every spec ships **automated tests** (`frappe.tests.IntegrationTestCase`,
-  positive + negative + edge, rolled back in `tearDown`) **and** a clean-room **test plan** under
-  `test/testplans/<slug>.md`. Both are named in each spec's §7.
+  positive + negative + edge, rolled back in `tearDown`), a clean-room **test plan** under
+  `test/testplans/<slug>.md`, and — for specs with a desk-UI surface (02–14) — a **Playwright MCP UI test
+  plan** (§7.3) per `test/testplans/BROWSER-TESTING-SETUP.md`, with committed screenshots under
+  `test/testplans/screenshots/<slug>/` and the DB as the source of truth. All are named in each spec's §7.
+  (Spec 01 is backend-only — UI testing N/A.)
 - **Idempotency & async:** document-creating steps are retry-safe; slow work (OCR, bank sync) is queue-backed.
 - **Permissions / roles:** native Role permissions. New roles: `AP Clerk`, `Treasury Approver`,
   `Auditor (Read Only)`.

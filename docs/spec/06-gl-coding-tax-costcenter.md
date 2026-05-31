@@ -9,7 +9,7 @@ related: [00-overview, 07-classification-doctype-branching, 08-validation-gates,
 ---
 
 # 06 — GL Coding, Cost Center & Tax Assignment
-> _Revised 2026-05-31: applied native-vs-custom review findings._
+> _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
 
 ## 1. Summary
 This spec builds the **auto-coding layer** for routine vendors: a new per-supplier master `AP Supplier Coding Profile` that layers default expense account, cost center, purchase-tax template, payment terms, and accounting dimensions on top of native Party Account, plus a re-runnable `apply_coding_profile_for(capture)` entry point that merges three default layers and writes them onto the **draft** Purchase Invoice. It implements **workflow-v2-plan.md Step 5** for **both streams** — Stream I (full coding before approval) and Stream R (catch-all "Unmapped Card Spend" expense when no profile resolves). Current-state delta: today the promote path does a two-layer merge (`_coalesce_defaults`, ap_invoice_capture.py:1116) with **no supplier tier, no cost-center inference, no tax, and no submitted-PI guard** — this spec adds all four and exposes `is_fully_coded(capture)` as the gate [[08-validation-gates]] / [[09-confidence-routing]] consult before anything auto-posts.
@@ -253,6 +253,18 @@ Base class `from frappe.tests import IntegrationTestCase`; roll back all DB writ
 ### 7.2 Clean-room test plan
 - **`test/testplans/ap-supplier-coding-profile.md`** — runbook (kebab-case, matching `ocr-phase3-settings.md` convention): from a clean bench, create `Supplier` + `Account` (expense) + `Cost Center` + `Purchase Taxes and Charges Template` fixtures, create an `AP Supplier Coding Profile`, drive a capture through validate → `apply_coding_profile_for` → promote, and assert the **draft** PI carries the profile's expense account, cost center, `taxes_and_charges` (with populated taxes rows), and any dimension; plus the **ambiguous-cost-center review-queue** case and the **`unmapped_card_spend_account` catch-all** case (Stream R). Scope line: "Verifies per-supplier auto-coding, cost-center inference + ambiguity routing, tax population, and the Stream-R catch-all on a clean ERPNext bench."
 - *(Optional second slug)* **`test/testplans/ap-coding-cost-center-inference.md`** — split out only if the inference matrix grows (location/card/profile permutations). Scope line: "Cost-center inference precedence and conflict-routing matrix."
+
+### 7.3 UI testing (Playwright MCP)
+Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
+- **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
+- **Evidence:** screenshots to `test/testplans/screenshots/ap-supplier-coding-profile/<name>.png` (committed; pass as the screenshot `filename`).
+- **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
+
+**Scenarios** (`route → action → expected UI → DB assertion`):
+- A capture for a supplier WITH an `AP Supplier Coding Profile` → trigger the Promote/coding action; the PI line auto-fills expense account / cost center / tax with no manual entry; screenshot the prefilled Promote dialog or the resulting PI → DB-assert the PI item coding == the profile.
+- A capture with ambiguous cost-center signals → lands in the Coding Review queue (the `get_coding_review_queue_for` list/report) with the reason and NO cost center silently set; screenshot the queue → DB-assert the capture is flagged + `cost_center` empty.
+
+**Not browser-testable in this slice** (covered by §7.1/§7.2): the three-layer merge resolution + dimension `has_column` guard (§7.1).
 
 ## 8. Open decisions
 
