@@ -139,10 +139,13 @@ when 11 lands. So the real order is **08 (stub) → 11 → 08 (wire real check)*
 
 These shape doctype fields or branching and should be decided early:
 
-1. **Stream R posting model** *(spec 07 D-07-1, spec 13)* — already-paid receipts post as a **direct
-   Journal Entry** (plan default, simplest) **or** a **Purchase Invoice + Credit-Card-Clearing account**
-   (more documents, but the vendor shows in AP aging & spend-by-supplier reports). Built behind one
-   swap-friendly helper. **Recommended:** JE for the pilot. *This is the single highest-leverage decision.*
+1. **Stream R posting model** *(spec 07 D-07-1, spec 13)* — how already-paid receipts post. Three options
+   behind one swap-friendly helper: **(a) Purchase Invoice with `is_paid=1`** — native one-document
+   already-paid posting (DR expense / CR bank, supplier nets to zero, vendor stays in spend reports) that
+   **reuses the existing promote path**; **(b) a direct Journal Entry** (most custom code — new builder + a
+   `journal_entry` link + a third closure voucher type); **(c) PI + Credit-Card-Clearing** (more documents).
+   **Recommended (review-updated): (a) `is_paid`** — least custom code, keeps Supplier visibility. *Single
+   highest-leverage decision; if (a) wins, specs 13/14 simplify — no separate `journal_entry` link.*
 2. **Retire the "no Bank Transaction" guardrail** *(spec 13 D0)* — required for step 12. Needs a short ADR
    and a same-PR docstring/test update on `walking_skeleton.py` + `ap_invoice_capture.py`. **Recommended:** retire, split closure into `settled` + `bank_cleared`.
 3. **`allow_self_approval` semantics** *(spec 11)* — the native Workflow SoD lever must be **verified on the
@@ -154,6 +157,15 @@ These shape doctype fields or branching and should be decided early:
    Flag for the WSL/pilot install scripts.
 6. **Retry-delay realization** *(spec 01 D5)* — `frappe.enqueue` has no delay arg; phase-1 uses immediate
    re-enqueue, phase-2 a scheduled sweep.
+7. **Native `Authorization Rule` vs custom `AP Approval Matrix`** *(spec 11 D-8, review-added)* — ERPNext
+   ships a native amount/role/company approval-limit rule, enforced on PI submit. **Recommended:** use it for
+   the pilot amount gate; reserve the custom matrix for department/cost-center/supplier-risk axes later.
+8. **SimpleFIN vs native Plaid** *(spec 13 D8, review-added)* — Plaid is ERPNext's built-in bank feed (zero
+   connector code); SimpleFIN is a new external integration. **Recommended:** default to Plaid unless there's
+   a concrete business reason for SimpleFIN (record it).
+9. **Enable native duplicate-invoice check** *(spec 03, review-added)* — turn on
+   `Accounts Settings.check_supplier_invoice_uniqueness` (off by default) as a promote-time second firewall
+   alongside the custom image dedupe. *Config action, not a code decision.*
 
 ---
 
@@ -163,12 +175,21 @@ These shape doctype fields or branching and should be decided early:
   Spec 07's `provisional_stream` references should align to spec 02's name — 02 defines it first.
 - **`AP Closed Loop Settings`** is the *single* settings backbone. Spec 01 reserves placeholder sections so
   specs 02/08/13 fill their config blocks without `field_order` churn.
-- **The `journal_entry` link field** on `AP Invoice Capture` is owned by **spec 07** (the branch that creates the JE);
-  specs 13/14 consume it.
+- **The `journal_entry` link field** on `AP Invoice Capture` is owned by **spec 07** — but is **needed only if**
+  Stream R posts as a direct Journal Entry (decision #1 option b). If `is_paid` (option a) wins, the Stream-R
+  voucher is a Purchase Invoice and no `journal_entry` link is added; specs 13/14 are written to handle either.
 - **Idempotency, async, settings getters** are owned by **spec 01**; every document-creating step (05/07/12/13)
   routes its insert through `with_idempotency`.
 - **The `AP Review Event` emitter** (spec 10) is an *optional* dependency for other specs — they emit an event
   *if* the helper is installed, never hard-fail without it.
+- **The approval threshold** has one canonical source: the `auto_post_amount_threshold` setting (owned by
+  **spec 09**). Spec 11's native Workflow condition reads it via `frappe.db.get_single_value`; the hard-coded
+  `1000.0` survives only as the empty-settings fallback. *(Distinct from the per-field OCR-confidence threshold in #4.)*
+- **Vendor bank details live on the native `Bank Account` doctype** — `Supplier` carries only `default_bank_account`.
+  Spec 05's "Update Bank Details" request targets `Bank Account`; spec 08's change-detector watches
+  `Bank Account` / `Bank` / `Supplier.default_bank_account`.
+- **`payment_lifecycle_status`** adds the single value `Bank Cleared` (specs 13 + 14 agree); the two closure
+  signals are carried as derived `settled` + `bank_cleared` fields, not as extra enum values.
 
 ---
 
@@ -188,6 +209,14 @@ These shape doctype fields or branching and should be decided early:
 ---
 
 ## Status
+
+**Revised 2026-05-31** — a native-vs-custom review was applied across all 14 specs, with every native claim
+verified against the installed **ERPNext 16.20.0 / Frappe 16.18.3** source. Folded in: lean on native `is_paid`
+(#1), `Authorization Rule` (#7), `check_supplier_invoice_uniqueness` (#9) and Plaid (#8); corrected the
+bank-details target (→ `Bank Account`), the idempotency-key double-post hole + exception-ordering bug (spec 01),
+and a settings field-precedence bug (spec 02); and reconciled the approval-threshold source and the closure
+vocabulary across specs. *(One review claim — "`Company.cost_center` doesn't exist" — was itself wrong and was
+corrected during editing: the field exists at `company.json:440`.)*
 
 All 14 specs are **Draft**. Recommended next steps: (a) lock the headline decisions above, especially #1
 and #3; (b) start the build at [[01-foundations-settings-async-idempotency]]; (c) write each spec's paired

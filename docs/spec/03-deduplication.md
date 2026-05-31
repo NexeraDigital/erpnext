@@ -9,6 +9,7 @@ related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates,
 ---
 
 # 03 — Pre-Extraction Deduplication (exact + perceptual)
+> _Revised 2026-05-31: applied native-vs-custom review findings._
 
 ## 1. Summary
 This spec builds the **firewall against double-booking**: before any OCR call is spent, every freshly-intaken `AP Invoice Capture` is checked against the last 90 days for an **exact file-hash match** (re-uploads of the same bytes) and a **fuzzy near-duplicate match** (re-scans of the same document). It implements **Step 2** of `workflow-v2-plan.md` and is **stream-agnostic** — a re-upload is a duplicate whether the artifact was tagged Stream R (receipt) or Stream I (invoice). Current-state delta: there is **no** `content_hash`, `perceptual_hash`, `duplicate_of`, or `STATUS_DUPLICATE` today, and no dedupe step exists in the cascade — this slots a new pre-OCR hop into the existing `after_insert → _kick_next_step → _determine_next_step` machine so a duplicate never reaches the billable extractor.
@@ -42,6 +43,23 @@ This spec builds the **firewall against double-booking**: before any OCR call is
 **Settings accessor pattern to mirror.** `erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py:111` `get_ocr_config()` reads `frappe.db.get_singles_dict("AP Closed Loop Settings")` and coerces stored-as-text values to int/float with sane defaults (the Singles text-coercion trap is handled at `:124-147` for `confidence_threshold` and `max_file_mb`). `get_dedupe_config()` follows this exactly.
 
 **Corrections to the brief.** The brief's file:line refs all verified except one cosmetic note: `received_at` is the field block at `ap_invoice_capture.json:139-147` (`fieldname` on `:141`), not a single "line 142". No behavioral impact. The brief is otherwise accurate about current state.
+
+### 3.1 Relationship to native PI duplicate control
+
+ERPNext **natively** blocks a duplicate supplier invoice number per supplier within the fiscal year via `PurchaseInvoice.validate_supplier_invoice` (`erpnext/accounts/doctype/purchase_invoice/purchase_invoice.py:1755-1784`). That check is **GATED** by `Accounts Settings.check_supplier_invoice_uniqueness`, which **DEFAULTS TO `0` (off)** — so out of the box it does nothing.
+
+This native control is **COMPLEMENTARY** to — not a substitute for — this spec's image/byte dedupe; neither subsumes the other:
+
+| Axis | Native PI control | This spec (Step 2) |
+|---|---|---|
+| What it keys on | the **extracted** `bill_no` (supplier invoice number) | file **bytes** (MD5 `content_hash`) + rasterized **pixels** (pHash) |
+| When it fires | at **PI insert** (post-OCR, at promote time) | **pre-OCR**, on intake |
+| Scope window | per supplier, **per fiscal year** | rolling **90-day** window (`dedupe_window_days`) |
+| Default state | **off** (`check_supplier_invoice_uniqueness = 0`) | on (`dedupe_enabled = 1`) |
+
+Because the scope differs (per-fiscal-year vs 90-day window) and the key differs (parsed invoice number vs raw bytes/pixels), a document can slip past one and be caught by the other: a re-typed/re-scanned invoice with the same number but different bytes passes the byte/pixel check yet trips the native number check; conversely a byte-identical re-upload inside the window is caught here pre-OCR before a PI ever exists.
+
+**Recommendation:** the pilot should **ENABLE `check_supplier_invoice_uniqueness`** so the native check acts as a **second, promote-time firewall** behind this spec's pre-OCR pass. Note this dovetails with the spec's own **D2 body-text fingerprint** (which combines `proposed_supplier_invoice_no` + total + date): D2 re-derives at the capture layer essentially what the native control already keys on at the PI layer — so enabling the native flag gives a no-code backstop for the same failure mode D2 targets.
 
 ## 4. Upstream grounding
 
@@ -241,7 +259,7 @@ Coverage bar per CLAUDE.md: `detect_duplicates_for` and `get_dedupe_config` each
 
 ### 7.2 Clean-room test plan
 
-**`test/testplans/pre-extraction-dedup.md`** — scope: an external zero-context Claude on a fresh bench installs the perceptual deps (`pip install imagehash pdf2image Pillow` **plus** the `poppler-utils` system binary — `apt-get install poppler-utils`, verified with `pdftoppm -v`; flagged as the **#1 install/system-dep risk** for the pilot/UAT box), uploads the same PDF twice (→ lands in **Duplicate** with `duplicate_of` surfaced and no OCR Integration Request), uploads a re-saved/re-scanned near-identical variant (→ `action_required` "suspected near-duplicate" banner, status **NOT** Duplicate), uploads a clearly different invoice (→ normal flow), and lowers `dedupe_window_days` so an old original no longer matches. DB-is-truth verification via `bench --site … mariadb` on `status` / `duplicate_of` / `content_hash` / `perceptual_hash`; provide SHA-256s for the fixtures; cleanup of all captures + Files created through the UI. **Known risk to flag in the plan:** pHash false positives on identical-template recurring invoices (monthly Amazon/utility) — only an exact `content_hash` match auto-closes pre-OCR; perceptual hits are suspects gated by the follow-on body-text fingerprint (D2).
+**`test/testplans/pre-extraction-dedup.md`** — scope: an external zero-context Claude on a fresh bench installs the perceptual deps (`pip install imagehash pdf2image` — **Pillow is already present via Frappe, do NOT pip-install it as if missing**) **plus** the `poppler-utils` system binary — `apt-get install poppler-utils`, verified with `pdftoppm -v`; the poppler binary is flagged as the **#1 install/system-dep risk** for the pilot/UAT box (`which pdftoppm` returns nothing on a stock dev bench), uploads the same PDF twice (→ lands in **Duplicate** with `duplicate_of` surfaced and no OCR Integration Request), uploads a re-saved/re-scanned near-identical variant (→ `action_required` "suspected near-duplicate" banner, status **NOT** Duplicate), uploads a clearly different invoice (→ normal flow), and lowers `dedupe_window_days` so an old original no longer matches. DB-is-truth verification via `bench --site … mariadb` on `status` / `duplicate_of` / `content_hash` / `perceptual_hash`; provide SHA-256s for the fixtures; cleanup of all captures + Files created through the UI. **Known risk to flag in the plan:** pHash false positives on identical-template recurring invoices (monthly Amazon/utility) — only an exact `content_hash` match auto-closes pre-OCR; perceptual hits are suspects gated by the follow-on body-text fingerprint (D2).
 
 ## 8. Open decisions
 
@@ -260,7 +278,11 @@ Coverage bar per CLAUDE.md: `detect_duplicates_for` and `get_dedupe_config` each
 - [[02-intake-stream-tagging]] — listed as a dependency for **sequencing only** (intake adapters land the artifacts dedupe checks). **Detection is decoupled:** `detect_duplicates_for` must NOT read a `stream` field and ships even if stream-tagging is delayed.
 - Frappe `File.content_hash` (MD5, computed by core on save) — runtime dependency, not a build-order one (already present).
 
-**Net-new system/package dependencies (call out as pilot risk):** `imagehash`, `pdf2image`, `Pillow` (Python, add to the app's `pyproject`/requirements) **plus the `poppler-utils` system binary** (`pdftoppm`/`pdfinfo`). `pdf2image` shells out to poppler — pip alone is insufficient; the binary must be on **every** bench/worker host (`apt-get install poppler-utils` on Debian/Ubuntu/WSL). This is the single biggest deployment risk for this spec; the perceptual pass degrades to exact-only (`_compute_phash` → `None`) when poppler is absent, so intake is never blocked.
+**Net-new system/package dependencies (call out as pilot risk):**
+
+- **`imagehash`, `pdf2image`** — the ONLY net-new **Python** pip deps; add them to `erpnext/pyproject.toml`.
+- **`Pillow` — NOT new; do NOT list it as a new dependency.** Pillow is **already a Frappe dependency** (`apps/frappe/pyproject.toml:18`, `Pillow~=12.2.0`) and is therefore already installed in every bench venv. `imagehash` imports it transitively too. Do not add `Pillow` to `erpnext/pyproject.toml` and do not list it in the test-plan `pip install` line as if it were missing.
+- **`poppler-utils` system binary (`pdftoppm`/`pdfinfo`) — the #1 install risk.** This is a NEW **system** dependency and is **NOT currently installed on the dev bench** (`which pdftoppm` returns nothing). `pdf2image` shells out to poppler — pip alone is insufficient; the binary must be on **every** bench/worker host (`apt-get install poppler-utils` on Debian/Ubuntu/WSL). Rank it the **single biggest deployment risk** for this spec. It is **non-blocking**, however: the perceptual pass degrades to exact-hash-only (`_compute_phash` → `None`) when poppler is absent (AC-03-8), so intake never stalls — the graceful degradation is what keeps the missing binary from being a hard blocker.
 
 **This unblocks:**
 - [[08-validation-gates]] — consumes `STATUS_DUPLICATE` / `duplicate_of` as the Step-7 "duplicate check confirmed" pre-promotion gate (`workflow-v2-plan.md:55`).

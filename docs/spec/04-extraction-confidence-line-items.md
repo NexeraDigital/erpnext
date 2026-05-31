@@ -9,6 +9,7 @@ related: [00-overview, 02-intake-stream-tagging, 03-deduplication, 06-gl-coding-
 ---
 
 # 04 — Extraction — Numeric Per-Field Confidence + Line Items
+> _Revised 2026-05-31: applied native-vs-custom review findings._
 
 ## 1. Summary
 This spec EXTENDS the already-shipped real-OCR provider stack (Anthropic Claude via forced tool use, with retry / circuit breaker / file-size guard / Integration-Request audit / Haiku→Sonnet fallback) to (a) persist a **numeric per-field confidence score** for every extracted field and (b) extract and persist **line items**, subtotal, tax, and any visible PO reference. It implements **Step 3** of `docs/planning/workflow-v2-plan.md`. It is stream-agnostic at the *extraction* surface (both Stream R receipts and Stream I invoices get scored line-level extraction) but the line-item write-back on promote diverges by stream (Stream I → Purchase Invoice item rows; Stream R → handled by [[07-classification-doctype-branching]]'s Journal Entry path, out of scope here). **Current-state delta:** the Anthropic model already *returns* `confidence_per_field` but the extractor **discards the numbers** (only deriving missing/ambiguous SETS), and there is **no line-item extraction at all** — this spec stops discarding the scores, adds two new child tables, and makes promote line-aware.
@@ -81,6 +82,8 @@ What is **shipped** (verified against the code on branch `russ/migrateToV16`, er
 | `score_source` | Select | options `Model\nDerived-Mapping`; default `Model`; `read_only=1` | Provenance: `Model` = real numeric score from the provider; `Derived-Mapping` = heuristic clear/ambiguous/missing → 0.95/0.5/0.0 stand-in (so [[09-confidence-routing]] does not over-trust a fallback). |
 
 New parent field on `AP Invoice Capture`: `field_confidences` (Table → `AP Invoice Capture Confidence`).
+
+**Division of labor — child table vs `ocr_raw_response` JSON (why both exist).** The `AP Invoice Capture Confidence` child table is the **routing / query index**: [[09-confidence-routing]] filters on the per-row `is_above_threshold` Check, which a relational `WHERE` can index and a Report Builder column can surface. The raw numeric scores ALSO already land in the existing `ocr_raw_response` LongText (`erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py:165`), which serves as the **audit copy-of-record**. So the split is deliberate: **child table = routing surface (filterable/reportable); `ocr_raw_response` JSON = audit-of-record (immutable provider echo).** This is precisely what justifies the child table on **queryability** grounds — a JSON blob on the parent is not filterable or reportable, so it cannot drive routing even though it already holds the same numbers.
 
 **(B) `AP Invoice Capture Item`** (`istable=1`) — mirrors Purchase Invoice Item's narrow shape (verified field block, §4).
 
