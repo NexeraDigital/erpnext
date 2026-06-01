@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 4/14 done — **specs 01–04 ✅** (63/221 ACs green; 69 new tests passing; no regressions)
+> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 4/14 done — **specs 01–04 ✅** (63/221 ACs green; 71 new tests passing; no regressions)
 
 ## How to use this file
 
@@ -38,10 +38,10 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 | # | Spec | Phase | Status | ACs | Size | Depends on | Gating decision / blocked-on | PR |
 |---|------|-------|--------|-----|------|-----------|------------------------------|----|
-| 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | ✅ | 20/20 | L | — | #4, #6 locked | local ✓ (uncommitted) |
-| 02 | [[02-intake-stream-tagging]] | 1 Intake | ✅ | 15/15 | L | 01 | — | local ✓ (uncommitted) |
-| 03 | [[03-deduplication]] | 1 Intake | ✅ | 13/13 | M | 01, 02 | #5 (poppler), #9 | local ✓ (uncommitted) |
-| 04 | [[04-extraction-confidence-line-items]] | 1 Intake | ✅ | 15/15 | L | 01 | #4 locked | local ✓ (uncommitted) |
+| 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | ✅ | 20/20 | L | — | #4, #6 locked | committed ✓ |
+| 02 | [[02-intake-stream-tagging]] | 1 Intake | ✅ | 15/15 | L | 01 | — | committed ✓ |
+| 03 | [[03-deduplication]] | 1 Intake | ✅ | 13/13 | M | 01, 02 | #5 (poppler), #9 | committed ✓ |
+| 04 | [[04-extraction-confidence-line-items]] | 1 Intake | ✅ | 15/15 | L | 01 | #4 locked | committed ✓ |
 | 05 | [[05-supplier-resolution]] | 2 Resolve | 🔲 | 0/23 | L | 01, 04 | bank-detail→`Bank Account` (fixed) | — |
 | 06 | [[06-gl-coding-tax-costcenter]] | 2 Resolve | 🔲 | 0/14 | L | 01, 04, 05 | coding-profile vs Custom Fields | — |
 | 07 | [[07-classification-doctype-branching]] | 2 Resolve | 🔲 | 0/14 | L | 01, 02, 05, 06 | **#1 (Stream-R posting)** | — |
@@ -55,7 +55,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
 
-> **Verification state (04):** ✅ all 15 ACs green this session — `test_ap_invoice_capture` **Ran 88 tests … OK**, `test_extractors` **19 OK**, `test_anthropic` **26 OK**, `test_ap_closed_loop_settings` **17 OK**; no-regression proof: `test_hardening`/`test_audit`/`test_integration` (16/11/5) + spec-01/02/03 suites unchanged. A **real-Anthropic e2e** on `invoice_01.pdf` was executed (live API call) — header + 5 header-confidence rows + 2 line items + subtotal/tax all extracted correctly — and it **surfaced a tax-reconciliation bug** (pre-tax lines vs tax-inclusive total) now **fixed** (tax-aware reconciliation + 2 regression tests; spec §5.3.5 corrected). The §7.2 clean-room runbooks + §7.3 Playwright pass remain pending. The per-field threshold reused spec-01's `field_thresholds` + canonical scalar (no second scalar — locked decision #4).
+> **Verification state (04):** ✅ all 15 ACs green this session — `test_ap_invoice_capture` **Ran 88 tests … OK**, `test_extractors` **19 OK**, `test_anthropic` **26 OK**, `test_ap_closed_loop_settings` **17 OK**; no-regression proof: `test_hardening`/`test_audit`/`test_integration` (16/11/5) + spec-01/02/03 suites unchanged. A **real-Anthropic e2e** on `invoice_01.pdf` was executed (live API call) — header + 5 header-confidence rows + 2 line items + subtotal/tax all extracted correctly — and it **surfaced a tax-reconciliation bug** (pre-tax lines vs tax-inclusive total) now **fixed** (tax-aware reconciliation + 2 regression tests → capture suite 88 OK; spec §5.3.5 corrected; commit `6b95426fe5`). A second UI fix bound the header `subtotal_amount`/`tax_amount` to `proposed_currency` so they display in the extracted currency like the line items (was `final_currency`, empty pre-review → default-currency symbol; commit `c529feb0a5`), re-validated by a real GBP extraction (`APIC-2026-00006`). The §7.2 clean-room runbooks + §7.3 Playwright pass remain pending. The per-field threshold reused spec-01's `field_thresholds` + canonical scalar (no second scalar — locked decision #4).
 >
 > **Verification state (01–03):** ✅ reflects **automated ACs run green this session** (the per-spec test modules + the now-81-test capture regression). Their §7.2 clean-room and §7.3 Playwright runbooks are **written but not yet executed** (01's §7.3 is N/A — backend-only; 02's email-inbound runbook needs a live mailbox). **Spec-03 perceptual path:** `imagehash`+`pdf2image` are now installed in the bench venv, and the **image (PNG/JPG) branch is live-verified** — `test_real_phash_image_branch_flags_near_duplicate` runs the **real** `imagehash` pipeline (no monkeypatch) and flags a re-scan as a suspect. The **PDF-rasterization branch still needs the `poppler` system binary** (`test_real_phash_pdf_branch` **skips** until `poppler-utils` is installed); for PDF inputs dedupe currently degrades to exact-only on this bench. The fuzzy-distance decision logic is additionally covered by mocked tests (AC-03-6/7) + pure-Python Hamming distance. **Spec-03 verified this session:** `test_ap_invoice_capture` **Ran 81 tests … OK (skipped=1: PDF/poppler)**, `test_ap_closed_loop_settings` **Ran 16 tests … OK**, plus AC-03-13 schema (`content_hash`/`perceptual_hash` `varchar(140)`, indexed, non-unique) via `information_schema`.
 
