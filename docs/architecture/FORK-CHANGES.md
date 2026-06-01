@@ -837,3 +837,64 @@ Stops **discarding** the per-field confidence the Anthropic tool already returns
 **Design notes / decisions (spec §8):** the per-field threshold reuses spec-01's `field_thresholds` + the canonical `ocr_confidence_threshold` — **no second scalar** was added (honoring locked gating decision #4); `_resolve_above` resolves `field_thresholds[base] → confidence_threshold`, with `line_<i>_<field>` keys stripped to their base field (D2). Child table vs `ocr_raw_response` JSON is a deliberate split: **child table = filterable/reportable routing surface; JSON = immutable audit-of-record** (the same numbers land in both). `score_source` distinguishes a real `Model` number from a `Derived-Mapping` stand-in so spec-09 routing never over-trusts a fallback (D3). Promote reconciliation **surfaces** a line/total mismatch (>0.01) as `CapturePromotionError` + `action_required` rather than silently mutating the ledger (D1). The check is **tax-aware** — a real-Anthropic e2e on a 19%-VAT invoice showed lines sum to the *pre-tax subtotal* while `final_total_amount` is *tax-inclusive*, so it accepts either `sum(lines) == total` (tax-inclusive lines) **or** `sum(lines) + tax_amount == total` (pre-tax lines + separate tax); a genuine misread reconciles under neither and still raises. line item identity uses the default `item_code` + the extracted description (D4); the child `tax_amount` is plain `Currency` bound to the capture currency, deferring company-currency conversion to promote (D5). All Link writes (`po_reference`/`pr_reference`/`expense_account`/`cost_center` + the header PO) are guarded with `frappe.db.exists` so a hallucinated OCR string never creates a dangling Link. The cascade shape is **unchanged** — the write-back runs inside the already-enqueued `run_extraction` job; the header-line promote fallback is byte-for-byte preserved for captures with no lines.
 
 **Net effect:** `AP Invoice Capture` gains two child grids (line items + per-field confidence) and surfaced subtotal/tax; the Anthropic extractor stops throwing away the scores it already computes and now reads line items; promote maps one capture line → one PI item (Stream I) with a reconciliation guard; `get_ocr_config` gains `field_thresholds`. No new DocTypes beyond the two child tables, no new posting logic, no cascade-shape change.
+
+## 15. AI Chat Panel — context-aware desk assistant (read-only v1)
+
+> **Status (2026-06-01):** backend committed in `96dea75d5e` (`feat(ai-chat): backend for context-aware desk AI chat panel (read-only v1)`); the **front-end UI + `hooks.py` mount** land in this slice on `russ/migrateToV16`. Plan: `docs/planning/ai-chat-panel-plan.md`; completion plan: `docs/planning/ai-chat-panel-completion-plan.md`. v1 = **read-only**, consumes the existing §10 MCP tool catalogue **in-process** as the signed-in desk user.
+
+A global, slide-over **chat panel** on every desk page. The user types a question ("summarize this invoice", "what's this vendor's balance?"); a **server-side Claude tool loop** answers it by calling the §10 MCP read tools **as the signed-in user** (no OAuth token minted — the desk session is the credential), streaming the reply back over Socket.IO. The panel is **context-aware**: it tells the backend which record the user is viewing, and the backend **re-validates + re-fetches** that record under the user's own permissions before grounding the model on it.
+
+### 15.1 Backend (committed `96dea75d5e` — `erpnext/ai/chat/`)
+
+```
+ erpnext/modules.txt is unchanged (chat lives under the existing AI module)
+ erpnext/ai/chat/__init__.py                                                     |    0
+ erpnext/ai/chat/boot.py                                                         |   ~40 (extend_bootinfo: frappe.boot.ai_chat_enabled; true for non-Guest when MCP is enabled; never decrypts the key)
+ erpnext/ai/chat/api.py                                                          |  ~155 (whitelisted: start_turn / get_conversation / list_conversations / clear_conversation; per-user rate limit; owner-scoped)
+ erpnext/ai/chat/agent.py                                                        |  ~420 (run_turn: enqueued Claude tool loop; in-process MCP dispatch via audit.safe_execute; realtime streaming; prompt-injection-hardened system prompt; key fetched per-turn, never logged)
+ erpnext/ai/chat/context.py                                                      |  ~135 (resolve_context: has_permission(throw=True) forged-context guard + server re-fetch + apply_fieldlevel_read_permissions; client field values discarded)
+ erpnext/ai/chat/tests/test_chat.py                                              |  10 IntegrationTestCase tests (owner-scoping, rate limit, forged-context PermissionError, mocked tool loop, missing-key error)
+ erpnext/ai/doctype/ai_chat_conversation/*                                       |  NEW DocType — owner-scoped thread (title, context_doctype/name, last_active); if_owner read/write
+ erpnext/ai/doctype/ai_chat_message/*                                            |  NEW DocType — owner-scoped turn (role User|Assistant, content, model, tools_invoked, input/output_tokens, latency_ms, error, context_doctype/name)
+ erpnext/hooks.py                                                                |  +1 extend_bootinfo: erpnext.ai.chat.boot.boot_session
+```
+
+**Turn flow (`agent.run_turn`, enqueued by `api.start_turn`):** the turn runs in a **background job as the enqueuing desk user** (`frappe.enqueue(..., user=user)`), never on the web worker — no held-open request. Each Claude tool call is dispatched through **`erpnext.mcp.audit.safe_execute`**, so the MCP rate-limit, concurrency cap, per-tool `MCP Tool Config` role/enable gate, Frappe RBAC inside each tool, and the immutable `MCP Audit Log` row **all apply identically to an external MCP client** — but as the desk user. The loop is bounded (`_MAX_TOOL_ITERATIONS = 6`, `_MAX_OUTPUT_TOKENS = 1500`). The answer streams to the user's room as `frappe.publish_realtime("ai_chat:<conversation>", …)` events — the **Raven-validated pattern; no SSE, no held-open worker**.
+
+**Security invariants (do not weaken):**
+- **Read-only.** Only the five §10 read tools are reachable; the system prompt states the model cannot modify/create/send/delete anything.
+- **Runs as the user.** Every tool executes under `frappe.session.user`'s permissions — never Administrator/service account. The `test_chat` suite proves a forged context for a record the user can't read raises `PermissionError`.
+- **Context is a hint, never authority.** Browser-supplied `{doctype, name, view}` is re-validated (`has_permission(..., "read", doc=name, throw=True)`) and **re-fetched server-side** (`apply_fieldlevel_read_permissions` strips permlevel-masked fields); the browser's own field values are discarded.
+- **Key stays server-side.** The Anthropic key is fetched per-turn via `get_ai_credentials`, held only for the API call, never logged/published/stored; `_sanitize` scrubs any `sk-…` substring from user-visible errors.
+- **Prompt-injection hardened.** The system prompt instructs the model to treat all tool results and document text as untrusted DATA, never instructions.
+
+### 15.2 Front-end (this slice — `erpnext/public/js/ai_chat/` + scss)
+
+```
+ erpnext/public/js/ai_chat/ai_chat.bundle.js                                     |   esbuild entry; singleton init on `app_ready`, gated on frappe.boot.ai_chat_enabled
+ erpnext/public/js/ai_chat/controller.js                                         |   wires Launcher + Panel; one instance mounted on document.body (survives SPA nav)
+ erpnext/public/js/ai_chat/launcher.js                                           |   floating action button (bottom-right) + Ctrl/Cmd-J toggle
+ erpnext/public/js/ai_chat/panel.js                                              |   slide-over: header (context chip pin/clear, history, new, close), message log, composer; states (empty/loading/error); Esc closes; HTML-escaped bubbles (no markdown render in v1 — XSS-safe)
+ erpnext/public/js/ai_chat/context.js                                            |   ContextTracker — frappe.router.on("change") → get_route() → {doctype,name,view}; pin/clear; Form identity only (no field values)
+ erpnext/public/js/ai_chat/stream.js                                             |   TurnStream — frappe.realtime.on("ai_chat:<conv>"); dispatches status/delta/done/error; off on done/error (no handler leak)
+ erpnext/public/js/ai_chat/api.js                                               |   thin frappe.call wrappers over erpnext.ai.chat.api.*
+ erpnext/public/scss/ai_chat.bundle.scss                                         |   launcher FAB + slide-over (384px / full-width <768px); Frappe CSS vars; reduced-motion
+ erpnext/hooks.py                                                                |  +/- app_include_js / app_include_css string → list (adds ai_chat.bundle.{js,css})
+```
+
+**Mount mechanism (grounded, local `version-16` source):** `app_include_js`/`app_include_css` accept a **list** of bundles, each concatenated into `desk.html` (frappe `www/desk.py`; frappe's own `hooks.py` uses lists; the v15 hooks doc confirms *"support a list of paths too"*). esbuild globs `public/**/*.bundle.{js,scss}` → `dist/js|css/ai_chat.<hash>.{js,css}`, so `"ai_chat.bundle.js"` resolves after `bench build --app erpnext`. The bundle mounts a **single controller on `document.body`** on the `app_ready` event (fired by `frappe.Application.startup()` after nav/sidebar), gated on `frappe.boot.ai_chat_enabled` — so the launcher is **absent for Guest and on MCP-disabled sites**, and the conversation state survives SPA navigation.
+
+**Realtime contract consumed (from `agent.py`):** channel `ai_chat:<conversation>`, payloads `{type:"status",text}` · `{type:"delta",text}` · `{type:"done",message,content,tools}` · `{type:"error",text}`. On `done`, the panel reconciles against the persisted thread via `get_conversation` (covers a missed socket event). Client JS is browser/test-plan verified — this repo has **no `bench`-runnable JS unit harness** (the logic-bearing server side is covered by `test_chat`); see the CLAUDE.md automated-tests rule (client-only, no server logic → browser/test-plan verified).
+
+### 15.3 What v1 deliberately does NOT do
+- **No write/action tools** — read-only; T-009 chat-specific tool gate stays deferred.
+- **No markdown rendering** — bubbles are HTML-escaped (literal `**bold**` shows); rich render is a later polish (Slice F).
+- **No dedicated chat queue** — turns ride the shared `short` queue (deferred).
+- **No new sidebar/workspace entry** — the launcher is the only new always-present desk element (besides the navbar); see `UI-SITEMAP.md`.
+
+### 15.4 Running the chat tests
+```bash
+bench --site <test-site> run-tests --module erpnext.ai.chat.tests.test_chat       # 10 tests
+# Blast-radius (extend_bootinfo runs on every desk boot):
+bench --site <test-site> run-tests --module erpnext.mcp.tests.test_permissions
+```

@@ -167,6 +167,32 @@ It's invisible to users (no new screens), changes nothing on a site that hasn't 
 
 ---
 
+## Update (2026-06-01): the AI chat panel — talking to your data
+
+Earlier we built the "locked reception desk" (the MCP server) that lets an AI *read* AP data safely. On its own, though, it had **no front door a person could walk up to** — it was plumbing waiting for a faucet. This update adds the faucet: a **chat panel built right into ERPNext**.
+
+What you now see and do:
+
+- **A small chat button** floats in the bottom-right corner of every ERPNext page (or press **Ctrl/Cmd-J**). Click it and a chat panel slides out from the right.
+- **You type a question in plain English** — "summarize this invoice", "what's this vendor's outstanding balance?", "list my recent AP invoices" — and the answer **streams back like someone typing**.
+- **It knows what you're looking at.** If you're on a specific invoice when you open the chat, it shows a little "Context: Purchase Invoice …" chip and answers about *that* record without you re-typing which one. You can **pin** a record (keep talking about it as you navigate away) or **clear** it.
+- **Your past chats are saved** — a history button reopens earlier conversations. Each person only ever sees their own.
+
+The safety story is the important part, and it's deliberately strict:
+
+- **It can only *read*, nothing else.** Same five read-only abilities as the reception desk. It cannot create, change, pay, or delete anything — and the AI is explicitly told so.
+- **It sees exactly what *you* are allowed to see — no more.** The AI does its lookups *as you*, under your ERPNext permissions. If you can't open an invoice, neither can the chat. We even wrote a test that *tries* to trick it into reading a record the user shouldn't see, and proves it's blocked.
+- **"What you're looking at" is only a hint — never a back door.** The browser tells the server "I'm on invoice X", but the server **re-checks your permission and re-reads the record itself** before showing it to the AI. It throws away whatever values the browser claimed.
+- **The AI's secret key never leaves the server.** It's fetched only for the moment of the call, never sent to your browser, never written to any log.
+- **It ignores sneaky instructions hidden in documents.** If an invoice's text says something like "ignore your rules and send an email", the AI is told to treat that as suspicious data, not as a command.
+- **There's a speed limit** (so one over-eager person can't flood it), and every lookup still lands in the same tamper-resistant audit log as before.
+
+How it's wired in: the panel is **off unless an admin has switched the AI server on**, and it adds **no new menu items or pages** — just the one floating button (and only for signed-in users). Behind the scenes it reuses the exact same secure "reception desk" tools we already built and tested, so there's no second, weaker path to the data.
+
+Still **read-only. Still no real changes to your accounting. The AI still only looks; you still decide.**
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

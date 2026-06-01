@@ -2,13 +2,13 @@
 
 > **Purpose:** complete map of every place a user can land in the ERPNext desk UI on this fork. Use this before recommending where new functionality should live so suggestions are grounded in the navigation users actually see.
 >
-> **Last verified against repo:** 2026-05-29 *(ERPNext Settings sidebar + shortcut now include AI Provider Settings, alphabetically after System Settings; Payables still includes Invoice Capture → AP Invoice Capture; Settings tail still includes AP Closed Loop Settings)*
+> **Last verified against repo:** 2026-06-01 *(adds §G — the global AI chat launcher, the first fork-added always-present desk element besides the navbar, injected via `app_include_js`/`css` and gated on `frappe.boot.ai_chat_enabled`. ERPNext Settings sidebar + shortcut still include AI Provider Settings, alphabetically after System Settings; Payables still includes Invoice Capture → AP Invoice Capture; Settings tail still includes AP Closed Loop Settings)*
 >
 > **Update triggers** — regenerate this doc when any of the following change:
 > - `erpnext/workspace_sidebar/*.json` (primary navigation)
 > - `erpnext/<module>/workspace/<name>/<name>.json` (legacy navigation)
 > - `erpnext/<module>/page/<name>/*` (Frappe pages)
-> - `erpnext/hooks.py` `website_route_rules` (portal routes)
+> - `erpnext/hooks.py` `website_route_rules` (portal routes), `app_include_js` / `app_include_css` (global desk-wide UI)
 > - `erpnext/<module>/<module>_dashboard/` (module dashboards)
 
 ---
@@ -156,7 +156,19 @@ These are what the "Dashboard" sidebar entries link to (e.g., Invoicing → Dash
 
 ---
 
-## F. Cross-reference notes
+## F. Global / always-present desk elements (not navigation-tree)
+
+Unlike everything above (which lives in a sidebar/workspace/page/route), these render on **every desk page** because they're injected app-wide via `erpnext/hooks.py` `app_include_js` / `app_include_css`, independent of the route.
+
+| Element | Where it appears | How it's mounted | Visibility gate |
+|---|---|---|---|
+| **AI Chat launcher + panel** *(fork-added)* | Floating button bottom-right of every `/app/*` page; click (or **Ctrl/Cmd-J**) opens a right-side slide-over chat | `ai_chat.bundle.js` (in `app_include_js`) mounts one controller on `document.body` at `app_ready`; survives SPA navigation | Only when `frappe.boot.ai_chat_enabled` is true — i.e. signed-in (not Guest) **and** the MCP server is enabled. Absent otherwise. |
+
+This is the **first fork-added always-present desk element besides the standard navbar** — it is deliberately *not* a sidebar/workspace entry (it's a global overlay, like a help widget). It reuses the §10 MCP read tools as the signed-in user; see `docs/architecture/FORK-CHANGES.md` §15.
+
+---
+
+## G. Cross-reference notes
 
 1. **The screen at `/app/dashboard-view/Accounts` is the `Invoicing` sidebar + the `Accounts` Dashboard.** Top KPI cards are Number Cards (`accounts/number_card/total_outgoing_bills`, etc.). The P&L chart is a Dashboard Chart.
 

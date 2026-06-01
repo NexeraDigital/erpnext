@@ -22,8 +22,12 @@ add_to_apps_screen = [
 
 develop_version = "15.x.x-develop"
 
-app_include_js = "erpnext.bundle.js"
-app_include_css = "erpnext.bundle.css"
+# app_include_js / app_include_css accept a list of bundles, each injected into
+# desk.html on every desk route (frappe www/desk.py:37-39 concatenates the hook
+# list; the v15 hooks doc: "support a list of paths too"). The ai_chat bundle adds
+# the global AI chat launcher/panel; it self-gates on frappe.boot.ai_chat_enabled.
+app_include_js = ["erpnext.bundle.js", "ai_chat.bundle.js"]
+app_include_css = ["erpnext.bundle.css", "ai_chat.bundle.css"]
 web_include_css = "erpnext-web.bundle.css"
 email_css = "email_erpnext.bundle.css"
 
