@@ -26,6 +26,7 @@ Clean-room runbooks for independent, external verification of this fork's featur
 | `specs/04-extraction-per-field-confidence.md` | 04 — Per-field confidence | — |
 | `specs/04-extraction-line-items-promote.md` | 04 — Line items + line-aware promote | — |
 | `specs/05-supplier-resolution-3tier.md` | 05 — Supplier resolution (3-tier) + gated creation | `screenshots/05-supplier-resolution-3tier/` |
+| `specs/06-gl-coding-tax-costcenter.md` | 06 — GL coding, cost center & tax assignment | `screenshots/06-gl-coding-tax-costcenter/` |
 
 ### `ocr/` — real-OCR build phases
 | Plan | Phase |

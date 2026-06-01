@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Child row of AP Supplier Coding Profile (spec 06): a (dimension, value) pair applied to the PI item when the dimension's custom field exists on the site.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "istable": 1,
+ "field_order": [
+  "dimension",
+  "dimension_doctype",
+  "dimension_value"
+ ],
+ "fields": [
+  {
+   "fieldname": "dimension",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Accounting Dimension",
+   "options": "Accounting Dimension",
+   "reqd": 1
+  },
+  {
+   "description": "Reference doctype of the dimension; fetched from the Accounting Dimension so the value can be typed against it.",
+   "fetch_from": "dimension.document_type",
+   "fieldname": "dimension_doctype",
+   "fieldtype": "Data",
+   "label": "Dimension DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dimension_value",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Dimension Value",
+   "options": "dimension_doctype",
+   "reqd": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Supplier Coding Dimension",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

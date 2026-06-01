@@ -74,6 +74,15 @@ PROMOTION_STATUS_PROMOTED = "Promoted"
 
 VALIDATION_SOURCE_DEFAULT = "ap-validation-v1"
 
+# GL coding (spec 06)
+CODING_STATUS_PENDING = "Pending"
+CODING_STATUS_CODED = "Coded"
+CODING_STATUS_AMBIGUOUS = "Ambiguous"
+CODING_STATUS_FLAGGED = "Flagged"
+CODING_SOURCE_DEFAULT = "ap-coding-v1"
+# Tax-validation tolerance (D3): absorb extractor rounding without hiding real mismatches.
+CODING_TAX_TOLERANCE = 0.01
+
 APPROVAL_STATUS_NOT_REQUIRED = "Not Required"
 APPROVAL_STATUS_AUTO_APPROVED = "Auto Approved"
 APPROVAL_STATUS_PENDING_MANAGER = "Pending Manager"
@@ -249,6 +258,15 @@ class APInvoiceCapture(Document):
 		validated_by: DF.Link | None
 		validated_at: DF.Datetime | None
 		validation_source: DF.Data | None
+		coding_status: DF.Literal["Pending", "Coded", "Ambiguous", "Flagged"]
+		applied_expense_account: DF.Link | None
+		applied_cost_center: DF.Link | None
+		applied_tax_template: DF.Link | None
+		applied_payment_terms_template: DF.Link | None
+		coding_review_reason: DF.SmallText | None
+		card_last4: DF.Data | None
+		receipt_location: DF.Data | None
+		coding_source: DF.Data | None
 		purchase_invoice: DF.Link | None
 		promotion_status: DF.Literal["Not Promoted", "Promoted"]
 		approval_status: DF.Literal[
@@ -405,6 +423,19 @@ class APInvoiceCapture(Document):
 		):
 			return ("validate_for_purchase_invoice_for", "auto: post-confirm validation")
 
+		# Step 2b: Validated → GL coding (spec 06). Only auto-fires when coding is
+		# actually configured for this capture (a supplier coding profile exists, or
+		# the Stream-R catch-all account is set) — so an unconfigured site flows
+		# straight to the promote seam exactly as before (graceful degrade). Coding
+		# that lands Ambiguous/Flagged parks here (coding_status leaves Pending).
+		if (
+			self.validation_status == VALIDATION_STATUS_VALIDATED
+			and self.coding_status in (None, CODING_STATUS_PENDING)
+			and (self.matched_supplier or self.stream == STREAM_RECEIPT)
+			and self._coding_configured()
+		):
+			return ("apply_coding_profile_for_ui", "auto: post-validation GL coding")
+
 		# Manual seam: validated captures wait for a clerk to click Promote
 		# (defaults like company / item_code are required by the PI schema
 		# and have no source on the capture record itself).
@@ -427,6 +458,23 @@ class APInvoiceCapture(Document):
 			return ("issue_mock_payment_for", "auto: post-approval payment issuance")
 
 		return None
+
+	def _coding_configured(self) -> bool:
+		"""True when GL coding (spec 06) has something to do for this capture:
+		a supplier coding profile exists, or (Stream R) the catch-all account is set.
+		Keeps the coding cascade hop dormant on unconfigured sites."""
+
+		if self.matched_supplier and frappe.db.exists(
+			"AP Supplier Coding Profile", self.matched_supplier
+		):
+			return True
+		if self.stream == STREAM_RECEIPT:
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				get_coding_settings,
+			)
+
+			return bool(get_coding_settings().get("unmapped_card_spend_account"))
+		return False
 
 	def _enqueue_next(self, method_name: str, reason: str) -> None:
 		"""Schedule the next auto-step via the AP Closed Loop async runner.
@@ -2040,6 +2088,277 @@ def _coalesce_defaults(defaults: dict | None) -> dict:
 	return {k: v for k, v in merged.items() if k in _PROMOTE_DEFAULT_KEYS}
 
 
+# ---------------------------------------------------------------------------
+# GL Coding, Cost Center & Tax Assignment (spec 06)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_supplier_coding(matched_supplier: "str | None") -> dict:
+	"""Layer-1: the per-supplier `AP Supplier Coding Profile`, or ``{}`` if none.
+
+	Raw reads only (no set_missing_values); empty fields are omitted so the caller
+	merges them cleanly over Layer 0 / under Layer 2.
+	"""
+
+	if not matched_supplier:
+		return {}
+	if not frappe.db.exists("AP Supplier Coding Profile", matched_supplier):
+		return {}
+	p = frappe.get_doc("AP Supplier Coding Profile", matched_supplier)
+	out: dict = {}
+	if p.default_expense_account:
+		out["expense_account"] = p.default_expense_account
+	if p.default_cost_center:
+		out["cost_center"] = p.default_cost_center
+	if p.default_purchase_tax_template:
+		out["purchase_tax_template"] = p.default_purchase_tax_template
+	if p.default_payment_terms_template:
+		out["payment_terms_template"] = p.default_payment_terms_template
+	dims = [
+		{"dimension": r.dimension, "dimension_value": r.dimension_value}
+		for r in (p.default_accounting_dimensions or [])
+		if r.dimension and r.dimension_value
+	]
+	if dims:
+		out["accounting_dimensions"] = dims
+	return out
+
+
+# Cost-center inference signal resolvers — pilot stubs (decision D2). The
+# location→CC and card→CC maps don't exist as data yet (the Location doctype is
+# not installed; there's no card registry), so these return None and the profile
+# signal governs (graceful degrade). They are module-level so tests can monkeypatch
+# them to exercise the multi-signal agree/conflict logic.
+def _location_cost_center(receipt_location: "str | None") -> "str | None":
+	return None
+
+
+def _card_cost_center(card_last4: "str | None") -> "str | None":
+	return None
+
+
+def _infer_cost_center(
+	capture: "APInvoiceCapture", supplier_profile: dict
+) -> "tuple[str | None, str | None]":
+	"""Return ``(cost_center, ambiguity_reason)`` (spec 06 §5.3 step 5).
+
+	Priority of signals: receipt_location > card_last4 > profile.default_cost_center.
+	A single signal, or several that AGREE, resolves to that cost center. Two+
+	signals resolving to DIFFERENT cost centers is AMBIGUOUS → return
+	``(None, reason)`` and write nothing (must NOT silently fall back to the
+	profile default on a conflict).
+	"""
+
+	signals: list[tuple[str, str]] = []  # (label, cost_center), highest priority first
+	loc_cc = _location_cost_center(capture.receipt_location) if capture.receipt_location else None
+	if loc_cc:
+		signals.append(("location", loc_cc))
+	card_cc = _card_cost_center(capture.card_last4) if capture.card_last4 else None
+	if card_cc:
+		signals.append(("card", card_cc))
+	profile_cc = supplier_profile.get("cost_center")
+	if profile_cc:
+		signals.append(("profile", profile_cc))
+
+	if not signals:
+		return None, None
+	distinct = {cc for _label, cc in signals}
+	if len(distinct) == 1:
+		return signals[0][1], None  # all agree; highest-priority signal wins ordering
+	detail = ", ".join(f"{label}={cc}" for label, cc in signals)
+	return None, _("Cost-center conflict: {0}").format(detail)
+
+
+def _validate_coding_tax(capture: "APInvoiceCapture", tax_template: str) -> "tuple[bool, str | None]":
+	"""Validate the extracted tax against the template's computed tax (spec 06 §5.3 step 7).
+
+	Computes expected tax as ``subtotal × Σ(template rates)`` and compares to the
+	extracted ``tax_amount`` within ``CODING_TAX_TOLERANCE`` (decision D3). When
+	there's no subtotal or the template can't be read, validation passes (nothing
+	to check against) — absence of a checkable signal is "validated".
+	"""
+
+	subtotal = float(capture.subtotal_amount or 0.0)
+	if not subtotal:
+		return True, None
+	try:
+		tmpl = frappe.get_doc("Purchase Taxes and Charges Template", tax_template)
+	except Exception:
+		return True, None
+	total_rate = sum(float(r.rate or 0.0) for r in (tmpl.taxes or []))
+	if total_rate <= 0:
+		return True, None
+	expected = round(subtotal * total_rate / 100.0, 2)
+	extracted = round(float(capture.tax_amount or 0.0), 2)
+	if abs(expected - extracted) <= CODING_TAX_TOLERANCE:
+		return True, None
+	return False, _("Extracted tax {0} != template-computed tax {1}.").format(extracted, expected)
+
+
+def _apply_dimensions_to_row(row, dims: "list[dict] | None") -> None:
+	"""Write profile accounting dimensions onto a PI item row, guarded by has_field.
+
+	The dimension's PI-Item custom field is created by a background job (C3) and may
+	be absent on a fresh site — skip silently when the field doesn't exist (R6).
+	"""
+
+	if not dims:
+		return
+	for d in dims:
+		ad = d.get("dimension")
+		value = d.get("dimension_value")
+		if not ad or not value:
+			continue
+		fieldname = frappe.db.get_value("Accounting Dimension", ad, "fieldname")
+		if fieldname and row.meta.has_field(fieldname):
+			row.set(fieldname, value)
+
+
+def apply_coding_profile_for(
+	capture: "APInvoiceCapture | str",
+	defaults: dict | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Three-layer GL-coding merge + cost-center inference + tax (spec 06 §5.3).
+
+	Re-runnable; refuses to mutate a *submitted* Purchase Invoice. Resolves expense
+	account / cost center / tax template / payment terms across Layer 0 (Settings),
+	Layer 1 (the supplier's coding profile), Layer 2 (caller ``defaults``); infers a
+	cost center (routing conflicts to review); validates tax; and stamps
+	``coding_status`` + the ``applied_*`` audit fields. Writes coding onto an existing
+	draft PI when one is present, else stages the resolved values on the capture for
+	a subsequent ``promote_to_purchase_invoice`` to consume.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	# (2) Submitted-PI guard (highest severity, R3) — coding only ever mutates a draft.
+	if capture.purchase_invoice:
+		pi_docstatus = frappe.db.get_value("Purchase Invoice", capture.purchase_invoice, "docstatus")
+		if pi_docstatus == 1:
+			raise CapturePromotionError(
+				_("Cannot re-code a submitted Purchase Invoice {0}.").format(capture.purchase_invoice)
+			)
+
+	# (3) Resolve the three default layers (lowest → highest).
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_coding_settings,
+		get_promote_defaults,
+	)
+
+	merged: dict = {}
+	try:
+		merged.update(get_promote_defaults())  # Layer 0a: item defaults (expense/cost_center/...)
+		coding_settings = get_coding_settings()
+		merged["purchase_tax_template"] = coding_settings.get("purchase_tax_template")
+	except Exception:
+		coding_settings = {"unmapped_card_spend_account": None, "purchase_tax_template": None}
+	layer1 = _resolve_supplier_coding(capture.matched_supplier)
+	for k, v in layer1.items():  # Layer 1: supplier profile
+		if v is not None:
+			merged[k] = v
+	if defaults:  # Layer 2: caller override
+		for k, v in defaults.items():
+			if v is not None:
+				merged[k] = v
+
+	reasons: list[str] = []
+	coding_status = CODING_STATUS_CODED
+
+	# (4) Expense resolution (stream-aware Stream-R catch-all).
+	expense = merged.get("expense_account")
+	if not expense and not capture.matched_supplier and not layer1:
+		expense = coding_settings.get("unmapped_card_spend_account")
+		coding_status = CODING_STATUS_FLAGGED
+		reasons.append(
+			_("No supplier/profile — using Unmapped Card Spend account.")
+			if expense
+			else _("No expense account resolved (no profile, no Unmapped Card Spend account).")
+		)
+	capture.applied_expense_account = expense or None
+
+	# (5) Cost-center inference (routes conflicts to review; never guesses).
+	cost_center, ambiguity = _infer_cost_center(capture, {"cost_center": merged.get("cost_center")})
+	if ambiguity:
+		coding_status = CODING_STATUS_AMBIGUOUS
+		reasons.append(ambiguity)
+		capture.applied_cost_center = None
+	else:
+		capture.applied_cost_center = cost_center or None
+		if not cost_center:
+			if coding_status == CODING_STATUS_CODED:
+				coding_status = CODING_STATUS_FLAGGED
+			reasons.append(_("No cost center resolved."))
+
+	# (6) Payment terms (profile override; native Supplier.payment_terms is the base).
+	capture.applied_payment_terms_template = merged.get("payment_terms_template") or None
+
+	# (7) Tax population + validation.
+	tax_template = merged.get("purchase_tax_template")
+	capture.applied_tax_template = tax_template or None
+	if tax_template:
+		ok, tax_reason = _validate_coding_tax(capture, tax_template)
+		if not ok:
+			coding_status = CODING_STATUS_FLAGGED
+			reasons.append(tax_reason)
+
+	# (9) Apply onto an existing DRAFT PI, if any (re-code path).
+	if capture.purchase_invoice:
+		pi_docstatus = frappe.db.get_value("Purchase Invoice", capture.purchase_invoice, "docstatus")
+		if pi_docstatus == 0:
+			_apply_coding_to_draft_pi(capture, merged)
+
+	# (10) Status / provenance.
+	capture.coding_source = CODING_SOURCE_DEFAULT
+	capture.coding_status = coding_status
+	capture.coding_review_reason = "; ".join(reasons) if reasons else None
+	if coding_status in (CODING_STATUS_AMBIGUOUS, CODING_STATUS_FLAGGED):
+		capture.action_required = 1
+		capture.action_required_reason = _("Coding review required: {0}").format(
+			capture.coding_review_reason or ""
+		)
+	# Coded: do NOT stomp validation's own action_required (next action is promote).
+
+	if save:
+		capture.save()
+	return capture
+
+
+def _apply_coding_to_draft_pi(capture: "APInvoiceCapture", merged: dict) -> None:
+	"""Write the resolved coding onto an existing docstatus==0 Purchase Invoice."""
+
+	pi = frappe.get_doc("Purchase Invoice", capture.purchase_invoice)
+	dims = merged.get("accounting_dimensions")
+	for item in pi.items:
+		if capture.applied_expense_account:
+			item.expense_account = capture.applied_expense_account
+		if capture.applied_cost_center:
+			item.cost_center = capture.applied_cost_center
+		_apply_dimensions_to_row(item, dims)
+	if capture.applied_tax_template:
+		pi.taxes_and_charges = capture.applied_tax_template
+	if capture.applied_payment_terms_template:
+		pi.payment_terms_template = capture.applied_payment_terms_template
+	pi.flags.ignore_permissions = True
+	pi.save()
+
+
+def is_fully_coded(capture: "APInvoiceCapture | str") -> bool:
+	"""Step-8 auto-post gate (spec 06 §5.3): expense + cost center (unambiguous) +
+	tax (validated/absent) all resolved. "Without coding, nothing auto-posts."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+	if capture.coding_status in (CODING_STATUS_AMBIGUOUS, CODING_STATUS_FLAGGED):
+		return False
+	if not capture.applied_expense_account:
+		return False
+	if not capture.applied_cost_center:
+		return False
+	return True
+
+
 def promote_to_purchase_invoice(
 	capture: "APInvoiceCapture | str",
 	actor: str | None = None,
@@ -2082,6 +2401,13 @@ def promote_to_purchase_invoice(
 
 	d = _coalesce_defaults(defaults)
 
+	# Spec-06 coding: values resolved by apply_coding_profile_for and staged on the
+	# capture take precedence over the raw Settings defaults when present (the caller
+	# `defaults` dict still wins over both, via `d`).
+	coded_expense = capture.applied_expense_account or None
+	coded_cost_center = capture.applied_cost_center or None
+	coding_dims = _resolve_supplier_coding(capture.matched_supplier).get("accounting_dimensions")
+
 	pi = frappe.new_doc("Purchase Invoice")
 	pi.supplier = capture.matched_supplier
 	pi.bill_no = capture.final_supplier_invoice_no
@@ -2118,16 +2444,20 @@ def promote_to_purchase_invoice(
 				item_row["stock_uom"] = d["uom"]
 			if d.get("warehouse"):
 				item_row["warehouse"] = d["warehouse"]
-			# Per-line GL coding (spec 06) wins over the settings default when set.
-			if line.expense_account or d.get("expense_account"):
-				item_row["expense_account"] = line.expense_account or d["expense_account"]
-			if line.cost_center or d.get("cost_center"):
-				item_row["cost_center"] = line.cost_center or d["cost_center"]
+			# GL coding precedence (spec 06): per-line value > capture.applied_*
+			# (resolved by apply_coding_profile_for) > Settings default.
+			eff_expense = line.expense_account or coded_expense or d.get("expense_account")
+			eff_cc = line.cost_center or coded_cost_center or d.get("cost_center")
+			if eff_expense:
+				item_row["expense_account"] = eff_expense
+			if eff_cc:
+				item_row["cost_center"] = eff_cc
 			if line.po_reference:
 				item_row["purchase_order"] = line.po_reference
 			if line.pr_reference:
 				item_row["purchase_receipt"] = line.pr_reference
-			pi.append("items", item_row)
+			row = pi.append("items", item_row)
+			_apply_dimensions_to_row(row, coding_dims)
 
 		# Reconciliation guard (decision D1): surface a mismatch rather than
 		# silently mutating the ledger. A bad line read must not create a payable.
@@ -2174,11 +2504,23 @@ def promote_to_purchase_invoice(
 			item_row["stock_uom"] = d["uom"]
 		if d.get("warehouse"):
 			item_row["warehouse"] = d["warehouse"]
-		if d.get("expense_account"):
-			item_row["expense_account"] = d["expense_account"]
-		if d.get("cost_center"):
-			item_row["cost_center"] = d["cost_center"]
-		pi.append("items", item_row)
+		# GL coding (spec 06): capture.applied_* (resolved by apply_coding_profile_for)
+		# wins over the Settings default for the single header line too.
+		eff_expense = coded_expense or d.get("expense_account")
+		eff_cc = coded_cost_center or d.get("cost_center")
+		if eff_expense:
+			item_row["expense_account"] = eff_expense
+		if eff_cc:
+			item_row["cost_center"] = eff_cc
+		row = pi.append("items", item_row)
+		_apply_dimensions_to_row(row, coding_dims)
+
+	# Header-level coding staged by apply_coding_profile_for (spec 06): tax template
+	# (triggers the native taxes fetch) and payment terms.
+	if capture.applied_tax_template:
+		pi.taxes_and_charges = capture.applied_tax_template
+	if capture.applied_payment_terms_template:
+		pi.payment_terms_template = capture.applied_payment_terms_template
 
 	pi.insert(ignore_permissions=True)
 
@@ -2686,6 +3028,39 @@ def promote_to_purchase_invoice_for(
 	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
 	cap._kick_next_step()
 	return pi.name
+
+
+@frappe.whitelist()
+def apply_coding_profile_for_ui(capture: str, defaults: str | dict | None = None) -> str:
+	"""Whitelisted entrypoint for the GL coding step (spec 06). Normalizes the
+	`defaults` arg (JSON string or dict), applies coding, resumes the cascade."""
+
+	parsed = json.loads(defaults) if isinstance(defaults, str) and defaults else (defaults or None)
+	doc = apply_coding_profile_for(capture, defaults=parsed)
+	doc._kick_next_step()
+	return doc.name
+
+
+@frappe.whitelist()
+def get_coding_review_queue_for() -> list[dict]:
+	"""Captures parked in the coding-review queue (spec 06): Ambiguous/Flagged coding
+	awaiting a human (mirrors get_manager_approval_queue_for)."""
+
+	return frappe.get_all(
+		"AP Invoice Capture",
+		filters={
+			"coding_status": ["in", [CODING_STATUS_AMBIGUOUS, CODING_STATUS_FLAGGED]],
+			"action_required": 1,
+		},
+		fields=[
+			"name",
+			"matched_supplier",
+			"coding_status",
+			"coding_review_reason",
+			"final_total_amount",
+		],
+		order_by="modified desc",
+	)
 
 
 @frappe.whitelist()

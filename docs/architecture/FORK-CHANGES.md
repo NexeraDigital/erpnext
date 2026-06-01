@@ -929,3 +929,31 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.supplier_ma
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                     # 107
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings           # 20
 ```
+
+## 17. Spec 06 — GL Coding, Cost Center & Tax Assignment
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Sixth slice of the v2 build — see `docs/spec/06-gl-coding-tax-costcenter.md`. All 14 acceptance criteria green this session; **18 new automated tests** (profile suite 5; capture suite +13 → **120 OK**); spec-01..05 + extractor suites pass unchanged.
+
+Adds the **auto-coding layer** for routine vendors: a per-supplier `AP Supplier Coding Profile` (default expense account / cost center / purchase-tax template / payment terms / accounting dimensions) layered **on top of** native Party Account + `Supplier.payment_terms`/`tax_category`, plus a re-runnable `apply_coding_profile_for(capture)` that merges three default layers, infers a cost center (routing conflicts to a new **Coding-Review** queue rather than guessing), validates tax, and stages the coding for promote. `is_fully_coded(capture)` is the new gate later specs consult before anything auto-posts — *"without coding, nothing auto-posts."*
+
+```
+ erpnext/accounts/doctype/ap_supplier_coding_profile/{__init__,ap_supplier_coding_profile}.py + .json + test_*.py | NEW master DocType (autoname field:supplier, unique) — default expense/cost-center/tax-template/payment-terms + dimensions table; 5 tests
+ erpnext/accounts/doctype/ap_supplier_coding_dimension/{__init__,ap_supplier_coding_dimension}.py + .json       | NEW child DocType (istable) — (dimension, value) via Dynamic Link off the Accounting Dimension's document_type
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                | +/- coding_section + coding_status(Pending|Coded|Ambiguous|Flagged)/coding_review_reason/applied_expense_account/applied_cost_center/applied_tax_template/applied_payment_terms_template/coding_source/card_last4/receipt_location
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                  | +/- apply_coding_profile_for + is_fully_coded + _resolve_supplier_coding + _infer_cost_center (+ _location/_card_cost_center stubs) + _validate_coding_tax + _apply_dimensions_to_row + _apply_coding_to_draft_pi; promote consumes capture.applied_* + sets pi.taxes_and_charges/payment_terms_template; submitted-PI guard; cascade Step-2b hop (gated on _coding_configured); apply_coding_profile_for_ui + get_coding_review_queue_for whitelisted
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- coding_section + default_purchase_tax_template; get_coding_settings() accessor (unmapped_card_spend_account + purchase_tax_template)
+ test/testplans/specs/06-gl-coding-tax-costcenter.md                                 | clean-room runbook
+```
+
+**Three-layer merge (`apply_coding_profile_for`, §5.3):** Layer 0 = `AP Closed Loop Settings` (`get_promote_defaults` + `get_coding_settings`), Layer 1 = the supplier's coding profile, Layer 2 = caller `defaults` (highest). Effective expense resolves caller > profile > settings; on **Stream R** with no supplier/profile it falls to `unmapped_card_spend_account` (soft-flag). **Cost-center inference** collects location/card/profile signals — one (or agreeing) → written; **conflicting → `Ambiguous`, nothing written, routed to review** (never guesses). Tax: the resolved template is staged on the capture and written to the PI header `taxes_and_charges` at promote; the extracted `tax_amount` is validated against `subtotal × Σ(template rates)` within ±0.01, mismatch → `Flagged`. A **submitted-PI guard** refuses to re-code a `docstatus==1` invoice.
+
+**Cascade:** a new Step-2b coding hop runs between validation and the manual-promote seam, but **only when coding is configured** for the capture (a profile exists, or the Stream-R catch-all is set) — so unconfigured sites (and the existing auto-progress suite) flow straight to promote unchanged (graceful degrade). `Ambiguous`/`Flagged` coding parks the capture in the Coding-Review queue.
+
+**Reconciliations / decisions:** reused spec-04's `tax_amount`/`subtotal_amount` (no duplicate `extracted_tax_amount`); `unmapped_card_spend_account` already existed (spec 01/05); `receipt_location` is `Data` (the `Location` doctype is absent on this bench, decision D4); a separate `get_coding_settings()` accessor was added rather than overloading `get_promote_defaults`. Open decisions adopted per the spec's recommendations (D1 single-company, D2 profile-only-shipped, D3 ±0.01, D5 Dynamic Link, D7 new pause point, D8 separate doctype). **Deferred:** real location→CC / card→CC maps (D2 — stubs degrade to the profile signal); HRMS Department→CC signal (HRMS not installed).
+
+### 17.1 Running the spec-06 tests
+```bash
+# Pin Fake OCR first (the capture suite calls run_fake_extraction; spec-01 note).
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_coding_profile.test_ap_supplier_coding_profile   # 5
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                    # 120
+```

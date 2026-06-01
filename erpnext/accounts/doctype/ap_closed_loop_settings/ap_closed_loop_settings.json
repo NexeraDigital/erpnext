@@ -42,6 +42,8 @@
   "clearing_accounts_section",
   "credit_card_clearing_account",
   "unmapped_card_spend_account",
+  "coding_section",
+  "default_purchase_tax_template",
   "stream_rules_section",
   "stream_rules",
   "ap_intake_email_account",
@@ -287,6 +289,18 @@
    "fieldtype": "Link",
    "label": "Unmapped Card Spend Account",
    "options": "Account"
+  },
+  {
+   "fieldname": "coding_section",
+   "fieldtype": "Section Break",
+   "label": "GL Coding Defaults (spec 06)"
+  },
+  {
+   "description": "Lowest-priority purchase-tax template (below any AP Supplier Coding Profile). If unset, the company's is-default template applies natively.",
+   "fieldname": "default_purchase_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Purchase Tax Template",
+   "options": "Purchase Taxes and Charges Template"
   },
   {
    "collapsible": 1,

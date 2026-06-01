@@ -78,6 +78,17 @@
   "validated_by",
   "validated_at",
   "validation_source",
+  "coding_section",
+  "coding_status",
+  "applied_expense_account",
+  "applied_cost_center",
+  "applied_tax_template",
+  "applied_payment_terms_template",
+  "column_break_coding",
+  "coding_review_reason",
+  "card_last4",
+  "receipt_location",
+  "coding_source",
   "promotion_section",
   "purchase_invoice",
   "promotion_status",
@@ -617,6 +628,86 @@
    "fieldname": "validation_source",
    "fieldtype": "Data",
    "label": "Validation Source",
+   "read_only": 1
+  },
+  {
+   "description": "GL coding (spec 06): per-supplier expense / cost center / tax applied to the draft PI. Ambiguous or flagged coding routes the capture to the coding-review queue.",
+   "fieldname": "coding_section",
+   "fieldtype": "Section Break",
+   "label": "GL Coding"
+  },
+  {
+   "default": "Pending",
+   "description": "Coding lifecycle, distinct from validation. 'Coded' lets the cascade advance; 'Ambiguous'/'Flagged' park the capture in the coding-review queue.",
+   "fieldname": "coding_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Coding Status",
+   "options": "Pending\nCoded\nAmbiguous\nFlagged",
+   "read_only": 1
+  },
+  {
+   "description": "The expense account actually resolved (caller > supplier profile > settings; Stream-R catch-all when unmatched).",
+   "fieldname": "applied_expense_account",
+   "fieldtype": "Link",
+   "label": "Applied Expense Account",
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "description": "The cost center actually written (audit of which inference signal won). Empty when ambiguous.",
+   "fieldname": "applied_cost_center",
+   "fieldtype": "Link",
+   "label": "Applied Cost Center",
+   "options": "Cost Center",
+   "read_only": 1
+  },
+  {
+   "description": "Resolved purchase-tax template, carried to the PI header taxes_and_charges at promote.",
+   "fieldname": "applied_tax_template",
+   "fieldtype": "Link",
+   "label": "Applied Tax Template",
+   "options": "Purchase Taxes and Charges Template",
+   "read_only": 1
+  },
+  {
+   "description": "Resolved payment-terms template, carried to the PI header at promote.",
+   "fieldname": "applied_payment_terms_template",
+   "fieldtype": "Link",
+   "label": "Applied Payment Terms Template",
+   "options": "Payment Terms Template",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_coding",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Which signals conflicted / why coding is flagged; surfaced to the coding-review queue.",
+   "fieldname": "coding_review_reason",
+   "fieldtype": "Small Text",
+   "label": "Coding Review Reason",
+   "read_only": 1
+  },
+  {
+   "description": "Last 4 digits of the card used to pay (cost-center inference signal). Optional.",
+   "fieldname": "card_last4",
+   "fieldtype": "Data",
+   "label": "Card Last 4",
+   "length": 4
+  },
+  {
+   "description": "Location the receipt came from (cost-center inference signal). Data field (the Location doctype is not installed on this bench).",
+   "fieldname": "receipt_location",
+   "fieldtype": "Data",
+   "label": "Receipt Location"
+  },
+  {
+   "default": "ap-coding-v1",
+   "description": "Provenance tag for the coding routine.",
+   "fieldname": "coding_source",
+   "fieldtype": "Data",
+   "label": "Coding Source",
    "read_only": 1
   },
   {

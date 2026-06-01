@@ -46,6 +46,7 @@ class APClosedLoopSettings(Document):
 		from erpnext.accounts.doctype.ap_stream_rule.ap_stream_rule import APStreamRule
 
 		ap_intake_email_account: DF.Link | None
+		default_purchase_tax_template: DF.Link | None
 		default_company: DF.Link | None
 		default_cost_center: DF.Link | None
 		default_expense_account: DF.Link | None
@@ -338,6 +339,23 @@ DEFAULT_SUPPLIER_FUZZY_THRESHOLD = 90.0
 DEFAULT_SUPPLIER_FUZZY_MIN_LENGTH = 4
 DEFAULT_SUPPLIER_AUTOCREATE_CONFIDENCE = 0.85
 DEFAULT_SUPPLIER_CHANGE_APPROVER_ROLE = "Accounts Manager"
+
+
+def get_coding_settings() -> dict:
+	"""GL-coding Layer-0 defaults (spec 06): the lowest tier below an
+	AP Supplier Coding Profile.
+
+	Returns ``{"unmapped_card_spend_account": str|None, "purchase_tax_template": str|None}``.
+	Raw reads via get_singles_dict (same set_missing_values footgun avoidance as
+	get_promote_defaults); empties pass through as None so the caller can fall
+	through to the next layer / native default.
+	"""
+
+	stored = _settings()
+	return {
+		"unmapped_card_spend_account": stored.get("unmapped_card_spend_account") or None,
+		"purchase_tax_template": stored.get("default_purchase_tax_template") or None,
+	}
 
 
 def get_supplier_resolution_settings() -> dict:

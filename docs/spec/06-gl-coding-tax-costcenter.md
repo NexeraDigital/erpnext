@@ -3,7 +3,7 @@ spec: 06-gl-coding-tax-costcenter
 title: GL Coding, Cost Center & Tax Assignment
 plan_step: Step 5 — GL Coding, Cost Center & Tax Assignment
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 04-extraction-confidence-line-items, 05-supplier-resolution]
 related: [00-overview, 07-classification-doctype-branching, 08-validation-gates, 09-confidence-routing, 10-ap-review-observability]
 ---

@@ -193,6 +193,24 @@ Still **read-only. Still no real changes to your accounting. The AI still only l
 
 ---
 
+## Update (2026-06-01): auto-filling the accounting codes for routine vendors
+
+Every bill has to be tagged with *where the money comes from* before it can be booked: which **expense account**, which **cost center** (department/project), and what **tax** applies. Doing that by hand for every invoice is the slow part. This update teaches the system to fill those in automatically for vendors you've set up — and, crucially, to **stop and ask a human** when it isn't sure rather than guess.
+
+What it adds:
+- **A per-vendor "coding profile."** For a routine vendor you set once: "bills from Acme always go to *Office Supplies expense*, *Marketing cost center*, with *10% VAT*." From then on, the system applies that automatically to each new Acme bill. (It sits *on top of* ERPNext's built-in vendor settings — it doesn't replace them.)
+- **Three layers, most-specific wins.** A value you type for this one bill beats the vendor's profile, which beats the company-wide default. So you get sensible defaults but can always override.
+- **Cost-center inference that refuses to guess.** The cost center can come from several hints (the vendor's profile, and later the receipt's location or the card used). If the hints **agree**, it's applied. If two hints **disagree**, the system does **not** pick one — it flags the bill to a **Coding Review** queue with the reason ("location says X but card says Y"), so a person decides. No silent wrong-coding.
+- **Tax sanity-check.** It compares the tax the AI read off the invoice against what the chosen tax template would compute. If they don't match (beyond rounding), the bill is **flagged** instead of booked with a bad tax number.
+- **A catch-all for card receipts.** For an already-paid card receipt with no known vendor, the expense lands in a dedicated "Unmapped Card Spend" account (flagged for later tidy-up) so reconciliation isn't held up.
+- **A hard safety rule:** the system will **refuse to re-code an invoice that's already been finalized (submitted)** — coding only ever edits a *draft*.
+
+The headline principle from the plan holds: **"without coding, nothing auto-posts."** There's now a single gate (`is_fully_coded`) that later steps must pass before anything books automatically — it's only green when the expense, the cost center, and the tax are all resolved and unambiguous.
+
+It's **invisible and inert until you use it**: with no vendor profiles set up, bills flow exactly as before. Two new behind-the-scenes record types (the vendor coding profile + its dimensions) and a few settings knobs. 18 more automated tests, all passing (the main capture suite is now 120).
+
+---
+
 ## Update (2026-06-01): matching invoices to the right vendor — without polluting the vendor list
 
 When an invoice arrives, the system reads a vendor *name* off it — but that text rarely matches your vendor list exactly. A card statement says `AMZN Mktp US*4Z9`; your books say `Amazon`. Until now the system did one simple check (exact name match) and, failing that, just stopped and asked a human. This update makes that matching far smarter — and adds a **safety gate** so the system can never quietly create junk vendors.

@@ -1,0 +1,143 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:supplier",
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Per-supplier GL auto-coding (spec 06): default expense account, cost center, purchase-tax template, payment terms, and accounting dimensions layered ON TOP of native Party Account / Supplier.payment_terms / tax_category. One row per Supplier (autoname field:supplier, unique). Single-company pilot scope (D1).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "supplier",
+  "column_break_scp",
+  "default_payment_terms_template",
+  "coding_accounts_section",
+  "default_expense_account",
+  "default_cost_center",
+  "column_break_accts",
+  "default_purchase_tax_template",
+  "dimensions_section",
+  "default_accounting_dimensions",
+  "notes_section",
+  "coding_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Supplier",
+   "options": "Supplier",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_scp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Profile-level override of the native Supplier.payment_terms (native remains the base).",
+   "fieldname": "default_payment_terms_template",
+   "fieldtype": "Link",
+   "label": "Default Payment Terms Template",
+   "options": "Payment Terms Template"
+  },
+  {
+   "fieldname": "coding_accounts_section",
+   "fieldtype": "Section Break",
+   "label": "Default Coding"
+  },
+  {
+   "description": "Layer-1 expense account written onto the PI item row.",
+   "fieldname": "default_expense_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Default Expense Account",
+   "options": "Account"
+  },
+  {
+   "description": "The supplier's assigned cost center — the lowest-priority cost-center inference signal.",
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "column_break_accts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Layer-1 tax template; written to the PI header taxes_and_charges.",
+   "fieldname": "default_purchase_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Purchase Tax Template",
+   "options": "Purchase Taxes and Charges Template"
+  },
+  {
+   "fieldname": "dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Dimensions"
+  },
+  {
+   "description": "Thin (dimension, value) pairs applied to the PI item row when the dimension's custom field exists on the site.",
+   "fieldname": "default_accounting_dimensions",
+   "fieldtype": "Table",
+   "label": "Default Accounting Dimensions",
+   "options": "AP Supplier Coding Dimension"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "coding_notes",
+   "fieldtype": "Small Text",
+   "label": "Coding Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Supplier Coding Profile",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

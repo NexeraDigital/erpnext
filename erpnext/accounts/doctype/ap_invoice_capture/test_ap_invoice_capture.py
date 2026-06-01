@@ -96,9 +96,16 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	request_approval,
 	run_fake_extraction,
 	validate_for_purchase_invoice,
+	apply_coding_profile_for,
+	is_fully_coded,
+	CODING_STATUS_AMBIGUOUS,
+	CODING_STATUS_CODED,
+	CODING_STATUS_FLAGGED,
+	_apply_dimensions_to_row,
 	_match_supplier,
 	_resolve_supplier,
 )
+from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
 EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]
 
@@ -2417,3 +2424,251 @@ class TestAPSupplierResolution3Tier(IntegrationTestCase):
 		r1 = queue_supplier_create_request(cap.name, "Once Vendor")
 		r2 = queue_supplier_create_request(cap.name, "Once Vendor")
 		self.assertEqual(r1, r2)
+
+
+class TestAPCodingProfile(IntegrationTestCase):
+	"""Spec 06 — GL coding: three-layer merge, cost-center inference + conflict,
+	tax validation, submitted-PI guard, Stream-R catch-all, the is_fully_coded gate."""
+
+	_COGS = "_Test Account Cost for Goods Sold - _TC"
+	_VAT = "_Test Account VAT - _TC"
+	_CC = "_Test Cost Center - _TC"
+
+	def setUp(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "ocr_provider", "Fake (Deterministic)")
+		# Clean slate for the Settings GL-coding layer (tests set what they need).
+		for f in ("default_expense_account", "default_cost_center", "unmapped_card_spend_account", "default_purchase_tax_template"):
+			frappe.db.set_single_value("AP Closed Loop Settings", f, None)
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	# --- helpers ---------------------------------------------------------
+	def _supplier_group(self):
+		return frappe.db.get_value("Supplier", "_Test Supplier", "supplier_group") or "All Supplier Groups"
+
+	def _supplier(self, tag="V"):
+		name = f"SPEC06 {tag} {frappe.generate_hash(length=6)}"
+		frappe.get_doc(
+			{"doctype": "Supplier", "supplier_name": name, "supplier_group": self._supplier_group(), "supplier_type": "Company"}
+		).insert(ignore_permissions=True)
+		return name
+
+	def _profile(self, supplier, **fields):
+		frappe.get_doc(
+			{
+				"doctype": "AP Supplier Coding Profile",
+				"supplier": supplier,
+				"default_expense_account": fields.get("expense_account"),
+				"default_cost_center": fields.get("cost_center"),
+				"default_purchase_tax_template": fields.get("tax_template"),
+			}
+		).insert(ignore_permissions=True)
+
+	def _tax_template(self, rate=10):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Purchase Taxes and Charges Template",
+				"company": "_Test Company",
+				"title": f"SPEC06 Tax {frappe.generate_hash(length=6)}",
+				"taxes": [
+					{"charge_type": "On Net Total", "account_head": self._VAT, "rate": rate, "description": f"VAT {rate}%"}
+				],
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc.name
+
+	def _validated_capture(self, supplier, total="300.00", subtotal=None, tax=None):
+		f = _make_file(f"cod-{frappe.generate_hash(length=6)}.pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="SPEC06 coding test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": supplier, "currency": "INR", "total_amount": total}, reviewer="Administrator"
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		if subtotal is not None:
+			cap.subtotal_amount = subtotal
+		if tax is not None:
+			cap.tax_amount = tax
+		if subtotal is not None or tax is not None:
+			cap.save(ignore_permissions=True)
+			cap.reload()
+		return cap
+
+	# --- AC-06-2: layer 1 (profile) beats layer 0 (settings) -------------
+	def test_ac_06_2_profile_beats_settings(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "default_expense_account", self._COGS)
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC)
+		cap = self._validated_capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_expense_account, self._VAT)  # profile, not settings COGS
+
+	# --- AC-06-3: caller defaults win; settings-only key flows through ---
+	def test_ac_06_3_three_layer_precedence(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "default_cost_center", self._CC)  # settings-only key
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT)
+		cap = self._validated_capture(sup)
+		apply_coding_profile_for(cap, defaults={"expense_account": self._COGS})  # caller override
+		cap.reload()
+		self.assertEqual(cap.applied_expense_account, self._COGS)  # caller wins
+		self.assertEqual(cap.applied_cost_center, self._CC)  # settings-only flows through
+
+	# --- AC-06-4: single cost-center signal (profile) --------------------
+	def test_ac_06_4_cost_center_single_signal(self):
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC)
+		cap = self._validated_capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_cost_center, self._CC)
+		self.assertEqual(cap.coding_status, CODING_STATUS_CODED)
+
+	# --- AC-06-5: conflicting cost-center signals -> ambiguous, no write -
+	def test_ac_06_5_cost_center_ambiguity(self):
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC)
+		cap = self._validated_capture(sup)
+		cap.receipt_location = "Berlin"
+		cap.card_last4 = "4242"
+		cap.save(ignore_permissions=True)
+		cap.reload()
+		orig_loc, orig_card = _apic_mod._location_cost_center, _apic_mod._card_cost_center
+		try:
+			_apic_mod._location_cost_center = lambda v: "CC-LOCATION"
+			_apic_mod._card_cost_center = lambda v: "CC-CARD"
+			apply_coding_profile_for(cap)
+		finally:
+			_apic_mod._location_cost_center, _apic_mod._card_cost_center = orig_loc, orig_card
+		cap.reload()
+		self.assertEqual(cap.coding_status, CODING_STATUS_AMBIGUOUS)
+		self.assertFalse(cap.applied_cost_center)  # no CC written on conflict
+		self.assertEqual(cap.action_required, 1)
+		self.assertIn("conflict", (cap.coding_review_reason or "").lower())
+
+	# --- AC-06-6 / 7: tax match / mismatch -------------------------------
+	def test_ac_06_6_tax_match(self):
+		tmpl = self._tax_template(rate=10)
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC, tax_template=tmpl)
+		cap = self._validated_capture(sup, subtotal=300, tax=30)  # 10% of 300 == 30
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_tax_template, tmpl)
+		self.assertNotEqual(cap.coding_status, CODING_STATUS_FLAGGED)
+
+	def test_ac_06_7_tax_mismatch(self):
+		tmpl = self._tax_template(rate=10)
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC, tax_template=tmpl)
+		cap = self._validated_capture(sup, subtotal=300, tax=25)  # expected 30, off by 5
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.coding_status, CODING_STATUS_FLAGGED)
+		self.assertFalse(is_fully_coded(cap))
+
+	# --- AC-06-8: submitted-PI guard -------------------------------------
+	def test_ac_06_8_submitted_pi_guard(self):
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._COGS, cost_center=self._CC)
+		cap = self._validated_capture(sup)
+		pi = promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		frappe.get_doc("Purchase Invoice", pi.name).submit()
+		cap.reload()
+		with self.assertRaises(CapturePromotionError):
+			apply_coding_profile_for(cap)
+		self.assertEqual(frappe.db.get_value("Purchase Invoice", pi.name, "docstatus"), 1)
+
+	# --- AC-06-9: Stream-R catch-all -------------------------------------
+	def test_ac_06_9_stream_r_catch_all(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "unmapped_card_spend_account", self._COGS)
+		f = _make_file(f"receipt_{frappe.generate_hash(length=6)}.pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="SPEC06 stream-r")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": f"Ghost {frappe.generate_hash(length=6)}", "currency": "INR", "total_amount": "50.00"}, reviewer="Administrator"
+		)
+		cap.reload()
+		cap.matched_supplier = None
+		cap.stream = "Receipt (R)"
+		cap.save(ignore_permissions=True)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_expense_account, self._COGS)
+		self.assertEqual(cap.coding_status, CODING_STATUS_FLAGGED)
+		self.assertEqual(cap.action_required, 1)
+
+	def test_ac_06_9b_catch_all_unset_blocks(self):
+		f = _make_file(f"receipt_{frappe.generate_hash(length=6)}.pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="SPEC06 stream-r2")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": f"Ghost {frappe.generate_hash(length=6)}", "currency": "INR", "total_amount": "50.00"}, reviewer="Administrator"
+		)
+		cap.reload()
+		cap.matched_supplier = None
+		cap.stream = "Receipt (R)"
+		cap.save(ignore_permissions=True)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertFalse(cap.applied_expense_account)
+		self.assertFalse(is_fully_coded(cap))
+
+	# --- AC-06-10: the gate ----------------------------------------------
+	def test_ac_06_10_is_fully_coded_gate(self):
+		sup = self._supplier()
+		self._profile(sup, expense_account=self._VAT, cost_center=self._CC)
+		cap = self._validated_capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertTrue(is_fully_coded(cap))  # expense + cc + no tax flag
+		# Missing cost center -> not fully coded.
+		sup2 = self._supplier()
+		self._profile(sup2, expense_account=self._VAT)  # no cost center
+		cap2 = self._validated_capture(sup2)
+		apply_coding_profile_for(cap2)
+		cap2.reload()
+		self.assertFalse(is_fully_coded(cap2))
+
+	# --- AC-06-11: re-run after corrected supplier mutates the draft PI --
+	def test_ac_06_11_recode_draft_pi_on_supplier_change(self):
+		a = self._supplier("A")
+		b = self._supplier("B")
+		self._profile(a, expense_account=self._COGS, cost_center=self._CC)
+		self._profile(b, expense_account=self._VAT, cost_center=self._CC)
+		cap = self._validated_capture(a)
+		pi = promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)  # draft
+		cap.reload()
+		apply_coding_profile_for(cap)  # codes draft PI with A's profile
+		self.assertEqual(frappe.db.get_value("Purchase Invoice Item", {"parent": pi.name}, "expense_account"), self._COGS)
+		# Correct the supplier to B and re-code.
+		cap.matched_supplier = b
+		cap.save(ignore_permissions=True)
+		apply_coding_profile_for(cap)
+		self.assertEqual(frappe.db.get_value("Purchase Invoice Item", {"parent": pi.name}, "expense_account"), self._VAT)
+
+	# --- AC-06-12: settings footgun regression ---------------------------
+	def test_ac_06_12_get_promote_defaults_omits_empty(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_promote_defaults,
+		)
+
+		frappe.db.set_single_value("AP Closed Loop Settings", "default_warehouse", None)
+		self.assertNotIn("warehouse", get_promote_defaults())
+
+	# --- AC-06-14: dimension with a missing column is skipped, no error --
+	def test_ac_06_14_missing_dimension_column_skipped(self):
+		# An unknown Accounting Dimension yields no fieldname -> skipped silently.
+		item = frappe.new_doc("Purchase Invoice Item")
+		try:
+			_apply_dimensions_to_row(item, [{"dimension": "No Such Dim", "dimension_value": "X"}])
+		except Exception as exc:  # noqa: BLE001
+			self.fail(f"_apply_dimensions_to_row raised on a missing dimension: {exc}")
