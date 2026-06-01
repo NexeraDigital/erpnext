@@ -42,6 +42,9 @@ class APClosedLoopSettings(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		from erpnext.accounts.doctype.ap_stream_rule.ap_stream_rule import APStreamRule
+
+		ap_intake_email_account: DF.Link | None
 		default_company: DF.Link | None
 		default_cost_center: DF.Link | None
 		default_expense_account: DF.Link | None
@@ -60,6 +63,7 @@ class APClosedLoopSettings(Document):
 		enforce_sod: DF.Check
 		field_thresholds: DF.JSON | None
 		sod_threshold_amount: DF.Float
+		stream_rules: DF.Table[APStreamRule]
 		unmapped_card_spend_account: DF.Link | None
 	# end: auto-generated types
 
@@ -262,6 +266,21 @@ def _coerce_field_thresholds(raw) -> dict:
 	except (TypeError, ValueError):
 		return {}
 	return parsed if isinstance(parsed, dict) else {}
+
+
+def get_stream_rules() -> list[dict]:
+	"""Enabled stream-tagging rules ordered by priority (spec 02 §5.1.3).
+
+	Child rows don't round-trip through get_singles_dict, so read them directly
+	via get_all. Returns [] on a fresh site (no rules -> everything Unclassified,
+	which is the correct fallthrough)."""
+
+	return frappe.get_all(
+		"AP Stream Rule",
+		filters={"parent": "AP Closed Loop Settings", "enabled": 1},
+		fields=["priority", "signal", "pattern", "assign_stream"],
+		order_by="priority asc",
+	)
 
 
 @frappe.whitelist()

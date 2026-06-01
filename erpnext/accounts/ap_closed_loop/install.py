@@ -49,3 +49,37 @@ def install_ap_defaults() -> None:
 		raw = stored.get(field)
 		if raw is None or str(raw).strip() == "":
 			frappe.db.set_single_value(SETTINGS_DOCTYPE, field, default)
+
+	_seed_stream_rules()
+
+
+# Default Receipt-vs-Invoice tagging rules (spec 02 OD-3) — make the feature
+# demo-able out of the box. Seeded only when the rule table is empty.
+STREAM_RULE_SEEDS = [
+	{"priority": 10, "signal": "filename", "pattern": "receipt_*", "assign_stream": "Receipt (R)", "enabled": 1},
+	{"priority": 20, "signal": "filename", "pattern": "invoice_*", "assign_stream": "Invoice (I)", "enabled": 1},
+	{"priority": 30, "signal": "sender_domain", "pattern": "stripe.com", "assign_stream": "Receipt (R)", "enabled": 1},
+	{"priority": 40, "signal": "body", "pattern": "PAID", "assign_stream": "Receipt (R)", "enabled": 1},
+]
+
+
+def _seed_stream_rules() -> None:
+	"""Insert the default AP Stream Rule rows when none exist yet (idempotent;
+	never clobbers operator-authored rules)."""
+
+	if not frappe.db.exists("DocType", "AP Stream Rule"):
+		return
+	if frappe.db.count("AP Stream Rule", {"parent": SETTINGS_DOCTYPE}):
+		return
+
+	for i, rule in enumerate(STREAM_RULE_SEEDS, start=1):
+		frappe.get_doc(
+			{
+				"doctype": "AP Stream Rule",
+				"parent": SETTINGS_DOCTYPE,
+				"parenttype": SETTINGS_DOCTYPE,
+				"parentfield": "stream_rules",
+				"idx": i,
+				**rule,
+			}
+		).insert(ignore_permissions=True)

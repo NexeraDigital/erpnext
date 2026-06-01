@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 1/14 done — **spec 01 ✅** (20/20 ACs green; 22 new tests + 66-test regression suite passing)
+> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 2/14 done — **specs 01–02 ✅** (35/221 ACs green; 42 new tests passing; no regressions)
 
 ## How to use this file
 
@@ -39,7 +39,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 | # | Spec | Phase | Status | ACs | Size | Depends on | Gating decision / blocked-on | PR |
 |---|------|-------|--------|-----|------|-----------|------------------------------|----|
 | 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | ✅ | 20/20 | L | — | #4, #6 locked | local ✓ (uncommitted) |
-| 02 | [[02-intake-stream-tagging]] | 1 Intake | 🔲 | 0/15 | L | 01 | — | — |
+| 02 | [[02-intake-stream-tagging]] | 1 Intake | ✅ | 15/15 | L | 01 | — | local ✓ (uncommitted) |
 | 03 | [[03-deduplication]] | 1 Intake | 🔲 | 0/13 | M | 01, 02 | #5 (poppler), #9 | — |
 | 04 | [[04-extraction-confidence-line-items]] | 1 Intake | 🔲 | 0/15 | L | 01 | #4 | — |
 | 05 | [[05-supplier-resolution]] | 2 Resolve | 🔲 | 0/23 | L | 01, 04 | bank-detail→`Bank Account` (fixed) | — |
@@ -102,23 +102,23 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-01-17
 </details>
 
-<details><summary><b>02 — Intake & Stream Tagging · 0/15</b></summary>
+<details><summary><b>02 — Intake & Stream Tagging · 15/15 ✅</b></summary>
 
-- [ ] AC-02-1
-- [ ] AC-02-2
-- [ ] AC-02-3
-- [ ] AC-02-4
-- [ ] AC-02-5
-- [ ] AC-02-6
-- [ ] AC-02-7
-- [ ] AC-02-8
-- [ ] AC-02-9
-- [ ] AC-02-10
-- [ ] AC-02-11
-- [ ] AC-02-12
-- [ ] AC-02-13
-- [ ] AC-02-14
-- [ ] AC-02-15
+- [x] AC-02-1
+- [x] AC-02-2
+- [x] AC-02-3
+- [x] AC-02-4
+- [x] AC-02-5
+- [x] AC-02-6
+- [x] AC-02-7
+- [x] AC-02-8
+- [x] AC-02-9
+- [x] AC-02-10
+- [x] AC-02-11
+- [x] AC-02-12
+- [x] AC-02-13
+- [x] AC-02-14
+- [x] AC-02-15
 </details>
 
 <details><summary><b>03 — Deduplication · 0/13</b></summary>

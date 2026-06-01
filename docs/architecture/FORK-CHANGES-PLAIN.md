@@ -159,6 +159,8 @@ We started building the larger "v2" AP workflow (the 14 specs in `docs/spec/`). 
 
 It's invisible to users (no new screens), changes nothing on a site that hasn't switched the new options on, and ships with 22 automated tests (all passing) — the existing 66-test suite still passes too.
 
+**Next piece — sorting receipts from invoices at the front door.** Now, the moment a document arrives it's automatically tagged **Receipt** (already paid) or **Invoice** (a bill we owe) — because the two are handled completely differently downstream. Receipts also start a 72-hour "match it to the bank feed" clock. You can tune how the tagging works (by filename, sender, or words like "PAID") right on the settings page with **no code change**, and you can now feed documents in by **email** (forward them to a dedicated inbox) or **mobile photo**, not just manual upload. Still invisible unless you switch the email inbox on. 20 more automated tests, all passing.
+
 ---
 
 ## TL;DR

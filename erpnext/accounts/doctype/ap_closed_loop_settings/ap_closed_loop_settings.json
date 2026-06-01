@@ -33,6 +33,8 @@
   "credit_card_clearing_account",
   "unmapped_card_spend_account",
   "stream_rules_section",
+  "stream_rules",
+  "ap_intake_email_account",
   "anomaly_section",
   "bank_feed_section"
  ],
@@ -212,10 +214,24 @@
   },
   {
    "collapsible": 1,
-   "description": "Reserved — provisional Receipt-vs-Invoice tagging rules and the 72h SLA config are filled by the intake / stream-tagging step.",
+   "description": "Data-driven Receipt-vs-Invoice tagging rules (spec 02). Add rows to tune classification with no code change; lower priority is evaluated first.",
    "fieldname": "stream_rules_section",
    "fieldtype": "Section Break",
    "label": "Stream Tagging Rules"
+  },
+  {
+   "description": "Provisional stream rules evaluated at intake by classify_stream_at_intake. First match (by priority) wins; no match leaves a capture Unclassified.",
+   "fieldname": "stream_rules",
+   "fieldtype": "Table",
+   "label": "Stream Rules",
+   "options": "AP Stream Rule"
+  },
+  {
+   "description": "The dedicated inbound Email Account whose received mail the Communication.after_insert hook turns into captures (channel = Email Inbound). Leave empty to keep email intake OFF.",
+   "fieldname": "ap_intake_email_account",
+   "fieldtype": "Link",
+   "label": "AP Intake Email Account",
+   "options": "Email Account"
   },
   {
    "collapsible": 1,

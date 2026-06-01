@@ -262,3 +262,27 @@ class TestFoundationGetters(IntegrationTestCase):
 		self.assertEqual(get_dedupe_window_days(), 30)
 		self._set("dedupe_window_days", None)
 		self.assertEqual(get_dedupe_window_days(), 90)
+
+	def test_get_stream_rules(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_stream_rules,
+		)
+
+		parent = "AP Closed Loop Settings"
+		frappe.db.delete("AP Stream Rule", {"parent": parent})
+		self.assertEqual(get_stream_rules(), [])  # empty on a fresh rule set
+
+		seeds = [
+			{"priority": 30, "signal": "filename", "pattern": "c_*", "assign_stream": "Receipt (R)", "enabled": 1},
+			{"priority": 10, "signal": "filename", "pattern": "a_*", "assign_stream": "Invoice (I)", "enabled": 1},
+			{"priority": 20, "signal": "body", "pattern": "x", "assign_stream": "Receipt (R)", "enabled": 0},
+		]
+		for i, r in enumerate(seeds, start=1):
+			frappe.get_doc({
+				"doctype": "AP Stream Rule", "parent": parent, "parenttype": parent,
+				"parentfield": "stream_rules", "idx": i, **r,
+			}).insert(ignore_permissions=True)
+
+		rules = get_stream_rules()
+		# excludes the disabled (enabled=0) row, ordered by priority asc
+		self.assertEqual([r["pattern"] for r in rules], ["a_*", "c_*"])

@@ -15,6 +15,11 @@
   "source_file",
   "source_file_url",
   "received_at",
+  "intake_classification_section",
+  "stream",
+  "stream_provisional_source",
+  "stream_revised_from",
+  "sla_due_at",
   "lifecycle_section",
   "status",
   "is_supported_format",
@@ -109,12 +114,12 @@
   },
   {
    "default": "Manual ERPNext Upload",
-   "description": "Intake channel that originated this capture. Phase 1 is manual ERPNext upload.",
+   "description": "Intake channel that originated this capture: manual ERPNext upload, inbound email, mobile upload, or vendor portal pull.",
    "fieldname": "intake_channel",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Intake Channel",
-   "options": "Manual ERPNext Upload",
+   "options": "Manual ERPNext Upload\nEmail Inbound\nMobile Upload\nVendor Portal Pull",
    "reqd": 1
   },
   {
@@ -144,6 +149,44 @@
    "in_list_view": 1,
    "label": "Received At",
    "reqd": 1
+  },
+  {
+   "fieldname": "intake_classification_section",
+   "fieldtype": "Section Break",
+   "label": "Intake Classification"
+  },
+  {
+   "default": "Unclassified",
+   "description": "Provisional Receipt-vs-Invoice stream set at intake (spec 02). Step-6 classification may revise it.",
+   "fieldname": "stream",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Stream",
+   "options": "Receipt (R)\nInvoice (I)\nUnclassified",
+   "reqd": 1
+  },
+  {
+   "description": "Which signal fired the provisional stream tag (e.g. filename:receipt_*, sender_domain, body:PAID, default).",
+   "fieldname": "stream_provisional_source",
+   "fieldtype": "Data",
+   "label": "Stream Provisional Source",
+   "read_only": 1
+  },
+  {
+   "description": "Set by Step-6 classification to the prior stream value when the tag is revised; the audit trail for a mis-tag.",
+   "fieldname": "stream_revised_from",
+   "fieldtype": "Data",
+   "label": "Stream Revised From",
+   "read_only": 1
+  },
+  {
+   "description": "72h SimpleFIN match deadline (Stream R only): received_at + 72h. NULL for Invoice / Unclassified.",
+   "fieldname": "sla_due_at",
+   "fieldtype": "Datetime",
+   "in_standard_filter": 1,
+   "label": "SLA Due At",
+   "read_only": 1
   },
   {
    "fieldname": "lifecycle_section",

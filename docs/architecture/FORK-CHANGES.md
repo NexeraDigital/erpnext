@@ -764,3 +764,28 @@ Cross-cutting foundation every later v2 step builds on: a single settings backbo
 **Decisions locked (spec §8):** idempotency key = `sha256(capture, step)` ONLY, never `settings.modified` (**D9** — the double-post guarantee); `ocr_confidence_threshold` stays the single canonical confidence scalar (**D1**); `field:idempotency_key` autoname (**D3**); `_run_cascade_step` retained as an alias for one release (**D4**); phase-1 retry uses native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff (**D5**); defaults install via `after_migrate` (**D2**). `AUTO_APPROVAL_THRESHOLD_DEFAULT=1000.0` retained as the empty-settings fallback.
 
 **Test-environment note (important):** the existing `test_ap_invoice_capture` suite calls `run_fake_extraction_for`, which is now settings-driven (`run_fake_extraction = run_extraction`). It is deterministic **only when `AP Closed Loop Settings.ocr_provider = "Fake (Deterministic)"`** (the default). On a site configured for `Anthropic Claude` the suite invokes the real provider and fails non-deterministically — pin the Fake provider (or set it in the suite's `setUp`) before running. This is a pre-existing isolation gap in that suite, surfaced — not introduced — by this slice.
+
+---
+
+## 12. Spec 02 — Intake & Stream Tagging (Receipt vs Invoice)
+
+> **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). Second slice of the v2 build — see `docs/spec/02-intake-stream-tagging.md`. All 15 acceptance criteria green; **20 new automated tests** pass; the spec-01 suites and the 66-test capture suite pass unchanged (capture suite under the Fake OCR provider).
+
+Owns the **stream concept**: tags every `AP Invoice Capture` at intake as Stream R (Receipt) / Stream I (Invoice) / Unclassified, starts the 72h SimpleFIN SLA clock on Stream R, and adds the email / mobile intake adapters + a Phase-3 portal-pull base.
+
+```
+ erpnext/accounts/doctype/ap_stream_rule/{__init__,ap_stream_rule}.py + .json    | NEW child DocType — data-driven Receipt/Invoice rule rows (priority/signal/pattern/assign_stream/enabled)
+ erpnext/accounts/ap_closed_loop/portal_pull.py                                  | NEW — PortalPullAdapter ABC + register/get_portal_adapter registry (Phase-3 seam; no concrete adapter)
+ erpnext/accounts/ap_closed_loop/tests/{test_stream_tagging,test_portal_pull}.py | 19 new tests
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             | +/- intake_classification_section + stream / stream_provisional_source / stream_revised_from / sla_due_at; intake_channel +3 options
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               | +/- classify_stream_at_intake (pure); _apply_stream_tag in validate(); create_capture_from_file +sender_domain/body_text; create_capture_from_uploaded_file +intake_channel; create_capture_from_email + handle_inbound_ap_communication
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    | +/- fill stream_rules_section: stream_rules (Table) + ap_intake_email_account (Link)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      | +/- get_stream_rules() accessor + 1 test (get_stream_rules)
+ erpnext/accounts/ap_closed_loop/install.py                                       | +/- _seed_stream_rules() (4 default rules, blank-only)
+ erpnext/hooks.py                                                                 | +1 Communication.after_insert: handle_inbound_ap_communication (no-op unless ap_intake_email_account set)
+ test/testplans/{intake-stream-tagging,intake-email-inbound}.md                   | clean-room runbooks
+```
+
+**Design notes / decisions (spec §8):** the rule table is a child DocType so non-engineers tune classification with no code change (OD-1); `body` patterns are regex, others substring/glob (OD-2); 4 seed rules ship (OD-3); sender/body reach the classifier as transient, **never-persisted** attrs (OD-4, privacy); email re-fire is guarded per-`source_file` (OD-5); the AP intake Email Account is a Settings Link, **off when empty** (OD-6); unsupported email attachments are skipped (OD-7). Native `Email Account.append_to` was considered and rejected (1:1; this slice needs one-email→many-captures fan-out + per-attachment filtering); native `Assignment Rule` was considered (it can't write a derived field); Phase-2 queue priority will reuse native `ToDo.priority` (OD-8).
+
+**Net effect:** one new child DocType (`AP Stream Rule`), one new module (`portal_pull.py`), `AP Invoice Capture` gains 4 stream fields + 3 intake channels + the email-in adapter, `AP Closed Loop Settings` fills its reserved stream section, and the global `Communication.after_insert` hook is **off by default** (a no-op until an operator sets `ap_intake_email_account`).

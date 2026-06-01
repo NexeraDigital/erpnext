@@ -3,7 +3,7 @@ spec: 02-intake-stream-tagging
 title: Intake & Stream Tagging (Receipt vs Invoice)
 plan_step: "Step 1 — Receipt/Invoice Intake with provisional stream tag (the 'two streams from intake' fork)"
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency]
 related: [00-overview, 03-deduplication, 04-extraction-confidence-line-items, 07-classification-doctype-branching, 10-ap-review-observability, 13-bank-feed-reconciliation]
 ---

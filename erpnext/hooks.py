@@ -379,6 +379,7 @@ doc_events = {
 		"after_insert": [
 			"erpnext.crm.utils.link_communications_with_prospect",
 			"erpnext.crm.utils.update_modified_timestamp",
+			"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.handle_inbound_ap_communication",
 		],
 	},
 	"Event": {

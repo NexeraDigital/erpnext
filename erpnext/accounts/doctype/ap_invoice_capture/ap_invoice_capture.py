@@ -21,15 +21,17 @@ PNG, JPG, JPEG (case-insensitive).
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import os
+import re
 from datetime import date, timedelta
 
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime, today
+from frappe.utils import add_to_date, flt, getdate, now_datetime, today
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"pdf", "png", "jpg", "jpeg"})
 
@@ -91,6 +93,16 @@ PAYMENT_LIFECYCLE_CLOSED = "Closed"
 PAYMENT_LIFECYCLE_BLOCKED = "Blocked"
 
 INTAKE_MANUAL_UPLOAD = "Manual ERPNext Upload"
+INTAKE_EMAIL_INBOUND = "Email Inbound"
+INTAKE_MOBILE_UPLOAD = "Mobile Upload"
+INTAKE_PORTAL_PULL = "Vendor Portal Pull"
+
+# Stream tag (spec 02). Self-describing parenthesized labels, matching the
+# "Fake (Deterministic)" style; the persisted value reads clearly in reports.
+STREAM_RECEIPT = "Receipt (R)"
+STREAM_INVOICE = "Invoice (I)"
+STREAM_UNCLASSIFIED = "Unclassified"
+STREAM_DEFAULT_SOURCE = "default"
 
 FAKE_OCR_PROVIDER = "fake-deterministic-v1"
 
@@ -158,7 +170,7 @@ class APInvoiceCapture(Document):
 		final_supplier: DF.Data | None
 		final_supplier_invoice_no: DF.Data | None
 		final_total_amount: DF.Float
-		intake_channel: DF.Literal["Manual ERPNext Upload"]
+		intake_channel: DF.Literal["Manual ERPNext Upload", "Email Inbound", "Mobile Upload", "Vendor Portal Pull"]
 		is_supported_format: DF.Check
 		ocr_extracted_at: DF.Datetime | None
 		ocr_provider: DF.Data | None
@@ -172,6 +184,10 @@ class APInvoiceCapture(Document):
 		proposed_supplier_invoice_no: DF.Data | None
 		proposed_total_amount: DF.Float
 		received_at: DF.Datetime
+		stream: DF.Literal["Receipt (R)", "Invoice (I)", "Unclassified"]
+		stream_provisional_source: DF.Data | None
+		stream_revised_from: DF.Data | None
+		sla_due_at: DF.Datetime | None
 		review_notes: DF.SmallText | None
 		reviewed_at: DF.Datetime | None
 		reviewed_by: DF.Link | None
@@ -240,6 +256,7 @@ class APInvoiceCapture(Document):
 
 		self._hydrate_from_linked_file()
 		self._require_source_reference()
+		self._apply_stream_tag()
 
 		extension = _normalize_extension(self.file_extension or self.source_filename or "")
 		self.file_extension = extension or None
@@ -411,6 +428,32 @@ class APInvoiceCapture(Document):
 				_("AP Invoice Capture requires a Source Filename for traceability.")
 			)
 
+	def _apply_stream_tag(self) -> None:
+		"""Set the provisional Receipt/Invoice stream + 72h SLA (spec 02 §5.3.2).
+
+		Derive ``stream`` / ``stream_provisional_source`` ONLY when never
+		classified (guard on an empty ``stream_provisional_source``) so spec 07's
+		Step-6 revisions and manual overrides survive every re-save. ``sla_due_at``
+		is recomputed from the current ``stream`` on every save, so a revision
+		R<->I correctly sets/clears the 72h deadline.
+		"""
+
+		if not self.stream_provisional_source:
+			stream_value, source = classify_stream_at_intake(
+				self.source_filename,
+				getattr(self, "_sender_domain", None),
+				self.intake_channel,
+				getattr(self, "_body_text", None),
+			)
+			self.stream = stream_value
+			self.stream_provisional_source = source
+
+		self.sla_due_at = (
+			add_to_date(self.received_at, hours=72)
+			if self.stream == STREAM_RECEIPT
+			else None
+		)
+
 
 def _run_cascade_step(capture: str, method_name: str):
 	"""Back-compat alias → ``async_runner._dispatch_step`` (spec 01 §5.3-E / D4).
@@ -458,6 +501,68 @@ def _resolve_filename(file_doc, explicit_filename: str | None) -> str:
 	return ""
 
 
+def classify_stream_at_intake(
+	filename: str | None,
+	sender_domain: str | None,
+	intake_channel: str | None,
+	body_text: str | None,
+	rules: list[dict] | None = None,
+) -> tuple[str, str]:
+	"""Return ``(stream_value, provisional_source)`` — pure, side-effect free.
+
+	``rules=None`` loads via ``AP Closed Loop Settings.get_stream_rules()``;
+	inject ``rules`` in tests to avoid the DB. Iterates rules by priority; the
+	first match wins; no match -> ``("Unclassified", "default")``. Never raises
+	on empty inputs, and skips (logging once) any rule whose ``signal`` is
+	unknown or whose ``body`` regex is malformed, so a tuning typo in the rule
+	table can never block intake.
+	"""
+
+	if rules is None:
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_stream_rules,
+		)
+
+		rules = get_stream_rules()
+
+	fname = (filename or "").lower()
+	domain = (sender_domain or "").lower()
+	channel = (intake_channel or "").lower()
+	body = body_text or ""
+
+	for rule in rules:
+		signal = rule.get("signal")
+		pattern = rule.get("pattern") or ""
+		assign = rule.get("assign_stream")
+		if not pattern or not assign:
+			continue
+		try:
+			if signal == "filename":
+				if fnmatch.fnmatch(fname, pattern.lower()):
+					return assign, f"filename:{pattern}"
+			elif signal == "sender_domain":
+				if pattern.lower() in domain:
+					return assign, "sender_domain"
+			elif signal == "label":
+				if pattern.lower() in channel:
+					return assign, "label"
+			elif signal == "body":
+				if re.search(pattern, body, re.IGNORECASE):
+					return assign, f"body:{pattern}"
+			else:
+				frappe.log_error(
+					title="AP Stream Rule: unknown signal",
+					message=f"Skipping stream rule with unrecognized signal {signal!r}.",
+				)
+		except re.error:
+			frappe.log_error(
+				title="AP Stream Rule: invalid pattern",
+				message=f"Skipping stream rule {pattern!r} for signal {signal!r} (bad regex).",
+			)
+
+	return STREAM_UNCLASSIFIED, STREAM_DEFAULT_SOURCE
+
+
 def create_capture_from_file(
 	file_doc=None,
 	file_name: str | None = None,
@@ -465,6 +570,8 @@ def create_capture_from_file(
 	source_context: str | None = None,
 	intake_channel: str = INTAKE_MANUAL_UPLOAD,
 	received_at=None,
+	sender_domain: str | None = None,
+	body_text: str | None = None,
 ):
 	"""Deterministic API for creating an AP Invoice Capture.
 
@@ -496,19 +603,134 @@ def create_capture_from_file(
 	capture.source_file = resolved_file_name
 	capture.source_file_url = effective_url
 	capture.source_context = source_context
+	# Transient classifier inputs — set on the in-memory doc so validate()'s
+	# stream tagger can read them; NEVER persisted (privacy; spec 02 OD-4).
+	if sender_domain:
+		capture._sender_domain = sender_domain
+	if body_text:
+		capture._body_text = body_text
 	capture.insert()
 	return capture
 
 
 @frappe.whitelist()
-def create_capture_from_uploaded_file(file_name: str, source_context: str | None = None):
-	"""Whitelisted entrypoint for the manual ERPNext upload flow.
+def create_capture_from_uploaded_file(
+	file_name: str,
+	source_context: str | None = None,
+	intake_channel: str = INTAKE_MANUAL_UPLOAD,
+):
+	"""Whitelisted entrypoint for the manual ERPNext upload (and mobile) flow.
 
-	``file_name`` is the ``name`` of an existing Frappe ``File`` record
-	(the one created when the user uploads through the ERPNext UI).
+	``file_name`` is the ``name`` of an existing Frappe ``File`` record (the one
+	created when the user uploads through the ERPNext UI / mobile app). The
+	mobile client passes ``intake_channel="Mobile Upload"`` (spec 02 §5.3.4).
 	"""
 
-	return create_capture_from_file(file_doc=file_name, source_context=source_context).name
+	return create_capture_from_file(
+		file_doc=file_name,
+		source_context=source_context,
+		intake_channel=intake_channel,
+	).name
+
+
+# ---------------------------------------------------------------------------
+# Email-in intake adapter (spec 02 §5.3.3)
+# ---------------------------------------------------------------------------
+
+
+def _email_domain(sender: str | None) -> str | None:
+	"""Extract the lowercased domain from an email sender address."""
+
+	if not sender or "@" not in sender:
+		return None
+	domain = sender.rsplit("@", 1)[-1].strip().strip(">").lower()
+	return domain or None
+
+
+def _email_body_snippet(content: str | None, limit: int = 2000) -> str | None:
+	"""A bounded, HTML-stripped snippet of the email body for classification.
+
+	Used transiently by the stream classifier and NEVER persisted (privacy;
+	spec 02 OD-4)."""
+
+	if not content:
+		return None
+	text = re.sub(r"<[^>]+>", " ", content)
+	text = re.sub(r"\s+", " ", text).strip()
+	return text[:limit] or None
+
+
+@frappe.whitelist()
+def create_capture_from_email(communication: str) -> list:
+	"""Create one AP Invoice Capture per supported attachment of a Communication.
+
+	Iterates the inbound email's attached Files, skipping unsupported
+	attachments (signatures/logos/.txt — spec 02 OD-7). Stream is classified from
+	the sender domain + filename (+ a bounded body snippet, never persisted).
+	Idempotent on a re-fired hook via a per-``source_file`` existence guard
+	(OD-5). Returns the list of created capture names (possibly empty).
+	"""
+
+	comm = frappe.get_doc("Communication", communication)
+	sender_domain = _email_domain(comm.sender)
+	body_snippet = _email_body_snippet(comm.content)
+	context = f"Email: {comm.subject}" if comm.subject else None
+
+	files = frappe.get_all(
+		"File",
+		filters={
+			"attached_to_doctype": "Communication",
+			"attached_to_name": comm.name,
+		},
+		fields=["name", "file_name", "file_url"],
+	)
+
+	created = []
+	for file_row in files:
+		extension = _normalize_extension(file_row.file_name or file_row.file_url or "")
+		if extension not in SUPPORTED_EXTENSIONS:
+			continue
+		# Don't double-create from a re-fired hook / re-delivery (OD-5). The real
+		# content-level dedupe firewall is spec 03.
+		if frappe.db.exists("AP Invoice Capture", {"source_file": file_row.name}):
+			continue
+		capture = create_capture_from_file(
+			file_doc=file_row.name,
+			source_context=context,
+			intake_channel=INTAKE_EMAIL_INBOUND,
+			received_at=comm.communication_date,  # the true receipt time, not now()
+			sender_domain=sender_domain,
+			body_text=body_snippet,
+		)
+		created.append(capture.name)
+	return created
+
+
+def handle_inbound_ap_communication(doc, method=None) -> None:
+	"""``Communication.after_insert`` hook target (spec 02 §5.3.3).
+
+	No-op unless this is an inbound email on the configured AP intake Email
+	Account (``AP Closed Loop Settings.ap_intake_email_account``). OFF by default:
+	if that setting is empty, this does nothing. Never raises — an inbound-mail
+	hook must not break mail sync.
+	"""
+
+	try:
+		if getattr(doc, "communication_type", None) != "Communication":
+			return
+		if getattr(doc, "sent_or_received", None) != "Received":
+			return
+		configured = frappe.db.get_single_value(
+			"AP Closed Loop Settings", "ap_intake_email_account"
+		)
+		if not configured or getattr(doc, "email_account", None) != configured:
+			return
+		create_capture_from_email(doc.name)
+	except Exception:
+		frappe.log_error(
+			title="AP intake: inbound Communication handler failed",
+			message=frappe.get_traceback(),
+		)
 
 
 # ---------------------------------------------------------------------------
