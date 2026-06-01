@@ -143,7 +143,7 @@ This is exactly the architecture this plan adopts (§2 decision D1). Frappe core
 - `erpnext/ai/chat/doctype/ai_chat_message/` (+ `.json`, `.py`, `__init__.py`)
 - `erpnext/public/js/ai_chat/ai_chat.bundle.js` (+ panel/launcher/context-chip components)
 - `erpnext/ai/chat/tests/` (see §5)
-- `test/testplans/ai-chat-panel.md` (clean-room runbook)
+- `test/testplans/platform/ai-chat-panel.md` (clean-room runbook)
 
 **Modify (upstream-shared, additive):**
 - `erpnext/hooks.py` — convert `app_include_js` to a list incl. the new bundle; register `extend_bootinfo`.
@@ -167,7 +167,7 @@ Roll back DB writes in `tearDown`. Cover:
 5. **Audit + secret hygiene** — exactly one `AI Chat Message` per turn; the API key appears in no stored field and no realtime payload.
 6. **Enqueue identity** — `start_turn` enqueues the job as `frappe.session.user`.
 
-### 5.2 Clean-room runbook — `test/testplans/ai-chat-panel.md`
+### 5.2 Clean-room runbook — `test/testplans/platform/ai-chat-panel.md`
 
 Per the CLAUDE.md 7-section format: (1) feature under test; (2) branch/commit; (3) env setup (AI Provider Settings key, MCP enabled + `MCP Tool Config` rows, roles); (4) test-data prerequisites (users/roles, a Purchase Invoice + Supplier); (5) numbered positive/negative/edge cases incl. forged-context and low-priv, plus Playwright UI steps for launcher / slide-over / context-chip / streaming; (6) cleanup/rollback; (7) pass/fail checklist.
 
@@ -182,7 +182,7 @@ UI steps run through the Playwright MCP per `test/testplans/BROWSER-TESTING-SETU
 | `docs/architecture/FORK-CHANGES.md` | Add `erpnext/ai/chat/` + the two DocTypes + the `app_include_js`/`extend_bootinfo` hook deltas + the new front-end bundle to the tracked fork delta. |
 | `docs/architecture/FORK-CHANGES-PLAIN.md` | Plain-English explainer of the chat panel (kept in lockstep with `FORK-CHANGES.md`). |
 | `docs/architecture/UI-SITEMAP.md` | Add the global launcher/slide-over as a cross-cutting always-present element; bump "Last verified against repo". |
-| `test/testplans/ai-chat-panel.md` | The clean-room runbook (ships with the code). |
+| `test/testplans/platform/ai-chat-panel.md` | The clean-room runbook (ships with the code). |
 | `TODO.md` | T-009 (deferred chat-specific scope-limit control) already tracked; close/advance as the build lands. |
 
 ---
@@ -191,7 +191,7 @@ UI steps run through the Playwright MCP per `test/testplans/BROWSER-TESTING-SETU
 
 1. **Backend core** — `erpnext/ai/chat/` (`context.py`, `agent.py`, `api.py`, the two DocTypes, `extend_bootinfo`) + the §5.1 `IntegrationTestCase` suite; run green locally (`bench --site … run-tests --module erpnext.ai.chat.tests.…`).
 2. **Front-end global panel** — bundle, launcher, slide-over, keyboard toggle, live context chip, realtime rendering, responsive behavior.
-3. **Docs + test plan** — `FORK-CHANGES`(+PLAIN), `UI-SITEMAP`, `test/testplans/ai-chat-panel.md`, in the same commit set per CLAUDE.md.
+3. **Docs + test plan** — `FORK-CHANGES`(+PLAIN), `UI-SITEMAP`, `test/testplans/platform/ai-chat-panel.md`, in the same commit set per CLAUDE.md.
 4. **Clean-room / Playwright UI pass** — separate downstream gate (external instance / browser pass).
 
 Each slice ends green tests + a verifiable artifact. v1 stays read-only; write/action tools are a later phase gated behind confirmation + role.

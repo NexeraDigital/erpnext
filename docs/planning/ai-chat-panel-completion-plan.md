@@ -31,7 +31,7 @@ two owner-scoped DocTypes, `extend_bootinfo` flag, `IntegrationTestCase` suite) 
 | **A. Migrate + verify backend** | `bench migrate` (install the 2 DocTypes), run the test module green, quote the result | Yes (dev site) | 0.5 d |
 | **B. Front-end global panel** | The launcher + slide-over bundle, wired via `app_include_js`; live context capture; realtime streaming render; state preservation; responsive | No | 2–3 d |
 | **C. Config + ops** | MCP enabled, Anthropic key set, `MCP Tool Config` confirmed, workers/realtime up; optional chat-specific tuning | Yes (settings) | 0.5 d |
-| **D. Docs** | `FORK-CHANGES.md`/`-PLAIN`, `UI-SITEMAP.md`, `test/testplans/ai-chat-panel.md` | No | 0.5 d |
+| **D. Docs** | `FORK-CHANGES.md`/`-PLAIN`, `UI-SITEMAP.md`, `test/testplans/platform/ai-chat-panel.md` | No | 0.5 d |
 | **E. Clean-room + Playwright UI pass** | Browser verification of launcher/slide-over/context-chip/streaming | Yes (browser) | 0.5–1 d |
 | **F. Polish + hardening** | Abort-on-disconnect, conversation list, error/empty/loading states, a11y, i18n, prompt-injection copy | No | 1 d |
 
@@ -198,7 +198,7 @@ framework.
 | `docs/architecture/FORK-CHANGES.md` | Register `erpnext/ai/chat/`, the two DocTypes, the `app_include_js`/`extend_bootinfo` deltas, and the front-end bundle. |
 | `docs/architecture/FORK-CHANGES-PLAIN.md` | Plain-English "the desk now has an AI chat assistant" paragraph (kept in lockstep). |
 | `docs/architecture/UI-SITEMAP.md` | Add the **global launcher / slide-over** as a cross-cutting always-present element (it appears on every desk route — the first such element besides the navbar). Bump "Last verified against repo". |
-| `test/testplans/ai-chat-panel.md` | The clean-room runbook (§6). |
+| `test/testplans/platform/ai-chat-panel.md` | The clean-room runbook (§6). |
 
 The AP-capture sequence diagram is **unaffected** (no cascade change) — no AP-sequence
 update required.
@@ -212,7 +212,7 @@ update required.
 audit, forged-context rejection, unknown tool, secret hygiene, enqueue identity,
 happy-path, tool-call recording, missing-credentials.
 
-### 6.2 Clean-room runbook — `test/testplans/ai-chat-panel.md`
+### 6.2 Clean-room runbook — `test/testplans/platform/ai-chat-panel.md`
 Per the CLAUDE.md 7-section format: feature under test; branch/commit; env setup
 (Anthropic key, MCP enabled + tool configs, workers up, roles); test data (a low-priv
 user, a System Manager, a Purchase Invoice + Supplier); numbered cases incl. **forged
@@ -255,7 +255,7 @@ context** and **low-priv data isolation**; cleanup; pass/fail checklist.
 4. A turn streams and persists; history survives reload and route changes.
 5. Low-priv isolation proven (refusal + `PermissionDenied` audit; no leaked rows).
 6. Secret never in any stored field, realtime payload, or `frappe.boot`.
-7. `FORK-CHANGES`(+PLAIN), `UI-SITEMAP`, and `test/testplans/ai-chat-panel.md` updated.
+7. `FORK-CHANGES`(+PLAIN), `UI-SITEMAP`, and `test/testplans/platform/ai-chat-panel.md` updated.
 8. Clean-room + Playwright pass recorded (or explicitly marked pending per CLAUDE.md).
 
 ---

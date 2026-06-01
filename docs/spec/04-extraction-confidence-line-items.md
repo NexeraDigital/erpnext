@@ -252,8 +252,8 @@ Run with `bench --site <site> run-tests --module <dotted.path>`. Use `from frapp
 ### 7.2 Clean-room test plan
 
 Two runbooks (or one combined) under `test/testplans/`, kebab-case, self-contained for an external instance with zero prior context:
-- **`test/testplans/extraction-per-field-confidence.md`** — scope: configure `AP Closed Loop Settings` (`per_field_confidence_threshold`, `field_thresholds`) + `AI Provider Settings`, run real Anthropic extraction on a sample multi-field invoice (provide SHA-256, key obtain-instructions only — never the key), assert `AP Invoice Capture Confidence` child-row counts and `is_above_threshold` values at/around the boundary, and assert `ocr_raw_response` carries no credential.
-- **`test/testplans/extraction-line-items-promote.md`** — scope: run extraction on a real multi-line invoice fixture (SHA-256 given), assert `AP Invoice Capture Item` row count, then promote (Stream I) and assert PI item count, per-line `purchase_order` mapping, and totals reconciliation within 0.01 (incl. the mismatch → `action_required` negative case).
+- **`test/testplans/specs/04-extraction-per-field-confidence.md`** — scope: configure `AP Closed Loop Settings` (`per_field_confidence_threshold`, `field_thresholds`) + `AI Provider Settings`, run real Anthropic extraction on a sample multi-field invoice (provide SHA-256, key obtain-instructions only — never the key), assert `AP Invoice Capture Confidence` child-row counts and `is_above_threshold` values at/around the boundary, and assert `ocr_raw_response` carries no credential.
+- **`test/testplans/specs/04-extraction-line-items-promote.md`** — scope: run extraction on a real multi-line invoice fixture (SHA-256 given), assert `AP Invoice Capture Item` row count, then promote (Stream I) and assert PI item count, per-line `purchase_order` mapping, and totals reconciliation within 0.01 (incl. the mismatch → `action_required` negative case).
 
 ### 7.3 UI testing (Playwright MCP)
 Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.

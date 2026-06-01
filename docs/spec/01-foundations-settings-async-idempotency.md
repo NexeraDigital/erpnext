@@ -303,7 +303,7 @@ Use `frappe.tests.IntegrationTestCase`; roll back DB writes in `tearDown` so sui
 
 ### 7.2 Clean-room test plan
 Ship three runbooks under `test/testplans/` (kebab slugs, one per shipped piece):
-- **`test/testplans/ap-foundations-settings-backbone.md`** — scope: new + reconciled Single fields, defaults install/backfill, and `auto_post_amount_threshold` → 1000.0 back-compat verified end-to-end.
+- **`test/testplans/specs/01-foundations-settings-async-idempotency.md`** — scope: new + reconciled Single fields, defaults install/backfill, and `auto_post_amount_threshold` → 1000.0 back-compat verified end-to-end.
 - **`test/testplans/ap-idempotency-posting-ledger.md`** — scope: `AP Posting Ledger` UNIQUE behavior and `with_idempotency` double-post prevention exercised through a real promote (drive a step twice; assert exactly one downstream doc + one ledger row via `SELECT … FROM tabAP Posting Ledger`).
 - **`test/testplans/ap-async-runner.md`** — scope: queue routing (long/short/default), dead-letter surfacing `action_required`, retry/backoff behavior, and the `_enqueue_next` subsumption (cascade unchanged).
 

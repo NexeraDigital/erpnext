@@ -50,7 +50,7 @@ OCR Phase 0 — shared AI provider credentials infrastructure (added on `russ/mi
  erpnext/ai/tests/test_credentials.py                                             |  130 ++ (6 IntegrationTestCase tests)
  erpnext/workspace_sidebar/erpnext_settings.json                                  |    +/- (sidebar link to AI Provider Settings, after System Settings)
  erpnext/setup/workspace/erpnext_settings/erpnext_settings.json                   |    +/- (shortcut card + content cell for AI Provider Settings)
- test/testplans/ai-provider-settings-phase0.md                                    |  ~280 ++ (external-instance test plan)
+ test/testplans/ocr/phase0-ai-provider-settings.md                                    |  ~280 ++ (external-instance test plan)
  docs/planning/ocr-provider-choice-claude.md                                      |  ~250 ++ (provider-choice justification)
  docs/planning/real-ocr-implementation-plan.md                                    |  ~700 ++ (8-phase implementation plan)
 ```
@@ -64,7 +64,7 @@ OCR Phase 1 — provider adapter seam (no behaviour change):
  erpnext/accounts/ap_closed_loop/extractors/registry.py                           |   ~35 (get_extractor)
  erpnext/accounts/ap_closed_loop/extractors/test_extractors.py                    |  ~150 (15 IntegrationTestCase tests)
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |    +/- (run_fake_extraction -> run_extraction, dispatches via registry; alias kept)
- test/testplans/ocr-phase1-adapter.md                                             |  ~200 ++ (external-instance test plan)
+ test/testplans/ocr/phase1-adapter.md                                             |  ~200 ++ (external-instance test plan)
 ```
 
 OCR Phase 2 — Anthropic Claude extractor (real OCR):
@@ -74,7 +74,7 @@ OCR Phase 2 — Anthropic Claude extractor (real OCR):
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                          |  ~290 (AnthropicExtractor: file read, doc/image block, forced tool use, ExtractionResult mapping, smoke_test)
  erpnext/accounts/ap_closed_loop/extractors/registry.py                           |    +/- (register "anthropic")
  erpnext/accounts/ap_closed_loop/extractors/test_anthropic.py                     |  ~230 (14 mocked unit tests + 1 opt-in live test)
- test/testplans/real-ocr-anthropic.md                                             |  ~250 ++ (external-instance test plan)
+ test/testplans/ocr/phase2-real-ocr-anthropic.md                                             |  ~250 ++ (external-instance test plan)
 ```
 
 Note: Phase 2 registers the real provider but does NOT yet flip the live default — the cascade still uses `fake` until Phase 3 wires `AP Closed Loop Settings.ocr_provider`.
@@ -88,7 +88,7 @@ OCR Phase 3 — settings-driven provider selection (turns real OCR on in the wor
  erpnext/accounts/ap_closed_loop/extractors/registry.py                          |    +/- (get_extractor forwards model/confidence_threshold kwargs)
  erpnext/accounts/ap_closed_loop/extractors/fake.py                              |    +/- (FakeExtractor ignores provider-config kwargs)
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py|  ~180 (8 tests: get_ocr_config, validate, dispatch — transaction-scoped, no commits)
- test/testplans/ocr-phase3-settings.md                                           |  ~180 ++ (external-instance test plan)
+ test/testplans/ocr/phase3-settings.md                                           |  ~180 ++ (external-instance test plan)
 ```
 
 After Phase 3: an operator sets **AP Closed Loop Settings → OCR Provider = Anthropic Claude** (with a key in **AI Provider Settings**) and the live capture cascade calls Claude. Default remains **Fake (Deterministic)** so an unconfigured site makes no API calls. The `anthropic_api_key` lives only on `AI Provider Settings` (System Manager); AP Managers choose the provider but cannot see the credential.
@@ -100,7 +100,7 @@ OCR Phase 4 — low-confidence fallback (Haiku → Sonnet):
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py     |    +/- (get_ocr_config returns fallback_model)
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction forwards fallback_model)
  erpnext/accounts/ap_closed_loop/extractors/test_anthropic.py                    |    +/- (5 mocked fallback tests; 23 total)
- test/testplans/ocr-phase4-fallback.md                                           |  ~150 ++ (external-instance test plan)
+ test/testplans/ocr/phase4-fallback.md                                           |  ~150 ++ (external-instance test plan)
 ```
 
 Phase 4 behaviour: the primary model (default Haiku) handles every invoice; only when it can't confidently read a required field does the extractor retry **once** with `ocr_fallback_model` (e.g. Sonnet). At most one retry — no looping, no Opus escalation. Empty fallback model = disabled (the default). On the synthetic corpus Haiku already scores 100%, so fallback's value is on messy real-world invoices.
@@ -113,7 +113,7 @@ OCR Phase 5 — audit logging & cost tracking (via Integration Request):
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                         |    +/- (accumulate per-call usage + total latency_ms into raw_response)
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction logs Completed/Failed Integration Request for the real provider)
  erpnext/accounts/ap_closed_loop/extractors/test_audit.py                        |  ~190 (11 tests: pricing, sanitize, IR write, run_extraction integration)
- test/testplans/ocr-phase5-audit.md                                              |  ~150 ++ (external-instance test plan)
+ test/testplans/ocr/phase5-audit.md                                              |  ~150 ++ (external-instance test plan)
 ```
 
 Phase 5 behaviour: each real extraction (and failure) is recorded as a Frappe **`Integration Request`** (`integration_request_service="anthropic"`, referenced to the capture) with model(s), per-call + total token usage, estimated USD cost, latency, outcome, and a sanitized error on failure. The fake provider is not logged (no call, no cost). API keys are never persisted in any field. Operators view the trail at `/app/integration-request` filtered by service. Verified live: one extraction → `Completed` row, real tokens/cost/latency, no key leak.
@@ -125,7 +125,7 @@ OCR Phase 6 — production hardening (retry + circuit breaker + size guard + non
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                          |    +/- (_call_model: breaker.check + retry-with-backoff on 429/5xx/timeout/conn, honour Retry-After, never retry 400; _classify_exception, _backoff_seconds, _parse_retry_after; injectable sleep/breaker, max_retries ctor arg)
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (_source_file_size_bytes; run_extraction enforces ocr_max_file_mb pre-flight for real providers + surfaces any failure on the capture via action_required + reason)
  erpnext/accounts/ap_closed_loop/extractors/test_hardening.py                     |  ~310 (16 tests: classify, backoff, breaker, retry loop, size-guard, failure surfacing)
- test/testplans/ocr-phase6-hardening.md                                          |  ~180 ++ (external-instance test plan)
+ test/testplans/ocr/phase6-hardening.md                                          |  ~180 ++ (external-instance test plan)
 ```
 
 Phase 6 behaviour: the real path now tolerates transient provider trouble and never stalls silently. `_call_model` retries 429/5xx/timeout/connection errors with exponential backoff (1/2/4s, honouring a server `Retry-After` on 429) but never retries client errors (400/401/404); after N consecutive transient failures a **process-local circuit breaker** opens for a cooldown so further calls fail fast with no spend, half-opening on the first call past cooldown and resetting on success. Before any API call, `run_extraction` enforces `ocr_max_file_mb` (oversized source → `action_required` + reason + `Failed` Integration Request, no call); the fake provider is exempt. Any extraction failure is surfaced on the capture itself (`action_required=1` + human reason, persisted) **and** logged as a `Failed` Integration Request, then re-raised. Sleep, clock, breaker, and retry count are all injectable, so the 16 tests run deterministically with no network and no real waiting.
@@ -760,7 +760,7 @@ Cross-cutting foundation every later v2 step builds on: a single settings backbo
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py |  +/- TestFoundationGetters (6 tests)
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |  +/- _resolve_approval_threshold reads settings; _enqueue_next delegates to async_runner.enqueue_step; _run_cascade_step is now a back-compat alias to _dispatch_step
  erpnext/hooks.py                                                                 |  +1 after_migrate entry: install_ap_defaults
- test/testplans/ap-foundations-settings-async-idempotency.md                      |  clean-room runbook
+ test/testplans/specs/01-foundations-settings-async-idempotency.md                      |  clean-room runbook
 ```
 
 **Decisions locked (spec §8):** idempotency key = `sha256(capture, step)` ONLY, never `settings.modified` (**D9** — the double-post guarantee); `ocr_confidence_threshold` stays the single canonical confidence scalar (**D1**); `field:idempotency_key` autoname (**D3**); `_run_cascade_step` retained as an alias for one release (**D4**); phase-1 retry uses native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff (**D5**); defaults install via `after_migrate` (**D2**). `AUTO_APPROVAL_THRESHOLD_DEFAULT=1000.0` retained as the empty-settings fallback.
@@ -808,7 +808,7 @@ The **firewall against double-booking**: every freshly-intaken capture is checke
  erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py          | +13 tests (TestAPInvoiceCaptureDedup x11, TestAPInvoiceCaptureDedupCascade x2)
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py | +1 test (get_dedupe_config)
  pyproject.toml                                                                   | +imagehash, +pdf2image (NEW pip deps); poppler-utils is a NEW *system* dep (worker host) — degrades gracefully when absent
- test/testplans/pre-extraction-dedup.md                                          | clean-room runbook
+ test/testplans/specs/03-deduplication.md                                          | clean-room runbook
 ```
 
 **Design notes / decisions (spec §8):** the exact key is the **MD5 `content_hash` copied from Frappe's `File`** (never recomputed; per upstream `frappe/core/doctype/file/utils.py:get_content_hash`), so `content_hash` / `perceptual_hash` must be fieldtype **Data** for the `search_index` to emit a real DB index (a `text`/`longtext` column silently drops it). `content_hash` is **NOT unique** — a legitimate duplicate is a *second row* with the same hash, flagged and surfaced rather than rejected at insert. An **exact hit** sets `status=Duplicate` (terminal; the existing `_determine_next_step` status guard stops the cascade — no OCR cost) + `duplicate_of` = the **oldest** matching original (`received_at asc, limit 1`). A **perceptual suspect** (Hamming distance ≤ `dedupe_phash_max_distance`, default 6) only sets `action_required` and stays `Pending Review` so it still gets OCR'd (D1=(b)); a human (and the follow-on body-text fingerprint, D2) confirms. Dedupe runs as a **Step-0 async cascade hop** before OCR (D4); the `duplicate_detected_at` stamp is the single idempotency flag (D5). `_compute_phash` (first-page-only, 150 DPI; D7) **never raises** — when poppler/imagehash is absent it returns `None` and dedupe **degrades to exact-only**, so intake never stalls (AC-03-8). Native `PurchaseInvoice` duplicate control (`check_supplier_invoice_uniqueness`, **off by default**) is **complementary**, not a substitute (different key — parsed `bill_no` vs raw bytes; different timing — post-OCR at PI insert vs pre-OCR at intake; different window — per-fiscal-year vs 90-day); the pilot is **recommended to enable it** as a second promote-time firewall.
@@ -911,7 +911,7 @@ Replaces today's single-tier `_match_supplier` with a **three-tier supplier reso
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                 | +/- supplier_match_tier (Select None|Alias|Fuzzy|Exact) + supplier_match_confidence (Float) + supplier_change_request (Link) + proposed_supplier_confidence (Float); supplier_match_status Literal gains "Alias"
  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                   | +/- _resolve_supplier (3-tier) + _resolve_alias + _resolve_fuzzy; _match_supplier kept as back-compat shim; queue_supplier_create_request + _maybe_queue_supplier_create (Tier-3); validate_for_purchase_invoice rewritten with stream-aware branching; resolve_supplier_for whitelisted wrapper; _write_extraction_detail derives proposed_supplier_confidence
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- supplier_resolution_section: supplier_fuzzy_threshold(90)/supplier_fuzzy_min_length(4)/enable_gated_supplier_creation(0)/supplier_autocreate_confidence_threshold(0.85)/supplier_change_approver_role(Accounts Manager); get_supplier_resolution_settings() helper; validate() rejects a group/non-existent unmapped_card_spend_account (AC-05-23)
- test/testplans/supplier-resolution-3tier.md                                         | clean-room runbook
+ test/testplans/specs/05-supplier-resolution-3tier.md                                         | clean-room runbook
 ```
 
 **Resolver tiers (`_resolve_supplier`, spec §5.3):** **Tier 1** queries active `AP Supplier Alias` rows — precedence `exact > glob > regex`, then `priority` asc, then `name` asc; a bad `regex` is caught + logged + skipped (never raises into validation); aliases to a disabled Supplier are ignored; one distinct canonical supplier → `Alias` (confidence 100), >1 distinct → `Ambiguous`. **Tier 2a** preserves the legacy exact behaviour (PK / unique `supplier_name`, tier `Exact`, confidence 100). **Tier 2b** runs `rapidfuzz.fuzz.token_set_ratio` over active Suppliers with the `supplier_fuzzy_threshold` cutoff (inclusive `>=`); a candidate shorter than `supplier_fuzzy_min_length` (default 4) is skipped (Unknown); one hit → `Matched`/`Fuzzy`, >1 → `Ambiguous`, zero → `Unknown` carrying the best score seen. **Tier 3** (in the caller) queues a Draft `Supplier Master Change Request` iff the gate is on **AND** `proposed_supplier_confidence >= supplier_autocreate_confidence_threshold` **AND** no open request exists for the capture — **never** creating a Supplier inline.
