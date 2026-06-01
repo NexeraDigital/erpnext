@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-05-31 00:00:00.000000",
+ "description": "One AI chat conversation thread belonging to a single desk user. Owner-scoped: a user sees only their own conversations; System Manager may read all for audit.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "user",
+  "context_doctype",
+  "context_name",
+  "last_active"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title"
+  },
+  {
+   "description": "The user who owns this conversation. Set server-side to the session user; never trusted from the client.",
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "DocType of the record that was in context when the conversation started (convenience hint only).",
+   "fieldname": "context_doctype",
+   "fieldtype": "Data",
+   "label": "Context DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "context_name",
+   "fieldtype": "Data",
+   "label": "Context Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_active",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Last Active",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI",
+ "name": "AI Chat Conversation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "All",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "last_active",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

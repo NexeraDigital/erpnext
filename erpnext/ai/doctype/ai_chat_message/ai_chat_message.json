@@ -1,0 +1,149 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-05-31 00:00:00.000000",
+ "description": "One turn in an AI chat conversation (a user prompt or an assistant reply). Owner-scoped audit trail of who asked what, against which record, and which tools ran.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "conversation",
+  "role",
+  "model",
+  "content",
+  "context_section",
+  "context_doctype",
+  "context_name",
+  "column_break_ctx",
+  "tools_invoked",
+  "meta_section",
+  "input_tokens",
+  "output_tokens",
+  "column_break_meta",
+  "latency_ms",
+  "error"
+ ],
+ "fields": [
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Conversation",
+   "options": "AI Chat Conversation",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Role",
+   "options": "User\nAssistant",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "description": "Claude model id that produced an Assistant reply (blank for User turns).",
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "fieldname": "content",
+   "fieldtype": "Long Text",
+   "in_list_view": 1,
+   "label": "Content",
+   "read_only": 1
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "description": "DocType the user was viewing when this turn was sent (convenience hint; the server re-validated and re-fetched it under the user's permissions).",
+   "fieldname": "context_doctype",
+   "fieldtype": "Data",
+   "label": "Context DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "context_name",
+   "fieldtype": "Data",
+   "label": "Context Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_ctx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "JSON list of tool calls made while producing this reply: tool name + the record(s) read. Mirrors the per-call MCP Audit Log rows.",
+   "fieldname": "tools_invoked",
+   "fieldtype": "Code",
+   "label": "Tools Invoked",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "meta_section",
+   "fieldtype": "Section Break",
+   "label": "Telemetry"
+  },
+  {
+   "fieldname": "input_tokens",
+   "fieldtype": "Int",
+   "label": "Input Tokens",
+   "read_only": 1
+  },
+  {
+   "fieldname": "output_tokens",
+   "fieldtype": "Int",
+   "label": "Output Tokens",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_meta",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "latency_ms",
+   "fieldtype": "Int",
+   "label": "Latency (ms)",
+   "read_only": 1
+  },
+  {
+   "description": "Sanitized error text if the turn failed (never contains the API key).",
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "AI",
+ "name": "AI Chat Message",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "All",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 0
+}
