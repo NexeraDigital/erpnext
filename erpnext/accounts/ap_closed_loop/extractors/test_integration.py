@@ -39,8 +39,12 @@ _FAKE_KEY = "sk-ant-integration-" + "q" * 30
 
 
 def _corpus_dir() -> str:
+	# OCR-accuracy corpus lives under test/invoices/ocr-extraction/ (test/invoices
+	# is organised by what each set tests: ocr-extraction/ vs deduplication/).
 	return os.path.abspath(
-		os.path.join(frappe.get_app_path("erpnext"), "..", "test", "invoices")
+		os.path.join(
+			frappe.get_app_path("erpnext"), "..", "test", "invoices", "ocr-extraction"
+		)
 	)
 
 

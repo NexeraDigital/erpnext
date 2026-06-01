@@ -3,7 +3,7 @@ spec: 03-deduplication
 title: Pre-Extraction Deduplication (exact + perceptual)
 plan_step: Step 2 — Pre-Extraction Deduplication
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 02-intake-stream-tagging]
 related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates, 10-ap-review-observability]
 ---

@@ -3,11 +3,26 @@
 
 from io import BytesIO
 import json
+import os
+import shutil
+import unittest
 
 import frappe
 from frappe.tests import IntegrationTestCase
-from frappe.utils import flt, getdate
+from frappe.utils import add_to_date, flt, getdate, now_datetime
 from pypdf import PdfWriter
+
+try:
+	import imagehash  # noqa: F401
+	from PIL import Image as _PILImage  # noqa: F401
+
+	_IMAGEHASH_AVAILABLE = True
+except ImportError:
+	_IMAGEHASH_AVAILABLE = False
+
+# The PDF branch of _compute_phash additionally shells out to the poppler binary
+# via pdf2image; gate those tests so the suite stays green on a bench without it.
+_POPPLER_AVAILABLE = _IMAGEHASH_AVAILABLE and shutil.which("pdftoppm") is not None
 
 from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	APPROVAL_SOURCE_DEFAULT,
@@ -40,6 +55,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	PURCHASE_REF_PURCHASE_ORDER,
 	PURCHASE_REF_PURCHASE_RECEIPT,
 	STATUS_CONFIRMED,
+	STATUS_DUPLICATE,
 	STATUS_NEEDS_CORRECTION,
 	STATUS_PENDING_REVIEW,
 	STATUS_PROPOSED,
@@ -61,6 +77,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	build_closure_evidence,
 	confirm_extracted_fields,
 	create_capture_from_file,
+	detect_duplicates_for,
 	get_ap_lifecycle_rows,
 	get_manager_approval_queue,
 	is_payment_blocked,
@@ -1511,3 +1528,380 @@ class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
 			self.assertEqual(capture.status, STATUS_PENDING_REVIEW)
 		finally:
 			frappe.flags.skip_ap_auto_progress = False
+
+
+class TestAPInvoiceCaptureDedup(IntegrationTestCase):
+	"""Spec 03 — pre-extraction deduplication, detection logic (AC-03-1..10).
+
+	Cascade integration (AC-03-12) lives in TestAPInvoiceCaptureDedupCascade.
+	AC-03-11 (get_dedupe_config) lives in test_ap_closed_loop_settings.
+	AC-03-13 (fieldtype/index guard) is a post-migrate schema assertion
+	(DESCRIBE / SHOW INDEX), not a Python unit test.
+
+	The cascade is OFF in this class (no ap_auto_progress flag), so each test
+	drives detect_duplicates_for directly. _compute_phash is neutralised in
+	setUp so the exact-pass tests never depend on poppler/imagehash; the two
+	perceptual tests override it to return controlled pHash hex strings, so the
+	fuzzy-distance logic — not the rasterizer — is under test.
+	"""
+
+	def setUp(self):
+		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
+
+		self.mod = mod
+		self._orig_phash = mod._compute_phash
+		mod._compute_phash = lambda capture: None
+		self._counter = 0
+		# Pin the dedupe window so the boundary math is deterministic regardless
+		# of site state; rolled back in tearDown.
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_enabled", 1)
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_window_days", 90)
+
+	def tearDown(self):
+		self.mod._compute_phash = self._orig_phash
+		frappe.db.rollback()
+
+	def _unique_pdf(self) -> bytes:
+		"""A valid but per-call-distinct PDF (distinct page width -> distinct bytes
+		-> distinct File content_hash). Tests that need a controlled exact-match key
+		override capture.content_hash explicitly."""
+
+		self._counter += 1
+		buffer = BytesIO()
+		writer = PdfWriter()
+		writer.add_blank_page(width=self._counter + 1, height=1)
+		writer.write(buffer)
+		return buffer.getvalue()
+
+	def _capture(
+		self,
+		filename,
+		*,
+		content_hash=None,
+		perceptual_hash=None,
+		received_at=None,
+		status=None,
+	):
+		f = _make_file(filename, content=self._unique_pdf())
+		cap = create_capture_from_file(file_doc=f, received_at=received_at)
+		dirty = False
+		if content_hash is not None:
+			cap.content_hash = content_hash
+			dirty = True
+		if perceptual_hash is not None:
+			cap.perceptual_hash = perceptual_hash
+			dirty = True
+		if status is not None:
+			cap.status = status
+			dirty = True
+		if dirty:
+			cap.save()
+		return cap
+
+	# AC-03-1
+	def test_exact_duplicate_flags_and_blocks_ocr(self):
+		now = now_datetime()
+		original = self._capture("dup-a.pdf", content_hash="HASHEXACT1", received_at=now)
+		dup = self._capture("dup-b.pdf", content_hash="HASHEXACT1", received_at=now)
+
+		result = detect_duplicates_for(dup)
+
+		self.assertEqual(result["status"], "duplicate")
+		self.assertEqual(result["kind"], "exact")
+		self.assertEqual(result["original"], original.name)
+		dup.reload()
+		self.assertEqual(dup.status, STATUS_DUPLICATE)
+		self.assertEqual(dup.duplicate_of, original.name)
+		self.assertEqual(dup.action_required, 1)
+		self.assertIn("Exact duplicate", dup.action_required_reason)
+		# OCR never ran on the duplicate (status Duplicate fails the OCR guard).
+		self.assertEqual(dup.ocr_status, OCR_STATUS_NOT_EXTRACTED)
+
+	# AC-03-2
+	def test_exact_match_outside_window_not_flagged(self):
+		now = now_datetime()
+		self._capture("win-a.pdf", content_hash="HW", received_at=add_to_date(now, days=-200))
+		dup = self._capture("win-b.pdf", content_hash="HW", received_at=now)
+
+		result = detect_duplicates_for(dup)
+
+		self.assertEqual(result["status"], "clean")
+		dup.reload()
+		self.assertEqual(dup.status, STATUS_PENDING_REVIEW)
+
+	# AC-03-3
+	def test_distinct_hash_and_far_phash_is_clean(self):
+		now = now_datetime()
+		self._capture(
+			"dist-a.pdf", content_hash="HA", perceptual_hash="0000000000000000", received_at=now
+		)
+		dup = self._capture("dist-b.pdf", content_hash="HB", received_at=now)
+		# pHash 32 bits away from the candidate -> well over the threshold.
+		self.mod._compute_phash = lambda capture: "ffffffff00000000"
+
+		self.assertEqual(detect_duplicates_for(dup)["status"], "clean")
+
+	# AC-03-4
+	def test_single_capture_never_flags_itself(self):
+		cap = self._capture("solo.pdf", content_hash="HSOLO", received_at=now_datetime())
+
+		result = detect_duplicates_for(cap)
+
+		self.assertEqual(result["status"], "clean")
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_PENDING_REVIEW)
+
+	# AC-03-5
+	def test_chain_points_to_oldest_original(self):
+		now = now_datetime()
+		oldest = self._capture(
+			"chain-1.pdf", content_hash="HC", received_at=add_to_date(now, days=-2)
+		)
+		# Middle is already flagged Duplicate -> excluded by the status filter.
+		self._capture(
+			"chain-2.pdf",
+			content_hash="HC",
+			received_at=add_to_date(now, days=-1),
+			status=STATUS_DUPLICATE,
+		)
+		newest = self._capture("chain-3.pdf", content_hash="HC", received_at=now)
+
+		result = detect_duplicates_for(newest)
+
+		self.assertEqual(result["status"], "duplicate")
+		self.assertEqual(result["original"], oldest.name)
+		newest.reload()
+		self.assertEqual(newest.duplicate_of, oldest.name)
+
+	# AC-03-6
+	def test_perceptual_suspect_flags_without_duplicate_status(self):
+		now = now_datetime()
+		candidate = self._capture(
+			"near-a.pdf", content_hash="HN1", perceptual_hash="ffffffffffffffff", received_at=now
+		)
+		dup = self._capture("near-b.pdf", content_hash="HN2", received_at=now)
+		# Distance 1 (<= 6) from the candidate's pHash.
+		self.mod._compute_phash = lambda capture: "fffffffffffffffe"
+
+		result = detect_duplicates_for(dup)
+
+		self.assertEqual(result["status"], "suspected")
+		self.assertEqual(result["kind"], "perceptual")
+		self.assertEqual(result["original"], candidate.name)
+		dup.reload()
+		self.assertEqual(dup.action_required, 1)
+		self.assertNotEqual(dup.status, STATUS_DUPLICATE)
+		self.assertEqual(dup.status, STATUS_PENDING_REVIEW)
+		self.assertFalse(dup.duplicate_of)
+		self.assertIn("near-duplicate", dup.action_required_reason.lower())
+
+	# AC-03-7
+	def test_perceptual_distance_over_threshold_not_flagged(self):
+		now = now_datetime()
+		self._capture(
+			"far-a.pdf", content_hash="HF1", perceptual_hash="0000000000000000", received_at=now
+		)
+		dup = self._capture("far-b.pdf", content_hash="HF2", received_at=now)
+		# 0x3ff has ten 1-bits -> distance 10 > 6.
+		self.mod._compute_phash = lambda capture: "00000000000003ff"
+
+		self.assertEqual(detect_duplicates_for(dup)["status"], "clean")
+
+	# AC-03-8
+	def test_compute_phash_failure_is_swallowed(self):
+		now = now_datetime()
+		self._capture(
+			"swallow-a.pdf",
+			content_hash="HS1",
+			perceptual_hash="ffffffffffffffff",
+			received_at=now,
+		)
+		dup = self._capture("swallow-b.pdf", content_hash="HS2", received_at=now)
+
+		def boom(capture):
+			raise RuntimeError("poppler missing")
+
+		self.mod._compute_phash = boom
+
+		# Must NOT raise; perceptual degrades, exact-only runs (no exact match here).
+		result = detect_duplicates_for(dup)
+
+		self.assertEqual(result["status"], "clean")
+		dup.reload()
+		self.assertFalse(dup.perceptual_hash)
+
+	# AC-03-9
+	def test_kill_switch_skips_with_no_mutation(self):
+		cap = self._capture("kill.pdf", content_hash="HK", received_at=now_datetime())
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_enabled", 0)
+
+		result = detect_duplicates_for(cap)
+
+		self.assertEqual(result["status"], "skipped")
+		cap.reload()
+		self.assertIsNone(cap.duplicate_detected_at)
+		self.assertEqual(cap.status, STATUS_PENDING_REVIEW)
+
+	# AC-03-10
+	def test_window_boundary_inclusive(self):
+		now = now_datetime()
+		cutoff = add_to_date(now, days=-90)
+		# Just inside the 90-day window (>= cutoff) -> hit.
+		self._capture(
+			"bnd-in-a.pdf", content_hash="HB1", received_at=add_to_date(cutoff, seconds=30)
+		)
+		inside_dup = self._capture("bnd-in-b.pdf", content_hash="HB1", received_at=now)
+		self.assertEqual(detect_duplicates_for(inside_dup)["status"], "duplicate")
+		# Just outside the window -> miss.
+		self._capture(
+			"bnd-out-a.pdf", content_hash="HB2", received_at=add_to_date(cutoff, seconds=-30)
+		)
+		outside_dup = self._capture("bnd-out-b.pdf", content_hash="HB2", received_at=now)
+		self.assertEqual(detect_duplicates_for(outside_dup)["status"], "clean")
+
+	def test_phash_distance_helper(self):
+		# Sanity-check the pure-Python Hamming distance used by the perceptual pass.
+		self.assertEqual(self.mod._phash_distance("ffffffffffffffff", "ffffffffffffffff"), 0)
+		self.assertEqual(self.mod._phash_distance("ffffffffffffffff", "fffffffffffffffe"), 1)
+		self.assertEqual(self.mod._phash_distance("0000000000000000", "00000000000003ff"), 10)
+		self.assertIsNone(self.mod._phash_distance(None, "ffffffffffffffff"))
+		self.assertIsNone(self.mod._phash_distance("", ""))
+
+
+class TestAPInvoiceCaptureDedupCascade(IntegrationTestCase):
+	"""Spec 03 — AC-03-12: dedupe wired into the async cascade (Step 0, pre-OCR).
+
+	Opts into the cascade (ap_auto_progress flag) so the full intake -> dedupe ->
+	OCR rail runs synchronously (now=True in tests). Requires the deterministic
+	fake OCR provider, pinned for the whole run by the test harness.
+	"""
+
+	def setUp(self):
+		frappe.flags.ap_auto_progress_enabled = True
+
+	def tearDown(self):
+		frappe.flags.ap_auto_progress_enabled = False
+		frappe.db.rollback()
+
+	def test_duplicate_file_short_circuits_before_ocr(self):
+		shared = _content_for("dupc.pdf")
+		f1 = _make_file("dupc-original.pdf", content=shared)
+		original = create_capture_from_file(file_doc=f1)
+		original.reload()
+		# First upload is unique at intake -> dedupe clean -> OCR ran to Proposed.
+		self.assertEqual(original.status, STATUS_PROPOSED)
+		self.assertEqual(original.ocr_status, OCR_STATUS_PROPOSED)
+
+		f2 = _make_file("dupc-second.pdf", content=shared)
+		dup = create_capture_from_file(file_doc=f2)
+		dup.reload()
+		# Identical bytes -> dedupe terminal, OCR never reached (no cost).
+		self.assertEqual(dup.status, STATUS_DUPLICATE)
+		self.assertEqual(dup.duplicate_of, original.name)
+		self.assertEqual(dup.ocr_status, OCR_STATUS_NOT_EXTRACTED)
+		self.assertEqual(dup.action_required, 1)
+
+	def test_unique_file_proceeds_to_proposed(self):
+		f = _make_file("uniqueflow.pdf")
+		cap = create_capture_from_file(file_doc=f)
+		cap.reload()
+		# Dedupe ran first (stamped), found nothing, OCR proceeded as today.
+		self.assertTrue(cap.duplicate_detected_at)
+		self.assertEqual(cap.status, STATUS_PROPOSED)
+		self.assertEqual(cap.ocr_status, OCR_STATUS_PROPOSED)
+
+
+def _structured_png(variant: str, *, noise: float = 0.0) -> bytes:
+	"""A structured, invoice-like PNG with enough low-frequency content for a
+	meaningful pHash. ``noise`` adds deterministic gaussian noise to emulate a
+	re-scan (same layout, different bytes). ``variant`` changes the layout so a
+	'distinct' image hashes far away. No Chromium / poppler — pure Pillow+numpy."""
+
+	import numpy as np
+	from PIL import Image, ImageDraw
+
+	img = Image.new("RGB", (400, 560), "white")
+	d = ImageDraw.Draw(img)
+	if variant == "distinct":
+		d.ellipse([40, 40, 360, 300], fill=(112, 36, 89))
+		d.rectangle([40, 360, 360, 520], outline=(0, 0, 0))
+		d.text((60, 420), "A COMPLETELY DIFFERENT LAYOUT", fill=(0, 0, 0))
+	else:
+		d.rectangle([20, 20, 380, 90], fill=(43, 108, 176))
+		d.text((30, 40), f"INVOICE — {variant}", fill=(255, 255, 255))
+		for i, y in enumerate(range(120, 520, 40)):
+			d.rectangle([20, y, 360, y + 24], outline=(0, 0, 0))
+			d.text((28, y + 6), f"Line item {i}  qty {i + 1}  $ {100 * (i + 1)}.00", fill=(20, 20, 20))
+	if noise:
+		arr = np.asarray(img).astype(np.int16)
+		rng = np.random.default_rng(7)  # fixed -> deterministic test
+		arr = np.clip(arr + rng.normal(0, noise, arr.shape), 0, 255).astype(np.uint8)
+		img = Image.fromarray(arr)
+	buf = BytesIO()
+	img.save(buf, format="PNG")
+	return buf.getvalue()
+
+
+class TestAPInvoiceCaptureDedupPerceptualLive(IntegrationTestCase):
+	"""Spec 03 — the REAL perceptual pipeline, with NO _compute_phash monkeypatch.
+
+	Exercises the actual imagehash (and, for the PDF branch, pdf2image/poppler)
+	code path end-to-end. The image branch needs only imagehash+Pillow; the PDF
+	branch also needs the poppler binary — each test skips when its dep is absent
+	so the suite stays green on a bench without the optional perceptual deps.
+	(The mocked fuzzy-distance logic is covered by TestAPInvoiceCaptureDedup.)
+	"""
+
+	def setUp(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_enabled", 1)
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_window_days", 90)
+		frappe.db.set_single_value("AP Closed Loop Settings", "dedupe_phash_max_distance", 6)
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	@unittest.skipUnless(_IMAGEHASH_AVAILABLE, "imagehash/Pillow not installed")
+	def test_real_phash_image_branch_flags_near_duplicate(self):
+		# Original: a structured invoice image -> real pHash computed + persisted.
+		orig = create_capture_from_file(
+			file_doc=_make_file("perc_base.png", content=_structured_png("acme"))
+		)
+		detect_duplicates_for(orig)
+		orig.reload()
+		self.assertTrue(orig.perceptual_hash, "real _compute_phash should hash a PNG")
+		self.assertRegex(orig.perceptual_hash, r"^[0-9a-f]{16}$")
+
+		# Near-duplicate re-scan (same layout + mild noise) -> SUSPECT via real pHash.
+		dup = create_capture_from_file(
+			file_doc=_make_file("perc_rescan.png", content=_structured_png("acme", noise=8.0))
+		)
+		result = detect_duplicates_for(dup)
+		self.assertEqual(result["status"], "suspected")
+		self.assertEqual(result["kind"], "perceptual")
+		self.assertEqual(result["original"], orig.name)
+		dup.reload()
+		self.assertEqual(dup.action_required, 1)
+		self.assertNotEqual(dup.status, STATUS_DUPLICATE)
+		self.assertFalse(dup.duplicate_of)
+
+		# A genuinely different image -> clean (distance over threshold).
+		other = create_capture_from_file(
+			file_doc=_make_file("perc_distinct.png", content=_structured_png("distinct"))
+		)
+		self.assertEqual(detect_duplicates_for(other)["status"], "clean")
+
+	@unittest.skipUnless(_POPPLER_AVAILABLE, "poppler/pdf2image not installed")
+	def test_real_phash_pdf_branch(self):
+		# Rasterize a committed PDF fixture through the real pdf2image/poppler path.
+		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
+
+		fixture = os.path.join(
+			frappe.get_app_path("erpnext"), "..", "test", "invoices",
+			"deduplication", "near-duplicate", "01_globex_original.pdf",
+		)
+		cap = create_capture_from_file(
+			file_doc=_make_file("perc_globex.pdf", content=open(fixture, "rb").read())
+		)
+		phash = mod._compute_phash(cap)
+		self.assertIsNotNone(phash, "real _compute_phash should rasterize+hash a PDF")
+		self.assertRegex(phash, r"^[0-9a-f]{16}$")

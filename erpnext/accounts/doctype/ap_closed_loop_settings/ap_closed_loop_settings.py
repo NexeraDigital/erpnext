@@ -31,6 +31,7 @@ OCR_PROVIDER_REGISTRY_KEY = {
 DEFAULT_OCR_CONFIDENCE_THRESHOLD = 0.70
 DEFAULT_AUTO_POST_THRESHOLD = 1000.0
 DEFAULT_DEDUPE_WINDOW_DAYS = 90
+DEFAULT_DEDUPE_PHASH_MAX_DISTANCE = 6
 
 
 class APClosedLoopSettings(Document):
@@ -59,6 +60,8 @@ class APClosedLoopSettings(Document):
 		ocr_force_reextract: DF.Check
 		auto_post_amount_threshold: DF.Float
 		credit_card_clearing_account: DF.Link | None
+		dedupe_enabled: DF.Check
+		dedupe_phash_max_distance: DF.Int
 		dedupe_window_days: DF.Int
 		enforce_sod: DF.Check
 		field_thresholds: DF.JSON | None
@@ -197,6 +200,44 @@ def get_dedupe_window_days() -> int:
 	except (TypeError, ValueError):
 		value = 0
 	return value if value > 0 else DEFAULT_DEDUPE_WINDOW_DAYS
+
+
+def get_dedupe_config() -> dict:
+	"""Pre-extraction dedupe configuration (spec 03 §5.2/5.3).
+
+	Mirrors get_ocr_config: reads raw Singles text and coerces with the same
+	blank/non-positive -> default trap. Returns::
+
+	    {"enabled": bool, "window_days": int, "phash_max_distance": int}
+
+	``enabled`` defaults ON when unset (a fresh site runs the exact-hash firewall);
+	``window_days`` reuses get_dedupe_window_days' coercion (default 90);
+	``phash_max_distance`` defaults to 6 (DEFAULT_DEDUPE_PHASH_MAX_DISTANCE)."""
+
+	stored = _settings()
+
+	raw_enabled = stored.get("dedupe_enabled")
+	if raw_enabled in (None, ""):
+		enabled = True
+	else:
+		try:
+			enabled = bool(int(float(raw_enabled)))
+		except (TypeError, ValueError):
+			enabled = True
+
+	raw_distance = stored.get("dedupe_phash_max_distance")
+	try:
+		distance = int(float(raw_distance)) if raw_distance not in (None, "") else 0
+	except (TypeError, ValueError):
+		distance = 0
+	if distance <= 0:
+		distance = DEFAULT_DEDUPE_PHASH_MAX_DISTANCE
+
+	return {
+		"enabled": enabled,
+		"window_days": get_dedupe_window_days(),
+		"phash_max_distance": distance,
+	}
 
 
 def get_confidence_threshold(field: str | None = None) -> float:

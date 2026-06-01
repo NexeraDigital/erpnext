@@ -28,6 +28,9 @@ from PIL import Image, ImageFilter, ImageOps
 import templates as T
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# OCR-accuracy corpus lives in its own subfolder (test/invoices is organised by
+# what each set tests: ocr-extraction/ here, deduplication/ alongside).
+OUT = os.path.join(HERE, "ocr-extraction")
 CHROME = os.path.expanduser(
 	"~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome"
 )
@@ -214,6 +217,7 @@ SPECS = [
 
 
 def main():
+	os.makedirs(OUT, exist_ok=True)
 	written = []
 	for spec in SPECS:
 		compute_totals(spec)
@@ -221,14 +225,14 @@ def main():
 
 		base = f"invoice_{spec['n']:02d}"
 		fmt = spec["fmt"]
-		out_path = os.path.join(HERE, f"{base}.{fmt}")
+		out_path = os.path.join(OUT, f"{base}.{fmt}")
 
 		if fmt == "pdf" and spec["quality"] == "clean":
 			# Born-digital crisp PDF straight from Chromium.
 			render_html_to_pdf(html, out_path)
 		else:
 			# Raster path: render PNG, degrade, save in the target format.
-			tmp_png = os.path.join(HERE, f".{base}.raw.png")
+			tmp_png = os.path.join(OUT, f".{base}.raw.png")
 			render_html_to_png(html, tmp_png)
 			img = Image.open(tmp_png)
 			img = degrade(img, spec["quality"])
@@ -260,11 +264,11 @@ def main():
 			"notes": f'{spec["template"]}; {spec["quality"]}; {fmt}; date={spec["date_style"]}'
 			+ ("; missing=" + ",".join(missing) if missing else ""),
 		}
-		with open(os.path.join(HERE, f"{base}.json"), "w") as fh:
+		with open(os.path.join(OUT, f"{base}.json"), "w") as fh:
 			json.dump(definition, fh, indent=2, ensure_ascii=False)
 		written.append(f"{base}.{fmt}")
 
-	print(f"Generated {len(written)} invoices + definitions in {HERE}")
+	print(f"Generated {len(written)} invoices + definitions in {OUT}")
 	for name in written:
 		print("  ", name)
 

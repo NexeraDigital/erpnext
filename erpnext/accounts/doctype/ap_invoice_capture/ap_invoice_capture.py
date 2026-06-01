@@ -41,6 +41,7 @@ STATUS_REJECTED = "Rejected"
 STATUS_PROPOSED = "Proposed"
 STATUS_NEEDS_CORRECTION = "Needs Correction"
 STATUS_CONFIRMED = "Confirmed"
+STATUS_DUPLICATE = "Duplicate"
 
 OCR_STATUS_NOT_EXTRACTED = "Not Extracted"
 OCR_STATUS_PROPOSED = "Proposed"
@@ -164,6 +165,10 @@ class APInvoiceCapture(Document):
 
 		action_required: DF.Check
 		action_required_reason: DF.Data | None
+		content_hash: DF.Data | None
+		perceptual_hash: DF.Data | None
+		duplicate_of: DF.Link | None
+		duplicate_detected_at: DF.Datetime | None
 		file_extension: DF.Data | None
 		final_currency: DF.Data | None
 		final_invoice_date: DF.Date | None
@@ -202,6 +207,7 @@ class APInvoiceCapture(Document):
 			"Proposed",
 			"Needs Correction",
 			"Confirmed",
+			"Duplicate",
 		]
 		validation_message: DF.SmallText | None
 		matched_supplier: DF.Link | None
@@ -343,6 +349,24 @@ class APInvoiceCapture(Document):
 		will succeed.
 		"""
 
+		# Step 0: Fresh, supported intake → pre-extraction dedupe (BEFORE OCR).
+		# A duplicate must be caught before any billable extractor runs (spec 03).
+		# Guarded by _dedupe_checked so the hop runs exactly once; the get_dedupe_config
+		# read is last (after the cheap attribute checks short-circuit) and is skipped
+		# entirely when dedupe is disabled, so the cascade falls straight through to OCR.
+		if (
+			self.status == STATUS_PENDING_REVIEW
+			and self.is_supported_format
+			and self.source_file
+			and not self._dedupe_checked()
+		):
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				get_dedupe_config,
+			)
+
+			if get_dedupe_config()["enabled"]:
+				return ("run_dedupe_for", "auto: pre-extraction dedupe")
+
 		# Step 1: Fresh, supported intake → run OCR
 		if (
 			self.status == STATUS_PENDING_REVIEW
@@ -405,7 +429,7 @@ class APInvoiceCapture(Document):
 		file_row = frappe.db.get_value(
 			"File",
 			self.source_file,
-			["file_name", "file_url"],
+			["file_name", "file_url", "content_hash"],
 			as_dict=True,
 		)
 		if not file_row:
@@ -415,6 +439,12 @@ class APInvoiceCapture(Document):
 			self.source_filename = file_row.file_name
 		if not self.source_file_url and file_row.file_url:
 			self.source_file_url = file_row.file_url
+		# Copy the File's exact-bytes MD5 (Frappe core computes it on save) for the
+		# pre-extraction dedupe firewall (spec 03). NEVER recomputed here. May be
+		# blank if the File's hash hasn't flushed yet — detect_duplicates_for
+		# re-reads it from the File at dedupe time (the cascade hop runs post-commit).
+		if not self.content_hash and file_row.content_hash:
+			self.content_hash = file_row.content_hash
 
 	def _require_source_reference(self) -> None:
 		"""AC-I2: a capture must always carry a traceable source reference."""
@@ -453,6 +483,18 @@ class APInvoiceCapture(Document):
 			if self.stream == STREAM_RECEIPT
 			else None
 		)
+
+	def _dedupe_checked(self) -> bool:
+		"""True once the pre-extraction dedupe hop has run for this capture.
+
+		``duplicate_detected_at`` is the single unambiguous "already deduped" flag
+		(spec 03 D5): ``detect_duplicates_for`` stamps it on every run — clean,
+		suspect, or duplicate — so the Step-0 cascade guard fires exactly once and
+		never loops (a clean capture legitimately has a ``content_hash`` but may
+		have no ``perceptual_hash``, so neither hash alone is a reliable signal).
+		"""
+
+		return self.duplicate_detected_at is not None
 
 
 def _run_cascade_step(capture: str, method_name: str):
@@ -1104,6 +1146,220 @@ def run_fake_extraction_for(capture: str) -> str:
 	# review. _kick_next_step is a no-op at that state, but we call it
 	# uniformly so failure paths (e.g. extraction left the capture in an
 	# unexpected state) get a chance to advance.
+	doc._kick_next_step()
+	return doc.name
+
+
+# ---------------------------------------------------------------------------
+# Pre-extraction deduplication (spec 03 §5.2/5.3)
+# ---------------------------------------------------------------------------
+
+
+def detect_duplicates_for(
+	capture: "APInvoiceCapture | str",
+	save: bool = True,
+) -> dict:
+	"""Run exact + perceptual dedupe against the last ``dedupe_window_days``.
+
+	The firewall against double-booking: an exact MD5 ``content_hash`` re-upload
+	terminates the capture (``status = Duplicate``, cascade stops, no OCR cost); a
+	near-duplicate (pHash within ``dedupe_phash_max_distance``) is flagged
+	``action_required`` for a human but left at ``Pending Review`` so it still gets
+	extracted (spec 03 D1=(b)). Stream-agnostic — keys only on bytes/pixels +
+	``received_at``, never on a ``stream`` field.
+
+	Resolves ``capture`` (str -> get_doc). Never raises out for a benign
+	"no duplicate" / "poppler missing" case. Returns::
+
+	    {"status": "skipped"|"clean"|"duplicate"|"suspected",
+	     "kind": "exact"|"perceptual"|None,
+	     "original": <capture name>|None}
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_dedupe_config,
+	)
+
+	cfg = get_dedupe_config()
+	if not cfg["enabled"]:
+		# Kill switch: no mutation (AC-03-9). Step 0 also short-circuits on this
+		# flag, so a disabled site never enqueues run_dedupe_for in the first place.
+		return {"status": "skipped", "kind": None, "original": None}
+
+	cutoff = add_to_date(now_datetime(), days=-cfg["window_days"])
+
+	# Stamp the "deduped" marker on every (non-skipped) run so the Step-0 cascade
+	# guard (_dedupe_checked) trips exactly once, clean or not (spec 03 D5).
+	capture.duplicate_detected_at = now_datetime()
+
+	# ---- EXACT pass: MD5 content_hash (copied from the File) ----
+	content_hash = capture.content_hash or (
+		frappe.db.get_value("File", capture.source_file, "content_hash")
+		if capture.source_file
+		else None
+	)
+	if content_hash:
+		capture.content_hash = content_hash
+		hits = frappe.db.get_all(
+			"AP Invoice Capture",
+			filters={
+				"content_hash": content_hash,
+				"received_at": [">=", cutoff],
+				"name": ["!=", capture.name],
+				"status": ["!=", STATUS_DUPLICATE],
+			},
+			fields=["name"],
+			order_by="received_at asc",
+			limit=1,
+		)
+		if hits:
+			# Oldest matching capture is the original to keep (asc + limit 1).
+			original = hits[0].name
+			capture.status = STATUS_DUPLICATE
+			capture.duplicate_of = original
+			capture.action_required = 1
+			capture.action_required_reason = _("Exact duplicate of {0}").format(original)
+			if save:
+				capture.save()
+			return {"status": "duplicate", "kind": "exact", "original": original}
+
+	# ---- PERCEPTUAL pass: pHash of the rasterized first page ----
+	# Guard the compute call itself so a _compute_phash that escapes its own
+	# try/except (or a monkeypatched raiser, AC-03-8) degrades to exact-only
+	# rather than blocking intake.
+	try:
+		capture.perceptual_hash = _compute_phash(capture)
+	except Exception:
+		capture.perceptual_hash = None
+		frappe.log_error(
+			title="AP dedupe: perceptual pass error",
+			message=frappe.get_traceback(),
+		)
+
+	if capture.perceptual_hash:
+		candidates = frappe.db.get_all(
+			"AP Invoice Capture",
+			filters={
+				"received_at": [">=", cutoff],
+				"name": ["!=", capture.name],
+				"status": ["!=", STATUS_DUPLICATE],
+				"perceptual_hash": ["is", "set"],
+			},
+			fields=["name", "perceptual_hash"],
+			order_by="received_at asc",
+		)
+		best_name = None
+		best_distance = None
+		max_distance = cfg["phash_max_distance"]
+		for cand in candidates:
+			distance = _phash_distance(capture.perceptual_hash, cand.perceptual_hash)
+			if distance is None:
+				continue
+			if distance <= max_distance and (best_distance is None or distance < best_distance):
+				best_name = cand.name
+				best_distance = distance
+		if best_name is not None:
+			# SUSPECT only — never set STATUS_DUPLICATE / duplicate_of automatically;
+			# a human (and the follow-on body-text fingerprint, D2) confirms. The
+			# capture stays Pending Review so the cascade still runs OCR (D1=(b)).
+			capture.action_required = 1
+			capture.action_required_reason = _(
+				"Suspected near-duplicate of {0} (visual match)"
+			).format(best_name)
+			if save:
+				capture.save()
+			return {"status": "suspected", "kind": "perceptual", "original": best_name}
+
+	# ---- CLEAN ----
+	if save:
+		capture.save()
+	return {"status": "clean", "kind": None, "original": None}
+
+
+def _phash_distance(a: "str | None", b: "str | None") -> "int | None":
+	"""Hamming distance between two equal-length pHash hex strings, or None.
+
+	Computed on the hex representation directly (XOR + popcount) so the
+	fuzzy-distance logic never depends on ``imagehash`` being installed — this
+	matches ``imagehash.hex_to_hash(a) - imagehash.hex_to_hash(b)`` for the
+	16-hex-char (64-bit) hashes ``_compute_phash`` produces.
+	"""
+
+	if not a or not b:
+		return None
+	try:
+		return bin(int(a, 16) ^ int(b, 16)).count("1")
+	except (TypeError, ValueError):
+		return None
+
+
+def _compute_phash(capture: "APInvoiceCapture") -> "str | None":
+	"""pHash hex of the rasterized first page, or None on ANY failure.
+
+	None when poppler/imagehash is absent, the file is unreadable, or the type is
+	unsupported. NEVER raises — a failed pHash degrades dedupe to exact-only, it
+	does not block intake. First-page-only at 150 DPI (spec 03 D7).
+	"""
+
+	# Late import: keeps module load cycle-free and lets the app load on a host
+	# without these deps (same discipline as run_extraction's late imports).
+	try:
+		import imagehash
+		from PIL import Image
+	except ImportError:
+		return None
+
+	try:
+		path = None
+		if capture.source_file:
+			try:
+				path = frappe.get_doc("File", capture.source_file).get_full_path()
+			except Exception:
+				path = None
+		if not path or not os.path.exists(path):
+			return None
+
+		extension = (capture.file_extension or "").lower()
+		if extension == "pdf":
+			try:
+				from pdf2image import convert_from_path
+			except ImportError:
+				return None
+			pages = convert_from_path(path, first_page=1, last_page=1, dpi=150)
+			if not pages:
+				return None
+			image = pages[0]
+		elif extension in ("png", "jpg", "jpeg"):
+			image = Image.open(path)
+		else:
+			return None
+
+		return str(imagehash.phash(image))
+	except Exception:
+		# poppler binary absent (PDFInfoNotInstalledError), unreadable bytes, etc.
+		frappe.log_error(
+			title="AP dedupe: perceptual hash failed",
+			message=frappe.get_traceback(),
+		)
+		return None
+
+
+@frappe.whitelist()
+def run_dedupe_for(capture: str) -> str:
+	"""Whitelisted cascade wrapper: run pre-extraction dedupe, then advance.
+
+	Same shape as ``run_fake_extraction_for``. On an exact hit the capture lands
+	in ``STATUS_DUPLICATE`` and the next ``_kick_next_step`` is a no-op (the
+	Step-1 status guard stops the cascade — terminal); on a clean/suspect result
+	the cascade falls through to OCR. Routing dedupe through the cascade rail
+	gives it the dead-letter error surface for free.
+	"""
+
+	detect_duplicates_for(capture)
+	doc = frappe.get_doc("AP Invoice Capture", capture)
 	doc._kick_next_step()
 	return doc.name
 

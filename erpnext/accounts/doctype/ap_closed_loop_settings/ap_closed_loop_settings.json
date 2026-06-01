@@ -25,7 +25,10 @@
   "thresholds_section",
   "field_thresholds",
   "auto_post_amount_threshold",
+  "dedupe_section",
+  "dedupe_enabled",
   "dedupe_window_days",
+  "dedupe_phash_max_distance",
   "sod_section",
   "enforce_sod",
   "sod_threshold_amount",
@@ -168,11 +171,32 @@
    "label": "Auto-Post Amount Threshold"
   },
   {
+   "collapsible": 1,
+   "description": "Pre-extraction duplicate detection (spec 03). The exact file-hash check always runs unless disabled; the perceptual near-duplicate check additionally needs the poppler system binary on the worker host and degrades to exact-only when it is absent.",
+   "fieldname": "dedupe_section",
+   "fieldtype": "Section Break",
+   "label": "Deduplication"
+  },
+  {
+   "default": "1",
+   "description": "Master switch for the pre-extraction duplicate firewall. When off, captures go straight to OCR with no dedupe check (use only for debugging).",
+   "fieldname": "dedupe_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Deduplication"
+  },
+  {
    "default": "90",
    "description": "How many days back the pre-extraction duplicate check scans for a matching prior capture. Blank falls back to 90.",
    "fieldname": "dedupe_window_days",
    "fieldtype": "Int",
    "label": "Dedupe Window (Days)"
+  },
+  {
+   "default": "6",
+   "description": "Hamming-distance threshold for a SUSPECTED perceptual near-duplicate (imagehash 64-bit pHash). A larger value flags more aggressively. Blank / non-positive falls back to 6.",
+   "fieldname": "dedupe_phash_max_distance",
+   "fieldtype": "Int",
+   "label": "Perceptual Match Max Distance"
   },
   {
    "fieldname": "sod_section",

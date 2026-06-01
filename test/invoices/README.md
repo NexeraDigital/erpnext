@@ -1,7 +1,8 @@
-# Invoice Test Corpus
+# Invoice Test Fixtures
 
-**20 realistic synthetic invoices** + ground-truth definitions, for testing the
-AP Invoice Capture OCR extractor (`erpnext.accounts.ap_closed_loop.extractors`).
+Synthetic invoices for testing the AP Invoice Capture pipeline. **Organised into
+subfolders by what each set tests** — add new fixtures to the matching purpose
+folder (or a new one), not to this root.
 
 Invoices are rendered from rich **HTML/CSS templates** (`templates.py`) via
 **headless Chromium** — real logos, colored headers, bill-to/pay-to blocks,
@@ -15,13 +16,23 @@ customer invoices here.
 ## Layout
 
 ```
-generate_invoices.py     # builds the whole corpus (deterministic)
-templates.py             # 4 HTML/CSS invoice templates + helpers
-invoice_01.pdf  invoice_01.json
-invoice_02.png  invoice_02.json
-invoice_03.jpg  invoice_03.json
-...
+templates.py             # 4 HTML/CSS invoice templates + helpers (shared)
+generate_invoices.py     # builds the OCR corpus (deterministic) -> ocr-extraction/
+
+ocr-extraction/          # 20 invoices + ground-truth JSON — OCR EXTRACTOR ACCURACY
+  invoice_01.pdf  invoice_01.json
+  invoice_02.png  invoice_02.json
+  ...
+
+deduplication/           # spec-03 PRE-EXTRACTION DEDUPE fixtures (see its README)
+  generate_dedup_invoices.py
+  exact-duplicate/   01_*.pdf  02_*.pdf   (byte-identical re-upload)
+  near-duplicate/    01_*.pdf  02_*.png   (same invoice re-scanned)
+  distinct/          01_*.pdf  02_*.pdf   (two different invoices)
 ```
+
+The rest of this README documents the **`ocr-extraction/`** corpus. The
+deduplication fixtures have their own `deduplication/README.md`.
 
 ## Templates (vendor styles)
 
@@ -79,7 +90,7 @@ the extractor picks the *total due*, not a line amount or subtotal.
 
 ```python
 import glob, json, os
-CORPUS = os.path.dirname(__file__)
+CORPUS = os.path.join(os.path.dirname(__file__), "ocr-extraction")
 for p in sorted(glob.glob(os.path.join(CORPUS, "invoice_*.json"))):
     d = json.load(open(p))
     # upload d["file"] as a File, build an AP Invoice Capture, run the

@@ -263,6 +263,35 @@ class TestFoundationGetters(IntegrationTestCase):
 		self._set("dedupe_window_days", None)
 		self.assertEqual(get_dedupe_window_days(), 90)
 
+	# AC-03-11: get_dedupe_config defaults + Singles text-coercion.
+	def test_get_dedupe_config(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_dedupe_config,
+		)
+
+		# Unset → enabled True, 90-day window, distance 6.
+		self._set("dedupe_enabled", None)
+		self._set("dedupe_window_days", None)
+		self._set("dedupe_phash_max_distance", None)
+		cfg = get_dedupe_config()
+		self.assertEqual(cfg, {"enabled": True, "window_days": 90, "phash_max_distance": 6})
+
+		# Stored "0"/"" window coerces back to 90; explicit "30" yields 30.
+		self._set("dedupe_window_days", 0)
+		self.assertEqual(get_dedupe_config()["window_days"], 90)
+		self._set("dedupe_window_days", 30)
+		self.assertEqual(get_dedupe_config()["window_days"], 30)
+
+		# Kill switch reads as a real bool; non-positive distance falls back to 6.
+		self._set("dedupe_enabled", 0)
+		self.assertFalse(get_dedupe_config()["enabled"])
+		self._set("dedupe_enabled", 1)
+		self.assertTrue(get_dedupe_config()["enabled"])
+		self._set("dedupe_phash_max_distance", 0)
+		self.assertEqual(get_dedupe_config()["phash_max_distance"], 6)
+		self._set("dedupe_phash_max_distance", 10)
+		self.assertEqual(get_dedupe_config()["phash_max_distance"], 10)
+
 	def test_get_stream_rules(self):
 		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
 			get_stream_rules,

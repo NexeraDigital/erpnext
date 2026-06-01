@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 2/14 done — **specs 01–02 ✅** (35/221 ACs green; 42 new tests passing; no regressions)
+> **Last updated:** 2026-05-31 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 3/14 done — **specs 01–03 ✅** (48/221 ACs green; 56 new tests passing; no regressions)
 
 ## How to use this file
 
@@ -26,7 +26,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 - [ ] **#2 — Retire the "no Bank Transaction" guardrail** (+ write the ADR; dual closure `settled`+`bank_cleared`). *Gates 13, 14.*
 - [ ] **#3 — `allow_self_approval` semantics** — verify on the running **v16** instance; app-code SoD backstop regardless. *Gates 11.*
 - [x] **#4 — Confidence-threshold field reconciliation** — **LOCKED (spec 01):** keep `ocr_confidence_threshold` canonical + a `get_confidence_threshold(field)` getter; no second scalar. *Gates 04, 09.*
-- [ ] **#5 — `poppler` system binary** installed on every worker host (for `pdf2image`). *Gates 03 (else exact-only dedupe).*
+- [x] **#5 — `poppler` system binary** installed on every worker host (for `pdf2image`). **Handled (spec 03):** code ships **graceful degradation** — `_compute_phash` returns `None` and dedupe runs **exact-hash-only** when poppler/imagehash is absent (AC-03-8), so the install is a **deploy task, not a code blocker**. NOT currently installed on the dev bench (`which pdftoppm` empty); install (`apt-get install poppler-utils` + `pip install imagehash pdf2image`) before the perceptual pass can be **live-verified** (§7.2 clean-room). *Gated 03 (now exact-only until installed).*
 - [x] **#6 — Retry-delay realization** — **LOCKED (spec 01, phase-1):** native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff; scheduled sweep deferred to phase-2.
 - [ ] **#7 — Native `Authorization Rule` vs custom `AP Approval Matrix`** (use native for amount gate). *Gates 11.*
 - [ ] **#8 — SimpleFIN vs native Plaid** (default Plaid unless a business reason). *Gates 13 at pre-cutover only — mock build does not block.*
@@ -40,7 +40,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 |---|------|-------|--------|-----|------|-----------|------------------------------|----|
 | 01 | [[01-foundations-settings-async-idempotency]] | 0 Foundation | ✅ | 20/20 | L | — | #4, #6 locked | local ✓ (uncommitted) |
 | 02 | [[02-intake-stream-tagging]] | 1 Intake | ✅ | 15/15 | L | 01 | — | local ✓ (uncommitted) |
-| 03 | [[03-deduplication]] | 1 Intake | 🔲 | 0/13 | M | 01, 02 | #5 (poppler), #9 | — |
+| 03 | [[03-deduplication]] | 1 Intake | ✅ | 13/13 | M | 01, 02 | #5 (poppler), #9 | local ✓ (uncommitted) |
 | 04 | [[04-extraction-confidence-line-items]] | 1 Intake | 🔲 | 0/15 | L | 01 | #4 | — |
 | 05 | [[05-supplier-resolution]] | 2 Resolve | 🔲 | 0/23 | L | 01, 04 | bank-detail→`Bank Account` (fixed) | — |
 | 06 | [[06-gl-coding-tax-costcenter]] | 2 Resolve | 🔲 | 0/14 | L | 01, 04, 05 | coding-profile vs Custom Fields | — |
@@ -55,7 +55,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
 
-> **Verification state (01–02):** ✅ reflects **automated ACs run green this session** (the per-spec test modules + the 66-test capture regression). Their §7.2 clean-room and §7.3 Playwright runbooks are **written but not yet executed** (01's §7.3 is N/A — backend-only; 02's email-inbound runbook needs a live mailbox). Treat as *automated-verified; clean-room/UI: pending* until those runbooks are executed.
+> **Verification state (01–03):** ✅ reflects **automated ACs run green this session** (the per-spec test modules + the now-81-test capture regression). Their §7.2 clean-room and §7.3 Playwright runbooks are **written but not yet executed** (01's §7.3 is N/A — backend-only; 02's email-inbound runbook needs a live mailbox). **Spec-03 perceptual path:** `imagehash`+`pdf2image` are now installed in the bench venv, and the **image (PNG/JPG) branch is live-verified** — `test_real_phash_image_branch_flags_near_duplicate` runs the **real** `imagehash` pipeline (no monkeypatch) and flags a re-scan as a suspect. The **PDF-rasterization branch still needs the `poppler` system binary** (`test_real_phash_pdf_branch` **skips** until `poppler-utils` is installed); for PDF inputs dedupe currently degrades to exact-only on this bench. The fuzzy-distance decision logic is additionally covered by mocked tests (AC-03-6/7) + pure-Python Hamming distance. **Spec-03 verified this session:** `test_ap_invoice_capture` **Ran 81 tests … OK (skipped=1: PDF/poppler)**, `test_ap_closed_loop_settings` **Ran 16 tests … OK**, plus AC-03-13 schema (`content_hash`/`perceptual_hash` `varchar(140)`, indexed, non-unique) via `information_schema`.
 
 ---
 
@@ -123,21 +123,21 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-02-15
 </details>
 
-<details><summary><b>03 — Deduplication · 0/13</b></summary>
+<details><summary><b>03 — Deduplication · 13/13 ✅</b></summary>
 
-- [ ] AC-03-1
-- [ ] AC-03-2
-- [ ] AC-03-3
-- [ ] AC-03-4
-- [ ] AC-03-5
-- [ ] AC-03-6
-- [ ] AC-03-7
-- [ ] AC-03-8
-- [ ] AC-03-9
-- [ ] AC-03-10
-- [ ] AC-03-11
-- [ ] AC-03-12
-- [ ] AC-03-13
+- [x] AC-03-1
+- [x] AC-03-2
+- [x] AC-03-3
+- [x] AC-03-4
+- [x] AC-03-5
+- [x] AC-03-6
+- [x] AC-03-7
+- [x] AC-03-8
+- [x] AC-03-9
+- [x] AC-03-10
+- [x] AC-03-11
+- [x] AC-03-12
+- [x] AC-03-13
 </details>
 
 <details><summary><b>04 — Extraction (confidence + line items) · 0/15</b></summary>

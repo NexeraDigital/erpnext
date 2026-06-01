@@ -35,6 +35,7 @@ MAX_RETRIES = 3
 
 # Queue selection: explicit map first, then a substring fallback, then default.
 QUEUE_BY_STEP = {
+	"run_dedupe_for": "short",
 	"run_fake_extraction_for": "long",
 	"run_extraction": "long",
 	"run_extraction_for": "long",

@@ -88,12 +88,16 @@ def _corpus_dir() -> str:
 	)
 
 
-def _extract_one(definition: dict, provider: str, model, threshold):
-	"""Upload the corpus file, run the provider, return (proposal, missing)."""
+def _extract_one(definition: dict, base_dir: str, provider: str, model, threshold):
+	"""Upload the corpus file, run the provider, return (proposal, missing).
+
+	``base_dir`` is the directory holding this definition's JSON (the corpus is
+	organised into per-purpose subfolders, e.g. ``ocr-extraction/``), so the image
+	is resolved next to its definition, not at the corpus root."""
 	from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor
 
 	fname = definition["file"]
-	content = open(os.path.join(_corpus_dir(), fname), "rb").read()
+	content = open(os.path.join(base_dir, fname), "rb").read()
 	existing = frappe.db.get_value("File", {"file_name": fname}, "name")
 	if existing:
 		frappe.delete_doc("File", existing, force=True, ignore_permissions=True)
@@ -130,7 +134,8 @@ def run(provider: str = "anthropic", model: str | None = None,
 	files     — optional list of basenames (e.g. ["invoice_01"]) to limit the run.
 	"""
 	corpus = _corpus_dir()
-	defs = sorted(glob.glob(os.path.join(corpus, "invoice_*.json")))
+	# Recurse: the corpus is organised into per-purpose subfolders (ocr-extraction/).
+	defs = sorted(glob.glob(os.path.join(corpus, "**", "invoice_*.json"), recursive=True))
 	if files:
 		want = {f if f.endswith(".json") else f + ".json" for f in files}
 		defs = [d for d in defs if os.path.basename(d) in want]
@@ -144,7 +149,7 @@ def run(provider: str = "anthropic", model: str | None = None,
 	for dp in defs:
 		definition = json.load(open(dp))
 		try:
-			proposal, missing = _extract_one(definition, provider, model, threshold)
+			proposal, missing = _extract_one(definition, os.path.dirname(dp), provider, model, threshold)
 			s = score(definition, proposal, missing)
 			for f in FIELDS:
 				pf_total[f] += 1

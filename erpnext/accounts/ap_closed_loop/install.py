@@ -21,7 +21,9 @@ SETTINGS_DOCTYPE = "AP Closed Loop Settings"
 # default), so they are omitted here.
 AP_SETTINGS_DEFAULTS = {
 	"auto_post_amount_threshold": 1000.0,
+	"dedupe_enabled": 1,
 	"dedupe_window_days": 90,
+	"dedupe_phash_max_distance": 6,
 	"enforce_sod": 1,
 	"sod_threshold_amount": 0,
 }

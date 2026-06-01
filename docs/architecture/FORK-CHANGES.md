@@ -141,8 +141,10 @@ The four diagnostic fields in the "AI / OCR Proposal" section are hidden from th
 OCR test corpus + benchmark (supporting the above phases):
 
 ```
- test/invoices/{templates.py,generate_invoices.py,README.md}                     |   HTML/CSS invoice generator (Chromium-rendered) + 20 invoices + ground-truth JSON
- erpnext/accounts/ap_closed_loop/extractors/benchmark.py                         |  ~160 (run() scores corpus vs ground truth; pure match_field logic)
+ test/invoices/{templates.py,generate_invoices.py,README.md}                     |   HTML/CSS invoice generator (Chromium-rendered); organised by purpose into subfolders
+ test/invoices/ocr-extraction/                                                   |   20 OCR-accuracy invoices + ground-truth JSON (the benchmark corpus)
+ test/invoices/deduplication/{exact-duplicate,near-duplicate,distinct}/          |   spec-03 dedupe fixtures (byte-identical pair / re-scan near-dup / unrelated) + generator
+ erpnext/accounts/ap_closed_loop/extractors/benchmark.py                         |  ~160 (run() scores corpus vs ground truth; recursive corpus glob; pure match_field logic)
  erpnext/accounts/ap_closed_loop/extractors/test_benchmark.py                    |  ~90 (9 scoring unit tests)
 ```
 
@@ -789,3 +791,26 @@ Owns the **stream concept**: tags every `AP Invoice Capture` at intake as Stream
 **Design notes / decisions (spec §8):** the rule table is a child DocType so non-engineers tune classification with no code change (OD-1); `body` patterns are regex, others substring/glob (OD-2); 4 seed rules ship (OD-3); sender/body reach the classifier as transient, **never-persisted** attrs (OD-4, privacy); email re-fire is guarded per-`source_file` (OD-5); the AP intake Email Account is a Settings Link, **off when empty** (OD-6); unsupported email attachments are skipped (OD-7). Native `Email Account.append_to` was considered and rejected (1:1; this slice needs one-email→many-captures fan-out + per-attachment filtering); native `Assignment Rule` was considered (it can't write a derived field); Phase-2 queue priority will reuse native `ToDo.priority` (OD-8).
 
 **Net effect:** one new child DocType (`AP Stream Rule`), one new module (`portal_pull.py`), `AP Invoice Capture` gains 4 stream fields + 3 intake channels + the email-in adapter, `AP Closed Loop Settings` fills its reserved stream section, and the global `Communication.after_insert` hook is **off by default** (a no-op until an operator sets `ap_intake_email_account`).
+
+## 13. Spec 03 — Pre-Extraction Deduplication (exact + perceptual)
+
+> **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). Third slice of the v2 build — see `docs/spec/03-deduplication.md`. All 13 acceptance criteria green this session; **14 new automated tests** pass (13 in the capture suite, 1 in the settings suite); the capture suite is now **79 tests OK** (was 66) and the settings suite **16 OK** (was 15), both under the Fake OCR provider; spec-01 (`async_runner` 6 / `install` 3 / `idempotency` 7) and spec-02 (`stream_tagging` 17 / `portal_pull` 2) suites pass unchanged.
+
+The **firewall against double-booking**: every freshly-intaken capture is checked against the last 90 days for an **exact file-hash** re-upload and a **perceptual near-duplicate** (re-scan) *before* any billable OCR runs. Stream-agnostic — keys only on bytes/pixels + `received_at`, never on `stream`.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             | +/- dedupe_section + content_hash (Data, search_index, NOT unique) / perceptual_hash (Data, search_index) / duplicate_of (Link self) / duplicate_detected_at (Datetime); status +Duplicate
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               | + STATUS_DUPLICATE; detect_duplicates_for / run_dedupe_for (whitelisted) / _compute_phash / _phash_distance / _dedupe_checked; Step 0 (pre-OCR dedupe) in _determine_next_step; content_hash copied from File in _hydrate_from_linked_file
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    | +/- dedupe_section + dedupe_enabled (Check, 1) / dedupe_phash_max_distance (Int, 6); relocated dedupe_window_days into it
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      | + get_dedupe_config() {enabled, window_days, phash_max_distance}
+ erpnext/accounts/ap_closed_loop/async_runner.py                                  | +1 QUEUE_BY_STEP: run_dedupe_for -> short
+ erpnext/accounts/ap_closed_loop/install.py                                       | +2 backfill defaults: dedupe_enabled=1, dedupe_phash_max_distance=6
+ erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py          | +13 tests (TestAPInvoiceCaptureDedup x11, TestAPInvoiceCaptureDedupCascade x2)
+ erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py | +1 test (get_dedupe_config)
+ pyproject.toml                                                                   | +imagehash, +pdf2image (NEW pip deps); poppler-utils is a NEW *system* dep (worker host) — degrades gracefully when absent
+ test/testplans/pre-extraction-dedup.md                                          | clean-room runbook
+```
+
+**Design notes / decisions (spec §8):** the exact key is the **MD5 `content_hash` copied from Frappe's `File`** (never recomputed; per upstream `frappe/core/doctype/file/utils.py:get_content_hash`), so `content_hash` / `perceptual_hash` must be fieldtype **Data** for the `search_index` to emit a real DB index (a `text`/`longtext` column silently drops it). `content_hash` is **NOT unique** — a legitimate duplicate is a *second row* with the same hash, flagged and surfaced rather than rejected at insert. An **exact hit** sets `status=Duplicate` (terminal; the existing `_determine_next_step` status guard stops the cascade — no OCR cost) + `duplicate_of` = the **oldest** matching original (`received_at asc, limit 1`). A **perceptual suspect** (Hamming distance ≤ `dedupe_phash_max_distance`, default 6) only sets `action_required` and stays `Pending Review` so it still gets OCR'd (D1=(b)); a human (and the follow-on body-text fingerprint, D2) confirms. Dedupe runs as a **Step-0 async cascade hop** before OCR (D4); the `duplicate_detected_at` stamp is the single idempotency flag (D5). `_compute_phash` (first-page-only, 150 DPI; D7) **never raises** — when poppler/imagehash is absent it returns `None` and dedupe **degrades to exact-only**, so intake never stalls (AC-03-8). Native `PurchaseInvoice` duplicate control (`check_supplier_invoice_uniqueness`, **off by default**) is **complementary**, not a substitute (different key — parsed `bill_no` vs raw bytes; different timing — post-OCR at PI insert vs pre-OCR at intake; different window — per-fiscal-year vs 90-day); the pilot is **recommended to enable it** as a second promote-time firewall.
+
+**Net effect:** `AP Invoice Capture` gains 4 read-only dedupe audit fields + a `Duplicate` terminal status; `AP Closed Loop Settings` gains a dedupe config section (kill switch + window + pHash distance); a new pre-OCR Step-0 hop runs on every supported-file intake; two NEW pip deps (`imagehash`, `pdf2image`) and one NEW **system** dep (`poppler-utils`, the #1 deploy risk) — all **non-blocking** because the perceptual pass degrades to exact-hash-only when they are absent.

@@ -27,6 +27,14 @@ dependencies = [
 
     # AI / OCR — Anthropic Claude for AP Invoice Capture extraction (fork pilot)
     "anthropic>=0.40.0",
+
+    # Pre-extraction perceptual dedupe (spec 03). imagehash hashes the rasterized
+    # first page; pdf2image rasterizes PDFs and additionally needs the poppler-utils
+    # SYSTEM binary on the worker host (apt-get install poppler-utils) — when poppler
+    # is absent the perceptual pass degrades to exact-hash-only. Pillow is already a
+    # Frappe dependency, so it is intentionally NOT listed here.
+    "imagehash>=4.3.1",
+    "pdf2image>=1.17.0",
 ]
 
 [build-system]

@@ -29,6 +29,11 @@
   "context_section",
   "source_context",
   "validation_message",
+  "dedupe_section",
+  "content_hash",
+  "perceptual_hash",
+  "duplicate_of",
+  "duplicate_detected_at",
   "ocr_section",
   "ocr_provider",
   "ocr_status",
@@ -202,7 +207,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed",
+   "options": "Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed\nDuplicate",
    "reqd": 1
   },
   {
@@ -249,6 +254,44 @@
    "fieldname": "validation_message",
    "fieldtype": "Small Text",
    "label": "Validation Message",
+   "read_only": 1
+  },
+  {
+   "description": "Pre-extraction duplicate-detection audit fields (spec 03). The dedupe step runs before OCR so a re-upload spends no extraction cost.",
+   "fieldname": "dedupe_section",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Deduplication"
+  },
+  {
+   "description": "MD5 exact-bytes hash, copied from the linked File's content_hash (Frappe core computes it). Used for the exact re-upload check. Indexed; intentionally NOT unique (a legitimate duplicate is a second row with the same hash).",
+   "fieldname": "content_hash",
+   "fieldtype": "Data",
+   "label": "Content Hash (MD5)",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Perceptual hash (pHash hex) of the rasterized first page, for near-duplicate (re-scan) detection. Empty when poppler/imagehash is unavailable — dedupe then degrades to exact-only.",
+   "fieldname": "perceptual_hash",
+   "fieldtype": "Data",
+   "label": "Perceptual Hash",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The oldest prior capture this one exactly duplicates. Set on an exact content-hash hit (and on a human-confirmed perceptual hit), never auto-set for a mere visual suspect.",
+   "fieldname": "duplicate_of",
+   "fieldtype": "Link",
+   "label": "Duplicate Of",
+   "options": "AP Invoice Capture",
+   "read_only": 1
+  },
+  {
+   "description": "Timestamp the dedupe verdict was recorded. Stamped on every dedupe run (clean, suspect, or duplicate); also the 'already deduped' guard for the pre-OCR cascade hop.",
+   "fieldname": "duplicate_detected_at",
+   "fieldtype": "Datetime",
+   "label": "Duplicate Detected At",
    "read_only": 1
   },
   {
