@@ -25,12 +25,14 @@ Before doing non-trivial work, read the doc that matches your task.
 | `docs/architecture/FORK-CHANGES.md` | Authoritative list of files added/modified by this fork vs upstream | Files are added, removed, or significantly changed within the AP closed-loop scope |
 | `docs/architecture/FORK-CHANGES-PLAIN.md` | Plain-English explainer of the fork's scope for non-engineers | Same triggers as `FORK-CHANGES.md`, kept in sync |
 | `docs/architecture/UI-SITEMAP.md` | Every place a user can land in the desk UI — sidebar items, classic workspaces, Frappe pages, portal routes, dashboards | Any change under `erpnext/workspace_sidebar/`, `erpnext/*/workspace/`, `erpnext/*/page/`, `erpnext/*/dashboard*/`, or `website_route_rules` in `erpnext/hooks.py` |
+| `docs/architecture/AP-CAPTURE-SEQUENCE.md` **+ `.png`** | Sequence diagram of the **as-implemented** AP Invoice Capture cascade (intake → dedupe → OCR → validate → promote → approve → mock-pay). The `.md` holds the Mermaid source; the `.png` is its render. | The cascade / state machine changes — see the AP-sequence rule under "Working rules". **The `.md` and `.png` MUST stay in sync.** |
 | `docs/changes/NewUpdates.md` | The 13-step AP workflow design (ambition spec, broader than what's shipped) | Workflow design changes — distinct from current implementation |
 | `docs/changes/GAP-ANALYSIS.md` | Gap between current ERPNext capability and pilot target | Pilot scope or upstream capability changes |
 | `docs/changes/IMPLEMENTATION-PLAN.md` | Build sequence and milestones for the pilot | Pilot milestones move or new tasks are added |
 | `docs/spec/00-overview.md` + `docs/spec/01`–`14` | The v2 AP-workflow implementation specs (one per workflow step) + the index | A spec's design changes — keep its frontmatter `status:` current |
 | `docs/spec/STATUS.md` | Build-status tracker for the v2 spec implementation (per-spec status, AC checklist, gating decisions) | A spec slice is implemented/verified — **gated on actual verification; see "Spec build-status tracking" below** |
 | `test/testplans/*.md` | Per-feature, self-contained test plans executed by an **external** Claude instance for independent clean-room verification (local `bench run-tests` works too — see "Automated tests") | Any feature is added or modified — see "Test plans" section below |
+| `TODO.md` (root) | Single source of truth for persistent, cross-session outstanding work (tasks with stable `T-NNN` IDs, priority, status) | A task that outlives the current session/PR is added, changes status, or is completed — see "Todo management" below |
 | `AGENTS.md` (root) | Codex ↔ Claude ↔ Obsidian orchestration for the pilot (Brandon's working notes) | Codex/Claude workflow itself changes — not for code work |
 
 ## Working rules
@@ -38,10 +40,35 @@ Before doing non-trivial work, read the doc that matches your task.
 - **For "where in the UI does X go?" questions:** consult `docs/architecture/UI-SITEMAP.md` first. Verify against the current repo before recommending placement — the sitemap is dated, not live.
 - **For changes inside the AP closed-loop scope** (`erpnext/accounts/ap_closed_loop/`, `erpnext/accounts/doctype/ap_invoice_capture/`): update `docs/architecture/FORK-CHANGES.md` in the same commit so the fork delta stays accurate.
 - **For navigation changes** (any file under the UI-SITEMAP update triggers): refresh `docs/architecture/UI-SITEMAP.md` in the same commit. Update the "Last verified against repo" date at the top.
+- **For changes to the AP capture cascade / workflow** — any edit that changes the flow the sequence diagram depicts: a new/removed/reordered cascade hop, a changed branch or pause seam, a renamed step function, or a new actor/participant. This includes edits to `_determine_next_step`, the whitelisted step functions (`run_dedupe_for` / `run_fake_extraction_for` / `validate_for_purchase_invoice_for` / `request_approval_for` / `issue_mock_payment_for`), `after_insert` / `_kick_next_step`, or the async runner's step routing. **In the same commit you MUST:**
+  1. Update the Mermaid source in `docs/architecture/AP-CAPTURE-SEQUENCE.md` to match the code, and bump its "Last derived from code" date.
+  2. **Regenerate the PNG** so it matches — run `<bench>/env/bin/python docs/architecture/render_sequence_diagram.py` (renders the `.md`'s Mermaid block via headless Chromium → `docs/architecture/AP-CAPTURE-SEQUENCE.png`). Visually confirm the render isn't clipped before committing.
+  3. Commit **both** files together — a stale `.png` that disagrees with the `.md` (or with the code) is worse than none. Never hand-edit the `.png`.
 - **Don't duplicate Frappe docs.** If something is generic ERPNext/Frappe behavior, link to upstream docs rather than restating in this repo.
 - **Existing convention is to keep `FORK-CHANGES.md` and `FORK-CHANGES-PLAIN.md` paired** — if you update one, update both.
 - **When the user references a screenshot or image file by name without a full path** (e.g. *"see Screenshot 2026-05-27 093723.png"*), look in `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/` first. That's their Windows Pictures → Screenshots folder mounted via WSL — note the literal folder name `Screenshots 1` (with the trailing space and `1`). A Windows-style path like `C:\Users\russw\OneDrive\Pictures\Screenshots 1\...` translates to `/mnt/c/Users/russw/OneDrive/Pictures/Screenshots 1/...`.
 - **For every feature added or modified**, write a test plan in `test/testplans/` per the "Test plans" section below. A code change without a paired test plan is incomplete.
+
+## Todo management (`TODO.md`)
+
+`TODO.md` at the repo root is the **single source of truth for persistent, cross-session work** — tasks that outlive the conversation or PR that surfaced them. It is deliberately separate from the harness's in-session todo scratchpad (the `TodoWrite` tool). Keep the two distinct and use the right one:
+
+- **In-session scratchpad (`TodoWrite`)** — the step-by-step plan for the task you're doing *right now*. Ephemeral; it vanishes with the session. Use it freely for multi-step tasks; do **not** mirror its transient steps into `TODO.md`.
+- **`TODO.md`** — anything that must survive the session: deferred work, follow-ups, known gaps, tech debt, "do this after X ships." If you'd be sad to lose it when the conversation ends, it goes here.
+
+**Promotion rule.** When work in a session produces a follow-up that won't be finished in that same session/PR (a deferred fix, a discovered gap, a "later" item the user mentions), **promote it to `TODO.md`** before you wrap up — don't leave it only in the scratchpad.
+
+**How to maintain it (industry-standard, file-based kanban):**
+
+- **One source of truth.** Don't scatter todos across other docs. A planning doc may describe work; the actionable, trackable item still gets a `T-NNN` entry in `TODO.md`.
+- **Stable IDs, never reused.** Assign the next free ID from the counter at the top of `TODO.md`, then bump the counter in the same edit. IDs are permanent handles — never renumber, never recycle a retired ID.
+- **Status = section.** A task's status is which section it sits in (**In Progress** / **Backlog** / **Blocked** / **Done**). Change status by moving the whole bullet between sections, keeping its ID and history.
+- **Prioritize every item** with `P0`–`P3` (see the legend in `TODO.md`). Default new items to `P2` unless the user signals otherwise.
+- **Capture context, don't restate it.** Each task carries a one-line description plus a `ref:` to the spec / planning doc / PR / `path:line` that explains it. Link, don't duplicate.
+- **Completion is archival, not deletion.** When a task is done, check its box, append `· done YYYY-MM-DD`, and move it to **Done** (newest-first). Never delete a completed task — `TODO.md` is the audit trail. Only delete an entry if it was created in error.
+- **Dates are absolute.** Write `2026-05-31`, never "today" / "next week" — entries are read months later out of context.
+- **Commit alongside related work.** When a code change closes or creates a `TODO.md` item, update `TODO.md` in the same commit so the tracker never lags the tree.
+- **When the user says "add a todo" / "remember to…" / "we should later…"**, treat it as a request to add a `TODO.md` entry (not just the in-session scratchpad), unless it's clearly only about the current task.
 
 ## Automated tests (mandatory for every feature with testable logic)
 
