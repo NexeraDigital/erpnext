@@ -400,19 +400,19 @@
    "label": "Extraction Detail (Lines & Confidence)"
   },
   {
-   "description": "Extracted pre-tax subtotal. Feeds tax-template selection (spec 06).",
+   "description": "Extracted pre-tax subtotal. Feeds tax-template selection (spec 06). Displayed in the extracted (proposed) currency, like the line items, since this is a non-authoritative extraction artifact set before AP review.",
    "fieldname": "subtotal_amount",
    "fieldtype": "Currency",
    "label": "Subtotal Amount",
-   "options": "final_currency",
+   "options": "proposed_currency",
    "read_only": 1
   },
   {
-   "description": "Extracted total tax. Feeds tax-template selection (spec 06).",
+   "description": "Extracted total tax. Feeds tax-template selection (spec 06). Displayed in the extracted (proposed) currency, like the line items, since this is a non-authoritative extraction artifact set before AP review.",
    "fieldname": "tax_amount",
    "fieldtype": "Currency",
    "label": "Tax Amount",
-   "options": "final_currency",
+   "options": "proposed_currency",
    "read_only": 1
   },
   {

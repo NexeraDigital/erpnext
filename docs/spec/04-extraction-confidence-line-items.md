@@ -107,8 +107,8 @@ New parent field on `AP Invoice Capture`: `line_items` (Table → `AP Invoice Ca
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
-| `subtotal_amount` | Currency | options `final_currency` | Extracted pre-tax subtotal. Feeds [[06-gl-coding-tax-costcenter]] tax autoselect. |
-| `tax_amount` | Currency | options `final_currency` | Extracted total tax. Feeds [[06-gl-coding-tax-costcenter]] tax autoselect. |
+| `subtotal_amount` | Currency | options `proposed_currency` | Extracted pre-tax subtotal. Feeds [[06-gl-coding-tax-costcenter]] tax autoselect. **Currency binds to `proposed_currency`, not `final_currency`** (correction 2026-05-31): these are non-authoritative extraction artifacts written *before* AP review, so `final_currency` is empty at that point and the field would otherwise render in the system-default currency while the line items (which freeze `proposed_currency`) render in the extracted one — a visible mismatch. |
+| `tax_amount` | Currency | options `proposed_currency` | Extracted total tax. Feeds [[06-gl-coding-tax-costcenter]] tax autoselect. Same `proposed_currency` binding as `subtotal_amount` (see note). |
 | `purchase_order_reference` | Link → Purchase Order | **already exists** (`ap_invoice_capture.py:195`) | This spec **populates** it from the visible header PO ref so [[08-validation-gates]] three-way match unlocks. No schema change — write-back change only. |
 
 **Settings additions to `AP Closed Loop Settings`** (the single canonical settings DocType — do NOT invent a competing one):
