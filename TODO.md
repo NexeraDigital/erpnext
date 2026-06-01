@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-011`
+- **Next ID:** `T-012`
 
 **Priority labels.**
 
@@ -59,6 +59,8 @@ _Nothing in progress._
       _(P2 · added 2026-05-31 · ref: docs/planning/mcp-server-NEXT-STEPS.md §3 item 7)_
 - [ ] **T-006** Remove the `.claude/worktrees/mcp-server` gitlink artifact (`git worktree remove`) once the MCP work is merged, so it isn't committed accidentally.
       _(P3 · added 2026-05-31 · ref: docs/planning/mcp-server-NEXT-STEPS.md §3 item 6)_
+- [ ] **T-011** Confirm with the customer **how new-vendor approval should happen** before go-live. Spec 05 ships the gated `Supplier Master Change Request` flow (an Unknown vendor with high OCR confidence queues a Draft request; nothing auto-creates a Supplier) with a **controller-driven** approval: `frappe.only_for(approver_role)` (default **Accounts Manager**, configurable via `AP Closed Loop Settings.supplier_change_approver_role`) **plus** a requester≠approver segregation-of-duties backstop. Open customer questions: (a) **who** approves new vendors (which role/people, single vs multi-step); (b) whether a **dollar/risk threshold** should require a stronger approver; (c) whether to wire a real ERPNext **Workflow** (states/transitions/Allowed Roles — owned by spec 11) and/or the `Treasury Approver` / `Auditor (Read Only)` roles; (d) whether the gate should be **on by default** (currently off via `enable_gated_supplier_creation`). Today's controller gate is a safe default and reversible; lock the policy with the customer, then spec 11 wires the Workflow accordingly.
+      _(P1 · added 2026-06-01 · ref: docs/spec/05-supplier-resolution.md §5.5/§8; docs/spec/11-approval-sod-workflow.md · customer decision, feeds spec 11)_
 - [ ] **T-010** Confirm the Stream-R (already-paid card receipt) posting model with the customer/accounting lead. We are building spec 07 with the **provisional default = Option 1: Purchase Invoice with `is_paid=1`** (decision D-07-1 / gating #1) — chosen for least-custom-code + keeps supplier visible in AP/spend-by-supplier reports. It is **reversible**: the posting is built behind a single `_build_already_paid_voucher()` seam, so switching to a direct Journal Entry or PI+Clearing later is a one-function config change, not a rewrite. Get sign-off (or a different choice) from the customer before go-live; this also informs #2 (Bank Transaction guardrail) for specs 13/14.
       _(P1 · added 2026-06-01 · ref: docs/spec/07-classification-doctype-branching.md §8 D-07-1; docs/spec/STATUS.md decision #1 · customer decision, not a code blocker)_
 - [ ] **T-009** Consider an extra chat-specific scope-limit control for the AI chat panel — a per-tool `chat_enabled` flag (on `MCP Tool Config`) letting ops restrict the AI's tool surface *more tightly than* a user's own role/permissions. Not a security boundary (Frappe RBAC already binds the chat to the calling user's access); add only if a concrete governance/compliance requirement appears. Cheap to add later, no rework of the chat plan.
