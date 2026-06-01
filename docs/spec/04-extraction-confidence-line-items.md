@@ -258,7 +258,7 @@ Two runbooks (or one combined) under `test/testplans/`, kebab-case, self-contain
 ### 7.3 UI testing (Playwright MCP)
 Browser-driven verification of the desk UI this slice adds, via the **Playwright MCP** server. These are the UI steps of the §7.2 clean-room runbook.
 - **Prereq:** Playwright MCP per `test/testplans/BROWSER-TESTING-SETUP.md` (`claude mcp list` must list `playwright`; restart after registering). `.mcp.json` / `.playwright-mcp/` gitignored.
-- **Evidence:** screenshots to `test/testplans/screenshots/extraction-line-items-promote/<name>.png` (committed; pass as the screenshot `filename`).
+- **Evidence:** screenshots to `test/testplans/screenshots/04-extraction-line-items-promote/<name>.png` (committed; pass as the screenshot `filename`).
 - **Source of truth stays the DB:** after every UI write, verify via `bench --site <site> mariadb` / `bench … execute`, then delete UI-created data.
 
 **Scenarios** (`route → action → expected UI → DB assertion`):
