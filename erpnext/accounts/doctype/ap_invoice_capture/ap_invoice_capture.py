@@ -1819,21 +1819,34 @@ def promote_to_purchase_invoice(
 
 		# Reconciliation guard (decision D1): surface a mismatch rather than
 		# silently mutating the ledger. A bad line read must not create a payable.
+		#
+		# Tax-aware (correction found via real-Anthropic e2e on a 19%-VAT invoice):
+		# invoice lines are PRE-tax and sum to the subtotal, while final_total_amount
+		# is the TAX-INCLUSIVE grand total — so a naive sum(lines) == total check
+		# wrongly blocks every taxed invoice. Accept EITHER convention:
+		#   * tax-exclusive lines + separate tax:  sum(lines) + tax  == total
+		#   * tax-inclusive lines:                 sum(lines)        == total
+		# A genuine misread (lines reconcile under neither) still raises.
 		line_total = round(sum(float(li.amount or 0.0) for li in capture.line_items), 2)
+		tax_total = round(float(capture.tax_amount or 0.0), 2)
 		final_total = round(float(capture.final_total_amount or 0.0), 2)
-		if abs(line_total - final_total) > 0.01:
+		reconciles = (
+			abs(line_total - final_total) <= 0.01
+			or abs(line_total + tax_total - final_total) <= 0.01
+		)
+		if not reconciles:
 			capture.action_required = 1
 			capture.action_required_reason = _(
-				"Line items total {0} does not reconcile to the invoice total {1}. "
-				"Correct the lines before promoting."
-			).format(line_total, final_total)
+				"Line items total {0} (+ tax {1}) does not reconcile to the invoice "
+				"total {2}. Correct the lines before promoting."
+			).format(line_total, tax_total, final_total)
 			if save:
 				capture.save()
 			raise CapturePromotionError(
 				_(
-					"Cannot promote: line items sum to {0} but the invoice total is {1} "
-					"(off by more than 0.01)."
-				).format(line_total, final_total)
+					"Cannot promote: line items sum to {0} (+ tax {1}) but the invoice "
+					"total is {2} (off by more than 0.01)."
+				).format(line_total, tax_total, final_total)
 			)
 	else:
 		# Header-line fallback (UNCHANGED): a single header-level row.

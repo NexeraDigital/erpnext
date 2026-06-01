@@ -2031,7 +2031,7 @@ class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
-	def _validated_capture(self, lines, total):
+	def _validated_capture(self, lines, total, tax=0.0):
 		f = _make_file("promote_lines.pdf")
 		cap = create_capture_from_file(file_doc=f)
 		run_fake_extraction(cap)
@@ -2042,6 +2042,7 @@ class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
 		validate_for_purchase_invoice(cap)
 		cap.reload()
 		cap.set("line_items", lines)
+		cap.tax_amount = tax
 		cap.save()
 		return cap
 
@@ -2058,14 +2059,41 @@ class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
 		self.assertEqual(len(pi.items), 2)
 		self.assertAlmostEqual(sum(i.amount for i in pi.items), 250.0, places=2)
 
+	# AC-04-11 (tax-aware reconciliation): PRE-tax lines + a separate tax reconcile
+	# to the tax-inclusive total. Regression for the bug the real-Anthropic e2e
+	# found — a 19%-VAT invoice whose lines sum to the SUBTOTAL must still promote.
+	def test_promote_reconciles_pretax_lines_plus_tax(self):
+		cap = self._validated_capture(
+			[
+				{"description": "Cloud hosting", "qty": 1, "rate": 100.0, "amount": 100.0, "currency": "INR"},
+				{"description": "Support", "qty": 1, "rate": 100.0, "amount": 100.0, "currency": "INR"},
+			],
+			total=220.0,  # tax-inclusive grand total
+			tax=20.0,     # lines (200) + tax (20) == 220
+		)
+		pi = promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		self.assertEqual(len(pi.items), 2)
+		cap.reload()
+		self.assertEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)
+
 	# AC-04-12
 	def test_promote_reconciliation_mismatch_raises(self):
 		cap = self._validated_capture(
 			[{"description": "Only line", "qty": 1, "rate": 150.0, "amount": 150.0, "currency": "INR"}],
-			total=250.0,  # lines sum to 150, header total 250 -> mismatch
+			total=250.0,  # lines sum to 150, no tax -> reconciles under neither rule
 		)
 		with self.assertRaises(CapturePromotionError):
 			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
 		cap.reload()
 		self.assertEqual(cap.action_required, 1)
 		self.assertNotEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)
+
+	# A partial/wrong tax that still doesn't close the gap must also raise.
+	def test_promote_mismatch_not_rescued_by_partial_tax(self):
+		cap = self._validated_capture(
+			[{"description": "Only line", "qty": 1, "rate": 150.0, "amount": 150.0, "currency": "INR"}],
+			total=250.0,
+			tax=20.0,  # 150 + 20 = 170 != 250 -> still a mismatch
+		)
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)

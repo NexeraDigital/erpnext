@@ -53,9 +53,10 @@ bench --site <test-site> migrate
   ```bash
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
   ```
-- **Expected:** `86 OK` (1 skipped = poppler PDF dedupe test). Includes
+- **Expected:** `88 OK` (1 skipped = poppler PDF dedupe test). Includes
   `test_write_back_builds_confidence_and_line_rows`, `test_promote_creates_one_pi_item_per_line`,
-  `test_promote_reconciliation_mismatch_raises`, and the unchanged
+  `test_promote_reconciles_pretax_lines_plus_tax`, `test_promote_reconciliation_mismatch_raises`,
+  `test_promote_mismatch_not_rescued_by_partial_tax`, and the unchanged
   `test_promote_creates_native_purchase_invoice` (header-line fallback).
 - **Pass/fail:** PASS iff green.
 
@@ -77,7 +78,9 @@ bench --site <test-site> migrate
 - **Action:** click **Promote** with the promote defaults.
 - **Expected:** the created Purchase Invoice has the **same number of item rows** as
   the capture has lines; the per-line amounts reconcile to the invoice total within
-  0.01; any line `po_reference` lands on PI Item `purchase_order`.
+  0.01 — **tax-aware**: for a taxed invoice the pre-tax lines sum to the subtotal and
+  `sum(lines) + tax_amount` must equal the total (a naive `sum(lines) == total` would
+  wrongly block taxed invoices); any line `po_reference` lands on PI Item `purchase_order`.
 - **DB check:**
   ```bash
   bench --site <test-site> mariadb -e "SELECT pii.description, pii.qty, pii.rate, pii.amount, pii.purchase_order FROM \`tabPurchase Invoice Item\` pii JOIN \`tabAP Invoice Capture\` c ON c.purchase_invoice = pii.parent WHERE c.name='<name>'\\G"
