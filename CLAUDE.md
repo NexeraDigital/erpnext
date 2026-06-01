@@ -28,6 +28,8 @@ Before doing non-trivial work, read the doc that matches your task.
 | `docs/changes/NewUpdates.md` | The 13-step AP workflow design (ambition spec, broader than what's shipped) | Workflow design changes — distinct from current implementation |
 | `docs/changes/GAP-ANALYSIS.md` | Gap between current ERPNext capability and pilot target | Pilot scope or upstream capability changes |
 | `docs/changes/IMPLEMENTATION-PLAN.md` | Build sequence and milestones for the pilot | Pilot milestones move or new tasks are added |
+| `docs/spec/00-overview.md` + `docs/spec/01`–`14` | The v2 AP-workflow implementation specs (one per workflow step) + the index | A spec's design changes — keep its frontmatter `status:` current |
+| `docs/spec/STATUS.md` | Build-status tracker for the v2 spec implementation (per-spec status, AC checklist, gating decisions) | A spec slice is implemented/verified — **gated on actual verification; see "Spec build-status tracking" below** |
 | `test/testplans/*.md` | Per-feature, self-contained test plans executed by an **external** Claude instance for independent clean-room verification (local `bench run-tests` works too — see "Automated tests") | Any feature is added or modified — see "Test plans" section below |
 | `AGENTS.md` (root) | Codex ↔ Claude ↔ Obsidian orchestration for the pilot (Brandon's working notes) | Codex/Claude workflow itself changes — not for code work |
 
@@ -51,6 +53,16 @@ Before doing non-trivial work, read the doc that matches your task.
 - **Coverage bar:** positive case, negative case (the error path / guard), and at least one edge case per public function. For registries/adapters: resolution of each registered key AND the unknown-key error.
 - **How to apply:** write the tests as you write the code, run them locally with `bench --site <site> run-tests --module <dotted.path>`, and confirm green before declaring the feature done. "Verified via throwaway console probes" is NOT sufficient — probes vanish with the session; commit the assertions as tests.
 - **Exemption:** pure docs, JSON-only DocType field additions with no controller logic, and trivial config edits don't need automated tests (but may still need a test plan if they change user-visible behavior).
+
+## Spec build-status tracking — verify before you tick (`docs/spec/STATUS.md`)
+
+`docs/spec/STATUS.md` is the **source-of-truth tracker** for the v2 workflow build (the `docs/spec/01`–`14` specs): each spec's status, its acceptance-criteria checklist, and the gating decisions. Updating it when a spec slice lands is **mandatory** — **and every tick in it is gated on an actual, executed verification, never on the code merely being written.**
+
+- **Verify-before-tick (the mandatory gate).** Before you flip any AC checkbox to `[x]`, change a spec's **Status** to ✅, or set a spec's frontmatter `status:` to `Done`, you MUST have **run the verification in the current session and seen it pass**, then cite the result in your reply. Concretely: run the spec's automated test module(s) — `bench --site <site> run-tests --module <dotted.path>` — **plus the relevant regression suite** — and confirm `Ran N tests … OK`. Quote that line. No green run this session ⇒ no tick.
+- **Inference is not verification.** "The code is written", "it compiles / `py_compile` passed", "it should pass", or "I verified it in an earlier session" do **not** count. Code written ≠ verified.
+- **Blast-radius check.** If the slice adds something app-wide (a `hooks.py` / `doc_events` handler that fires across all docs, a shared controller method, a data patch), the verification must run at least one suite that exercises that surface — or STATUS.md must explicitly record that it was not run, and why.
+- **Status levels & what ✅ means.** ✅ **Done** = every AC's automated test green **this session** + `FORK-CHANGES.md`(+`-PLAIN`) updated + the `test/testplans/<slug>.md` runbook **written**. The §7.2 clean-room and §7.3 Playwright runbooks are a **separate downstream gate** (executed by an external instance / a dedicated browser pass) — record their execution state in STATUS.md (e.g. a *"clean-room/UI: pending"* note) and **never claim them executed when they were not**. Use **👀 In review** for a spec whose code has landed but whose automated ACs are not yet all green this session.
+- **Same-commit set.** A landed slice updates together, in one commit: `docs/spec/STATUS.md` (dashboard row + AC boxes + the header tally), the spec's frontmatter `status:`, `FORK-CHANGES.md`(+`-PLAIN`), and `test/testplans/<slug>.md`.
 
 ## Test plans (mandatory for every feature)
 

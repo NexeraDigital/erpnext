@@ -7,7 +7,7 @@
 
 ## How to use this file
 
-- A spec is **✅ Done** only when **all its ACs are green** under `bench --site <site> run-tests` **and** its §7.2 clean-room + §7.3 Playwright UI plans have been executed. *Code written ≠ done — track against ACs.*
+- **Verify before you tick.** A spec/AC is marked ✅ only **after** its automated tests are **run green in the current session** (cite the `Ran N tests … OK`) — never because the code is written. ✅ **Done** = all ACs green this session + `FORK-CHANGES`(+PLAIN) updated + `test/testplans/<slug>.md` written. The §7.2 clean-room + §7.3 Playwright runbooks are a **separate downstream gate**: record their execution as a note (e.g. *clean-room/UI: pending*) and don't claim them run when they weren't. Use 👀 for code landed but automated ACs not yet all green. (Rule: `CLAUDE.md` → "Spec build-status tracking — verify before you tick".)
 - On each merged slice PR: (1) tick the AC boxes in the per-spec checklist below, (2) update the spec's **Status / ACs / PR** in the dashboard, (3) flip the spec's frontmatter `status:` (`Draft → In Progress → Done`).
 - Build in **phase order** and respect `depends_on`. **Lock each gating decision before the spec(s) it gates** (next section).
 - Per CLAUDE.md: every slice also updates `docs/architecture/FORK-CHANGES.md` + `FORK-CHANGES-PLAIN.md` in the same PR, and ships its `test/testplans/<slug>.md`.
@@ -54,6 +54,8 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 | 14 | [[14-closure-audit-retention]] | 5 Close | 🔲 | 0/16 | L | 01, 07, 13 | #1, #2 (consumes) | — |
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
+
+> **Verification state (01–02):** ✅ reflects **automated ACs run green this session** (the per-spec test modules + the 66-test capture regression). Their §7.2 clean-room and §7.3 Playwright runbooks are **written but not yet executed** (01's §7.3 is N/A — backend-only; 02's email-inbound runbook needs a live mailbox). Treat as *automated-verified; clean-room/UI: pending* until those runbooks are executed.
 
 ---
 
