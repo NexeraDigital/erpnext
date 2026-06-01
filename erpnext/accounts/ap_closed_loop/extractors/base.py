@@ -56,6 +56,15 @@ class ExtractionResult:
 	``raw_response`` — optional provider-specific payload. Phase 1 leaves it
 	empty (the caller builds the fake raw response for backward compatibility);
 	real providers (Phase 2+) populate it with the model's full response.
+
+	``confidence`` — numeric per-field score in 0..1 (spec 04), keyed by the
+	logical proposal name for header fields and ``line_<i>_<field>`` for line
+	rows. Empty when a provider emits no scores; the controller then derives a
+	mapping stand-in tagged ``Derived-Mapping``.
+
+	``lines`` — extracted line items; each dict carries
+	description/qty/rate/amount/tax_amount/expense_account/cost_center/
+	po_reference/pr_reference and an optional per-line ``confidence`` dict.
 	"""
 
 	proposal: dict
@@ -63,6 +72,13 @@ class ExtractionResult:
 	ambiguous_fields: set[str] = field(default_factory=set)
 	provider_name: str = ""
 	raw_response: dict = field(default_factory=dict)
+	confidence: dict = field(default_factory=dict)
+	lines: list[dict] = field(default_factory=list)
+	# Per-field provenance, keyed like ``confidence``: "Model" (a real numeric
+	# score from the provider) or "Derived-Mapping" (a clarity-derived stand-in).
+	# The controller writes it to AP Invoice Capture Confidence.score_source so
+	# routing (spec 09) never over-trusts a fallback score.
+	score_sources: dict = field(default_factory=dict)
 
 
 class OCRProvider(ABC):

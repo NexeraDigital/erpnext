@@ -59,6 +59,21 @@ class TestGetOcrConfig(IntegrationTestCase):
 		_set_single("ocr_confidence_threshold", 0)
 		self.assertEqual(get_ocr_config()["confidence_threshold"], 0.70)
 
+	# AC-04-14: get_ocr_config keeps every existing key and gains field_thresholds.
+	def test_ocr_config_has_all_keys_including_field_thresholds(self):
+		_set_single("field_thresholds", '{"supplier": 0.9, "total_amount": 0.95}')
+		cfg = get_ocr_config()
+		for key in (
+			"provider", "model", "fallback_model", "confidence_threshold",
+			"max_file_mb", "force_reextract", "field_thresholds",
+		):
+			self.assertIn(key, cfg)
+		self.assertEqual(cfg["field_thresholds"]["supplier"], 0.9)
+		self.assertEqual(cfg["field_thresholds"]["total_amount"], 0.95)
+		# Blank/invalid JSON coerces to an empty dict (never raises).
+		_set_single("field_thresholds", None)
+		self.assertEqual(get_ocr_config()["field_thresholds"], {})
+
 
 class TestSettingsValidation(IntegrationTestCase):
 	# CRITICAL: do NOT frappe.db.commit() anywhere here. Key removal and any

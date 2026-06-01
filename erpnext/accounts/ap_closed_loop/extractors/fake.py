@@ -17,7 +17,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult, OCRProvider
+from erpnext.accounts.ap_closed_loop.extractors.base import (
+	PROPOSAL_KEYS,
+	ExtractionResult,
+	OCRProvider,
+)
 
 if TYPE_CHECKING:
 	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
@@ -75,9 +79,27 @@ class FakeExtractor(OCRProvider):
 			if logical_name in proposal:
 				proposal[logical_name] = None
 
+		# Per-field confidence (spec 04): the fake provider has no model score, so
+		# it derives one from clarity — missing -> 0.0, ambiguous -> 0.5, clear ->
+		# 0.95 — one entry per logical key, all tagged Derived-Mapping so routing
+		# (spec 09) never mistakes a stand-in for a real model score. Deterministic
+		# (depends only on the missing/ambiguous sets). lines stays [] by default.
+		confidence: dict[str, float] = {}
+		score_sources: dict[str, str] = {}
+		for logical_name in PROPOSAL_KEYS:
+			if logical_name in missing_fields:
+				confidence[logical_name] = 0.0
+			elif logical_name in ambiguous_fields:
+				confidence[logical_name] = 0.5
+			else:
+				confidence[logical_name] = 0.95
+			score_sources[logical_name] = "Derived-Mapping"
+
 		return ExtractionResult(
 			proposal=proposal,
 			missing_fields=missing_fields,
 			ambiguous_fields=ambiguous_fields,
 			provider_name=FAKE_OCR_PROVIDER,
+			confidence=confidence,
+			score_sources=score_sources,
 		)

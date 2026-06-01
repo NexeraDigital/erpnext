@@ -119,6 +119,44 @@ class TestFakeExtractor(IntegrationTestCase):
 		self.assertIsNone(result.proposal["currency"])
 
 
+class TestExtractionResultConfidenceDefaults(IntegrationTestCase):
+	# AC-04-1: new dataclass fields default empty; existing construction stays valid.
+	def test_new_fields_default_empty(self):
+		r = ExtractionResult(proposal={"supplier": "X"})
+		self.assertEqual(r.confidence, {})
+		self.assertEqual(r.lines, [])
+		self.assertEqual(r.score_sources, {})
+
+
+class TestFakeExtractorConfidence(IntegrationTestCase):
+	"""Spec 04 — FakeExtractor derives per-field confidence (AC-04-5)."""
+
+	def test_default_path_all_clear_095_no_lines(self):
+		result = FakeExtractor().extract(_make_capture())
+		for key in PROPOSAL_KEYS:
+			self.assertEqual(result.confidence[key], 0.95)
+			self.assertEqual(result.score_sources[key], "Derived-Mapping")
+		self.assertEqual(result.lines, [])
+		# Default-path invariants unchanged.
+		self.assertEqual(result.missing_fields, set())
+		self.assertEqual(result.ambiguous_fields, set())
+
+	def test_missing_and_ambiguous_map_to_zero_and_half(self):
+		result = FakeExtractor().extract(
+			_make_capture(),
+			simulate_missing=["total_amount"],
+			simulate_ambiguous=["supplier"],
+		)
+		self.assertEqual(result.confidence["total_amount"], 0.0)
+		self.assertEqual(result.confidence["supplier"], 0.5)
+		self.assertEqual(result.confidence["currency"], 0.95)
+
+	def test_confidence_is_deterministic(self):
+		r1 = FakeExtractor().extract(_make_capture("dc.pdf"))
+		r2 = FakeExtractor().extract(_make_capture("dc.pdf"))
+		self.assertEqual(r1.confidence, r2.confidence)
+
+
 class TestRunExtractionThroughAdapter(IntegrationTestCase):
 	def test_alias_identity(self):
 		self.assertIs(run_fake_extraction, run_extraction)

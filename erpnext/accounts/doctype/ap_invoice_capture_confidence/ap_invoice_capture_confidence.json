@@ -1,0 +1,64 @@
+{
+ "actions": [],
+ "creation": "2026-05-31 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "field_name",
+  "confidence",
+  "is_above_threshold",
+  "score_source"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "description": "Logical field key. Header: supplier / supplier_invoice_no / invoice_date / total_amount / currency. Line: line_<i>_<field> (0-based i, e.g. line_0_amount).",
+   "fieldname": "field_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Field Name",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "description": "Numeric per-field certainty in 0.0-1.0, as returned by the provider (spec 04).",
+   "fieldname": "confidence",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Confidence",
+   "precision": "3"
+  },
+  {
+   "columns": 2,
+   "description": "Derived: confidence >= the per-field threshold at write time. Not user-entered.",
+   "fieldname": "is_above_threshold",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Above Threshold",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "default": "Model",
+   "description": "Provenance: Model = real numeric score from the provider; Derived-Mapping = heuristic clear/ambiguous/missing stand-in (so confidence routing does not over-trust a fallback).",
+   "fieldname": "score_source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Score Source",
+   "options": "Model\nDerived-Mapping",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Invoice Capture Confidence",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

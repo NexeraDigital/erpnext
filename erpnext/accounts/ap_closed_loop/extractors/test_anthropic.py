@@ -54,6 +54,65 @@ _GOOD_INPUT = {
 }
 
 
+class TestAnthropicConfidenceAndLines(IntegrationTestCase):
+	"""Spec 04 — keep the numeric scores + extract line items."""
+
+	def setUp(self):
+		self.extractor = AnthropicExtractor(client=MagicMock())
+
+	# AC-04-2
+	def test_confidence_per_field_kept_as_numbers(self):
+		result = self.extractor._to_extraction_result(_GOOD_INPUT)
+		self.assertEqual(result.confidence["supplier"], 0.98)
+		self.assertEqual(result.confidence["total_amount"], 0.97)
+		self.assertEqual(result.confidence["currency"], 0.99)
+		self.assertEqual(result.score_sources["supplier"], "Model")
+		# Missing/ambiguous derivation is unchanged (all scores clear here).
+		self.assertEqual(result.missing_fields, set())
+		self.assertEqual(result.ambiguous_fields, set())
+
+	# AC-04-3
+	def test_line_items_populate_lines_and_line_confidence_keys(self):
+		data = dict(_GOOD_INPUT)
+		data["line_items"] = [
+			{
+				"description": "Widgets",
+				"qty": 2,
+				"rate": 100.0,
+				"amount": 200.0,
+				"confidence": {"description": 0.9, "amount": 0.85},
+			},
+			{"description": "Freight", "qty": 1, "rate": 10.55, "amount": 10.55,
+			 "confidence": {"amount": 0.6}},
+		]
+		result = self.extractor._to_extraction_result(data)
+		self.assertEqual(len(result.lines), 2)
+		self.assertEqual(result.lines[0]["description"], "Widgets")
+		self.assertEqual(result.confidence["line_0_description"], 0.9)
+		self.assertEqual(result.confidence["line_0_amount"], 0.85)
+		self.assertEqual(result.confidence["line_1_amount"], 0.6)
+		self.assertEqual(result.score_sources["line_0_amount"], "Model")
+
+	# AC-04-4
+	def test_mapping_fallback_when_no_confidence_per_field(self):
+		data = {
+			"supplier_name": "Globex Logistics",
+			"supplier_invoice_no": "INV-9931",
+			"invoice_date": None,  # absent
+			"total_amount": 4210.55,
+			"currency": "USD",
+			"confidence_per_field": {},  # model emitted no numeric scores
+		}
+		result = self.extractor._to_extraction_result(data)
+		self.assertEqual(result.confidence["supplier"], 0.95)  # present
+		self.assertEqual(result.confidence["invoice_date"], 0.0)  # absent
+		self.assertEqual(result.score_sources["supplier"], "Derived-Mapping")
+		self.assertEqual(result.score_sources["invoice_date"], "Derived-Mapping")
+		# Header surfaces carried under proposal keys.
+		self.assertIn("subtotal", result.proposal)
+		self.assertIn("po_reference", result.proposal)
+
+
 class TestAnthropicResponseMapping(IntegrationTestCase):
 	"""Pure parsing/mapping logic — no file, no network."""
 

@@ -1,0 +1,115 @@
+{
+ "actions": [],
+ "creation": "2026-05-31 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "description",
+  "qty",
+  "rate",
+  "amount",
+  "tax_amount",
+  "expense_account",
+  "cost_center",
+  "po_reference",
+  "pr_reference",
+  "currency",
+  "confidence_summary"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "description": "Line description / item text (mirrors Purchase Invoice Item description).",
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "qty",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Qty"
+  },
+  {
+   "columns": 1,
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate",
+   "options": "currency"
+  },
+  {
+   "columns": 1,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "currency"
+  },
+  {
+   "columns": 1,
+   "description": "Per-line tax. Plain Currency (no company-currency context at extraction); company-currency binding is deferred to promote (spec 04 D5).",
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "Expense Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "description": "Visible PO ref for this line. Maps to Purchase Invoice Item purchase_order on promote; join key for the three-way match (spec 08).",
+   "fieldname": "po_reference",
+   "fieldtype": "Link",
+   "label": "PO Reference",
+   "options": "Purchase Order"
+  },
+  {
+   "description": "Visible PR ref for this line. Maps to Purchase Invoice Item purchase_receipt on promote.",
+   "fieldname": "pr_reference",
+   "fieldtype": "Link",
+   "label": "PR Reference",
+   "options": "Purchase Receipt"
+  },
+  {
+   "description": "Backing currency code for the Currency columns above. Set to the capture's final/proposed currency at write-back.",
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Currency",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "description": "Human-readable per-line confidence blurb (e.g. desc 0.95 / amount 0.88 / po 0.40). Authoritative numbers live in AP Invoice Capture Confidence keyed line_<i>_<field>.",
+   "fieldname": "confidence_summary",
+   "fieldtype": "Small Text",
+   "label": "Confidence Summary",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-31 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Invoice Capture Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

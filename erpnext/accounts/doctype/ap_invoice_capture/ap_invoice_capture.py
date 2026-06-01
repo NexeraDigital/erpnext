@@ -163,6 +163,13 @@ class APInvoiceCapture(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		from erpnext.accounts.doctype.ap_invoice_capture_confidence.ap_invoice_capture_confidence import (
+			APInvoiceCaptureConfidence,
+		)
+		from erpnext.accounts.doctype.ap_invoice_capture_item.ap_invoice_capture_item import (
+			APInvoiceCaptureItem,
+		)
+
 		action_required: DF.Check
 		action_required_reason: DF.Data | None
 		content_hash: DF.Data | None
@@ -188,6 +195,10 @@ class APInvoiceCapture(Document):
 		proposed_supplier: DF.Data | None
 		proposed_supplier_invoice_no: DF.Data | None
 		proposed_total_amount: DF.Float
+		subtotal_amount: DF.Currency
+		tax_amount: DF.Currency
+		line_items: DF.Table[APInvoiceCaptureItem]
+		field_confidences: DF.Table[APInvoiceCaptureConfidence]
 		received_at: DF.Datetime
 		stream: DF.Literal["Receipt (R)", "Invoice (I)", "Unclassified"]
 		stream_provisional_source: DF.Data | None
@@ -1009,6 +1020,12 @@ def run_extraction(
 	capture.proposed_ambiguous_fields = (
 		", ".join(sorted(ambiguous_fields)) if ambiguous_fields else None
 	)
+
+	# Spec 04: persist numeric per-field confidence + extracted line items as
+	# child rows, and surface subtotal / tax / a resolved PO header ref. This is a
+	# clear-and-replace rebuild, so a re-extraction is idempotent.
+	_write_extraction_detail(capture, result, ocr_config)
+
 	# Carry the provider's own metadata (model used, outcome, token usage) into
 	# the persisted record so the audit trail reflects what actually happened
 	# — e.g. whether a low-confidence fallback fired and which model produced
@@ -1021,6 +1038,11 @@ def run_extraction(
 			"proposal": proposal,
 			"missing_fields": sorted(missing_fields),
 			"ambiguous_fields": sorted(ambiguous_fields),
+			# Spec 04: audit copy-of-record of the numeric scores + lines. No
+			# credentials here (the proposal/confidence/lines carry no key; the API
+			# key is fetched lazily and never serialized).
+			"confidence": result.confidence,
+			"lines": result.lines,
 			"model": provider_raw.get("model"),
 			"outcome": provider_raw.get("outcome"),
 			"usage": provider_raw.get("usage"),
@@ -1042,6 +1064,149 @@ def run_extraction(
 # Backward-compatible alias. The pilot's test suite and the cascade call this
 # by name; ``run_extraction`` is the forward-looking provider-agnostic name.
 run_fake_extraction = run_extraction
+
+
+# ---------------------------------------------------------------------------
+# Spec 04 — per-field confidence + line-item write-back
+# ---------------------------------------------------------------------------
+
+# Logical line-field base names a "line_<i>_<field>" key strips to (for threshold
+# resolution and the confidence_summary blurb).
+_LINE_KEY_RE = re.compile(r"^line_\d+_(.+)$")
+
+
+def _base_field(field_name: str) -> str:
+	"""``line_0_amount`` -> ``amount``; header keys pass through unchanged."""
+
+	m = _LINE_KEY_RE.match(field_name or "")
+	return m.group(1) if m else (field_name or "")
+
+
+def _resolve_above(field_name: str, conf: float, cfg: dict) -> bool:
+	"""Whether ``conf`` clears the per-field threshold (spec 04 §5.3.5).
+
+	Two-tier resolution (locked decision #4 — no second scalar): a per-field
+	override in ``cfg["field_thresholds"]`` keyed by the base field, else the
+	canonical ``cfg["confidence_threshold"]`` (the existing ``ocr_confidence_threshold``).
+	Pure + idempotent.
+	"""
+
+	default = cfg.get("confidence_threshold", 0.70)
+	thresholds = cfg.get("field_thresholds") or {}
+	base = _base_field(field_name)
+	threshold = default
+	if base in thresholds:
+		try:
+			threshold = float(thresholds[base])
+		except (TypeError, ValueError):
+			threshold = default
+	try:
+		return float(conf) >= float(threshold)
+	except (TypeError, ValueError):
+		return False
+
+
+def _to_float(value, default: float = 0.0) -> float:
+	"""Defensive numeric coercion — a malformed extracted value never raises
+	mid-write-back (it surfaces later at promote reconciliation, spec 04 §5.3.6)."""
+
+	if value in (None, ""):
+		return default
+	try:
+		return float(value)
+	except (TypeError, ValueError):
+		return default
+
+
+def _existing_link(doctype: str, value) -> "str | None":
+	"""Return ``value`` only if it names an existing ``doctype`` record, else None.
+
+	Guards Link writes so a hallucinated OCR string (PO/PR/account/cost-center)
+	never creates a dangling Link that would fail validation on save (spec 04
+	§5.3.3 / AC-04-10)."""
+
+	if value and frappe.db.exists(doctype, value):
+		return value
+	return None
+
+
+def _line_confidence_summary(line_conf: dict) -> "str | None":
+	"""Compact per-line blurb like ``desc 0.95 / amount 0.88 / po 0.40`` from a
+	line's confidence dict. Authoritative numbers live in field_confidences."""
+
+	abbr = {"description": "desc", "po_reference": "po"}
+	parts = []
+	for fkey in ("description", "qty", "rate", "amount", "po_reference"):
+		val = (line_conf or {}).get(fkey)
+		if val is not None:
+			try:
+				parts.append(f"{abbr.get(fkey, fkey)} {float(val):.2f}")
+			except (TypeError, ValueError):
+				continue
+	return " / ".join(parts) or None
+
+
+def _write_extraction_detail(
+	capture: "APInvoiceCapture", result, cfg: dict
+) -> None:
+	"""Rebuild ``field_confidences`` + ``line_items`` and set header surfaces.
+
+	Clear-and-replace (idempotent across re-extraction). Never raises on a
+	malformed line — values are coerced defensively; a bad line is caught at
+	promote reconciliation, not here.
+	"""
+
+	# (1) field_confidences — one row per header key AND per line_<i>_<field> key.
+	conf_rows = []
+	for field_name, conf in (getattr(result, "confidence", None) or {}).items():
+		conf_val = _to_float(conf)
+		conf_rows.append(
+			{
+				"field_name": field_name,
+				"confidence": conf_val,
+				"is_above_threshold": 1 if _resolve_above(field_name, conf_val, cfg) else 0,
+				"score_source": (getattr(result, "score_sources", None) or {}).get(
+					field_name
+				)
+				or "Model",
+			}
+		)
+	capture.set("field_confidences", conf_rows)
+
+	# (2) line_items — one AP Invoice Capture Item per extracted line.
+	currency = capture.final_currency or capture.proposed_currency
+	line_rows = []
+	for line in getattr(result, "lines", None) or []:
+		qty = _to_float(line.get("qty"), default=1.0)
+		rate = _to_float(line.get("rate"))
+		amount = line.get("amount")
+		amount = _to_float(amount) if amount not in (None, "") else round(qty * rate, 2)
+		line_rows.append(
+			{
+				"description": line.get("description"),
+				"qty": qty,
+				"rate": rate,
+				"amount": amount,
+				"tax_amount": _to_float(line.get("tax_amount")),
+				"expense_account": _existing_link("Account", line.get("expense_account")),
+				"cost_center": _existing_link("Cost Center", line.get("cost_center")),
+				"po_reference": _existing_link("Purchase Order", line.get("po_reference")),
+				"pr_reference": _existing_link("Purchase Receipt", line.get("pr_reference")),
+				"currency": currency,
+				"confidence_summary": _line_confidence_summary(line.get("confidence")),
+			}
+		)
+	capture.set("line_items", line_rows)
+
+	# (3) Header surfaces — subtotal / tax / resolved PO. A non-existent PO string
+	# is NOT written to the Link (no dangling ref); the raw value already rides in
+	# ocr_raw_response under proposal["po_reference"] for review.
+	proposal = getattr(result, "proposal", None) or {}
+	capture.subtotal_amount = _to_float(proposal.get("subtotal"))
+	capture.tax_amount = _to_float(proposal.get("tax"))
+	resolved_po = _existing_link("Purchase Order", proposal.get("po_reference"))
+	if resolved_po:
+		capture.purchase_order_reference = resolved_po
 
 
 # ---------------------------------------------------------------------------
@@ -1616,26 +1781,79 @@ def promote_to_purchase_invoice(
 	if d.get("company"):
 		pi.company = d["company"]
 
-	rate = float(capture.final_total_amount or 0.0)
-	qty = float(d.get("qty", 1) or 1)
-	item_row: dict = {
-		"item_code": d.get("item_code", "_Test Item"),
-		"qty": qty,
-		"rate": rate,
-	}
-	if d.get("uom"):
-		item_row["uom"] = d["uom"]
-		item_row["stock_uom"] = d["uom"]
-	if d.get("warehouse"):
-		item_row["warehouse"] = d["warehouse"]
-	if d.get("expense_account"):
-		item_row["expense_account"] = d["expense_account"]
-	if d.get("cost_center"):
-		item_row["cost_center"] = d["cost_center"]
-	# Phase 1 deliberately does NOT attach the capture's PO/PR reference onto
-	# the Purchase Invoice item row — line-level PO/PR matching is out of scope
-	# for this slice. The references remain auditable on the capture itself.
-	pi.append("items", item_row)
+	default_item = d.get("item_code", "_Test Item")
+	if capture.line_items:
+		# Spec 04 line-aware path: one PI item per extracted capture line, mapping
+		# po_reference -> PI Item.purchase_order and pr_reference -> purchase_receipt
+		# (the three-way-match join surface for spec 08). po_detail/pr_detail (the
+		# specific PO/PR child rowname) are NOT set — OCR gives header-PO granularity
+		# only. A line with no item identity falls back to the default item_code.
+		for line in capture.line_items:
+			line_qty = float(line.qty or 1) or 1.0
+			# Prefer the extracted amount; fall back to qty*rate, then the rate.
+			line_amount = float(line.amount or 0.0)
+			line_rate = float(line.rate or 0.0)
+			if not line_rate and line_amount and line_qty:
+				line_rate = round(line_amount / line_qty, 2)
+			item_row = {
+				"item_code": default_item,
+				"qty": line_qty,
+				"rate": line_rate,
+				"description": line.description or None,
+			}
+			if d.get("uom"):
+				item_row["uom"] = d["uom"]
+				item_row["stock_uom"] = d["uom"]
+			if d.get("warehouse"):
+				item_row["warehouse"] = d["warehouse"]
+			# Per-line GL coding (spec 06) wins over the settings default when set.
+			if line.expense_account or d.get("expense_account"):
+				item_row["expense_account"] = line.expense_account or d["expense_account"]
+			if line.cost_center or d.get("cost_center"):
+				item_row["cost_center"] = line.cost_center or d["cost_center"]
+			if line.po_reference:
+				item_row["purchase_order"] = line.po_reference
+			if line.pr_reference:
+				item_row["purchase_receipt"] = line.pr_reference
+			pi.append("items", item_row)
+
+		# Reconciliation guard (decision D1): surface a mismatch rather than
+		# silently mutating the ledger. A bad line read must not create a payable.
+		line_total = round(sum(float(li.amount or 0.0) for li in capture.line_items), 2)
+		final_total = round(float(capture.final_total_amount or 0.0), 2)
+		if abs(line_total - final_total) > 0.01:
+			capture.action_required = 1
+			capture.action_required_reason = _(
+				"Line items total {0} does not reconcile to the invoice total {1}. "
+				"Correct the lines before promoting."
+			).format(line_total, final_total)
+			if save:
+				capture.save()
+			raise CapturePromotionError(
+				_(
+					"Cannot promote: line items sum to {0} but the invoice total is {1} "
+					"(off by more than 0.01)."
+				).format(line_total, final_total)
+			)
+	else:
+		# Header-line fallback (UNCHANGED): a single header-level row.
+		rate = float(capture.final_total_amount or 0.0)
+		qty = float(d.get("qty", 1) or 1)
+		item_row = {
+			"item_code": default_item,
+			"qty": qty,
+			"rate": rate,
+		}
+		if d.get("uom"):
+			item_row["uom"] = d["uom"]
+			item_row["stock_uom"] = d["uom"]
+		if d.get("warehouse"):
+			item_row["warehouse"] = d["warehouse"]
+		if d.get("expense_account"):
+			item_row["expense_account"] = d["expense_account"]
+		if d.get("cost_center"):
+			item_row["cost_center"] = d["cost_center"]
+		pi.append("items", item_row)
 
 	pi.insert(ignore_permissions=True)
 

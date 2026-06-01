@@ -47,6 +47,11 @@
   "proposed_missing_fields",
   "proposed_ambiguous_fields",
   "ocr_raw_response",
+  "extraction_detail_section",
+  "subtotal_amount",
+  "tax_amount",
+  "line_items",
+  "field_confidences",
   "review_section",
   "final_supplier",
   "final_supplier_invoice_no",
@@ -386,6 +391,44 @@
    "fieldtype": "Long Text",
    "hidden": 1,
    "label": "OCR Raw Response",
+   "read_only": 1
+  },
+  {
+   "description": "Extracted line items + numeric per-field confidence (spec 04). Non-authoritative, like the OCR proposal above; the authoritative header values live in AP Review below.",
+   "fieldname": "extraction_detail_section",
+   "fieldtype": "Section Break",
+   "label": "Extraction Detail (Lines & Confidence)"
+  },
+  {
+   "description": "Extracted pre-tax subtotal. Feeds tax-template selection (spec 06).",
+   "fieldname": "subtotal_amount",
+   "fieldtype": "Currency",
+   "label": "Subtotal Amount",
+   "options": "final_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Extracted total tax. Feeds tax-template selection (spec 06).",
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount",
+   "options": "final_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Extracted invoice lines. On promote (Stream I) each row maps to one Purchase Invoice item; the Stream-R Journal Entry path reads the same rows.",
+   "fieldname": "line_items",
+   "fieldtype": "Table",
+   "label": "Line Items",
+   "options": "AP Invoice Capture Item",
+   "read_only": 1
+  },
+  {
+   "description": "Numeric per-field confidence (header + per-line), the routing/query index for confidence routing (spec 09). The same numbers are mirrored in OCR Raw Response as the audit-of-record.",
+   "fieldname": "field_confidences",
+   "fieldtype": "Table",
+   "label": "Field Confidences",
+   "options": "AP Invoice Capture Confidence",
    "read_only": 1
   },
   {

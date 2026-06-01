@@ -1905,3 +1905,167 @@ class TestAPInvoiceCaptureDedupPerceptualLive(IntegrationTestCase):
 		phash = mod._compute_phash(cap)
 		self.assertIsNotNone(phash, "real _compute_phash should rasterize+hash a PDF")
 		self.assertRegex(phash, r"^[0-9a-f]{16}$")
+
+
+class TestAPInvoiceCaptureResolveAbove(IntegrationTestCase):
+	"""Spec 04 — per-field threshold resolution (AC-04-8)."""
+
+	def test_resolution_order_and_line_base_field(self):
+		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+			_base_field,
+			_resolve_above,
+		)
+
+		cfg = {
+			"confidence_threshold": 0.70,
+			"field_thresholds": {"supplier": 0.90, "amount": 0.80},
+		}
+		# (a) per-field override wins for supplier.
+		self.assertTrue(_resolve_above("supplier", 0.90, cfg))
+		self.assertFalse(_resolve_above("supplier", 0.89, cfg))
+		# (b) no override -> canonical confidence_threshold (the ocr_confidence_threshold).
+		self.assertTrue(_resolve_above("currency", 0.70, cfg))
+		self.assertFalse(_resolve_above("currency", 0.699, cfg))
+		# Line key strips to its base field 'amount' -> uses the amount override.
+		self.assertTrue(_resolve_above("line_0_amount", 0.80, cfg))
+		self.assertFalse(_resolve_above("line_0_amount", 0.79, cfg))
+		self.assertEqual(_base_field("line_3_description"), "description")
+		self.assertEqual(_base_field("supplier"), "supplier")
+
+
+class TestAPInvoiceCaptureExtractionDetail(IntegrationTestCase):
+	"""Spec 04 — run_extraction write-back of confidence rows + line items."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _inmem_capture(self):
+		c = frappe.new_doc("AP Invoice Capture")
+		c.source_filename = "extract_detail.pdf"
+		c.file_extension = "pdf"
+		c.intake_channel = INTAKE_MANUAL_UPLOAD
+		c.is_supported_format = 1
+		c.source_file_url = "/private/files/extract_detail.pdf"
+		c.received_at = now_datetime()
+		c.final_currency = "USD"
+		return c
+
+	# AC-04-6, AC-04-7, AC-04-10
+	def test_write_back_builds_confidence_and_line_rows(self):
+		from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult
+		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+			_write_extraction_detail,
+		)
+
+		result = ExtractionResult(
+			proposal={
+				"supplier": "Acme",
+				"total_amount": 300.0,
+				"subtotal": 250.0,
+				"tax": 50.0,
+				"po_reference": "PO-DOES-NOT-EXIST",
+			},
+			confidence={
+				"supplier": 0.95,
+				"total_amount": 0.70,
+				"line_0_description": 0.9,
+				"line_0_amount": 0.699,
+			},
+			lines=[
+				{
+					"description": "Widget",
+					"qty": 2,
+					"rate": 150.0,
+					"amount": 300.0,
+					"confidence": {"description": 0.9, "amount": 0.699},
+				}
+			],
+			score_sources={
+				"supplier": "Model",
+				"total_amount": "Model",
+				"line_0_description": "Model",
+				"line_0_amount": "Derived-Mapping",
+			},
+		)
+		cfg = {"confidence_threshold": 0.70, "field_thresholds": {"supplier": 0.90}}
+		cap = self._inmem_capture()
+		_write_extraction_detail(cap, result, cfg)
+
+		rows = {r.field_name: r for r in cap.field_confidences}
+		self.assertEqual(len(cap.field_confidences), 4)
+		# supplier 0.95 >= field override 0.90 -> above.
+		self.assertEqual(rows["supplier"].is_above_threshold, 1)
+		# total_amount 0.70 >= 0.70 -> above (boundary inclusive).
+		self.assertEqual(rows["total_amount"].is_above_threshold, 1)
+		# line_0_amount 0.699 < 0.70 -> below (boundary), source preserved.
+		self.assertEqual(rows["line_0_amount"].is_above_threshold, 0)
+		self.assertEqual(rows["line_0_amount"].score_source, "Derived-Mapping")
+
+		self.assertEqual(len(cap.line_items), 1)
+		self.assertEqual(cap.line_items[0].amount, 300.0)
+		self.assertEqual(cap.line_items[0].currency, "USD")
+		self.assertTrue(cap.line_items[0].confidence_summary)
+
+		self.assertEqual(cap.subtotal_amount, 250.0)
+		self.assertEqual(cap.tax_amount, 50.0)
+		# Non-existent PO -> blank Link (no dangling ref); raw value stays in result.
+		self.assertFalse(cap.purchase_order_reference)
+
+	# AC-04-9 (security): no credentials echoed even with confidence/lines added.
+	def test_ocr_raw_response_has_no_credentials(self):
+		f = _make_file("sec_check.pdf")
+		cap = create_capture_from_file(file_doc=f)
+		run_fake_extraction(cap, save=True)
+		cap.reload()
+		raw = (cap.ocr_raw_response or "").lower()
+		for needle in ("api_key", "x-api-key", "sk-ant", "authorization"):
+			self.assertNotIn(needle, raw)
+		parsed = json.loads(cap.ocr_raw_response)
+		self.assertIn("confidence", parsed)
+		self.assertIn("lines", parsed)
+
+
+class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
+	"""Spec 04 — promote builds one PI item per capture line (AC-04-11/12)."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _validated_capture(self, lines, total):
+		f = _make_file("promote_lines.pdf")
+		cap = create_capture_from_file(file_doc=f)
+		run_fake_extraction(cap)
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "total_amount": str(total), "currency": "INR"},
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		cap.set("line_items", lines)
+		cap.save()
+		return cap
+
+	# AC-04-11
+	def test_promote_creates_one_pi_item_per_line(self):
+		cap = self._validated_capture(
+			[
+				{"description": "Line A", "qty": 1, "rate": 150.0, "amount": 150.0, "currency": "INR"},
+				{"description": "Line B", "qty": 1, "rate": 100.0, "amount": 100.0, "currency": "INR"},
+			],
+			total=250.0,
+		)
+		pi = promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		self.assertEqual(len(pi.items), 2)
+		self.assertAlmostEqual(sum(i.amount for i in pi.items), 250.0, places=2)
+
+	# AC-04-12
+	def test_promote_reconciliation_mismatch_raises(self):
+		cap = self._validated_capture(
+			[{"description": "Only line", "qty": 1, "rate": 150.0, "amount": 150.0, "currency": "INR"}],
+			total=250.0,  # lines sum to 150, header total 250 -> mismatch
+		)
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		self.assertEqual(cap.action_required, 1)
+		self.assertNotEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)

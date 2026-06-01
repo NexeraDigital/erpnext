@@ -149,6 +149,42 @@ INVOICE_EXTRACTION_TOOL = {
 					"null — do NOT infer or default a currency."
 				),
 			},
+			"subtotal": {
+				"type": ["number", "null"],
+				"description": "Pre-tax subtotal if printed.",
+			},
+			"tax_total": {
+				"type": ["number", "null"],
+				"description": "Total tax amount if printed.",
+			},
+			"po_reference": {
+				"type": ["string", "null"],
+				"description": "Visible purchase-order number on the document, if any.",
+			},
+			"line_items": {
+				"type": "array",
+				"description": (
+					"One object per invoice line. Omit or return [] for a receipt with "
+					"no itemization. Do not invent lines."
+				),
+				"items": {
+					"type": "object",
+					"properties": {
+						"description": {"type": ["string", "null"]},
+						"qty": {"type": ["number", "null"]},
+						"rate": {"type": ["number", "null"]},
+						"amount": {"type": ["number", "null"]},
+						"tax_amount": {"type": ["number", "null"]},
+						"expense_account": {"type": ["string", "null"]},
+						"cost_center": {"type": ["string", "null"]},
+						"po_reference": {"type": ["string", "null"]},
+						"confidence": {
+							"type": "object",
+							"description": "Per-field certainty for this line (0..1), same scale as confidence_per_field.",
+						},
+					},
+				},
+			},
 			"confidence_per_field": {
 				"type": "object",
 				"properties": {
@@ -421,16 +457,71 @@ class AnthropicExtractor(OCRProvider):
 		proposal: dict = {}
 		missing: set[str] = set()
 		ambiguous: set[str] = set()
+		confidence: dict[str, float] = {}
+		score_sources: dict[str, str] = {}
 
 		for tool_key, logical in _TOOL_TO_LOGICAL.items():
 			value = tool_input.get(tool_key)
 			proposal[logical] = value
+			raw_conf = confidences.get(tool_key)
+			if raw_conf is not None:
+				# Real model score (spec 04): keep the number, tag it Model.
+				try:
+					conf = float(raw_conf)
+				except (TypeError, ValueError):
+					conf = 0.0
+				score_sources[logical] = "Model"
+				if value not in (None, "") and conf < self._confidence_threshold:
+					ambiguous.add(logical)
+			else:
+				# Mapping fallback: no per-field number for this field, derive one
+				# from clarity (present -> 0.95, absent -> 0.0) and tag Derived-Mapping
+				# so routing (spec 09) does not over-trust a stand-in.
+				conf = 0.0 if value in (None, "") else 0.95
+				score_sources[logical] = "Derived-Mapping"
+			confidence[logical] = conf
 			if value in (None, ""):
 				missing.add(logical)
+
+		# Header surfaces (spec 04): carry subtotal / tax / visible PO under logical
+		# proposal keys the controller reads on write-back.
+		proposal["subtotal"] = tool_input.get("subtotal")
+		proposal["tax"] = tool_input.get("tax_total")
+		proposal["po_reference"] = tool_input.get("po_reference")
+
+		# Line items (spec 04): one dict per line, plus per-line confidence emitted
+		# into confidence["line_<i>_<field>"]. A line that carries a numeric score
+		# is tagged Model; a present-but-unscored field falls back to 0.95 Derived.
+		lines: list[dict] = []
+		for i, line in enumerate(tool_input.get("line_items") or []):
+			if not isinstance(line, dict):
 				continue
-			conf = confidences.get(tool_key)
-			if conf is not None and conf < self._confidence_threshold:
-				ambiguous.add(logical)
+			line_conf = line.get("confidence") or {}
+			lines.append(
+				{
+					"description": line.get("description"),
+					"qty": line.get("qty"),
+					"rate": line.get("rate"),
+					"amount": line.get("amount"),
+					"tax_amount": line.get("tax_amount"),
+					"expense_account": line.get("expense_account"),
+					"cost_center": line.get("cost_center"),
+					"po_reference": line.get("po_reference"),
+					"confidence": line_conf,
+				}
+			)
+			for fkey in ("description", "qty", "rate", "amount", "po_reference"):
+				key = f"line_{i}_{fkey}"
+				raw_lc = line_conf.get(fkey)
+				if raw_lc is not None:
+					try:
+						confidence[key] = float(raw_lc)
+					except (TypeError, ValueError):
+						confidence[key] = 0.0
+					score_sources[key] = "Model"
+				elif line.get(fkey) not in (None, ""):
+					confidence[key] = 0.95
+					score_sources[key] = "Derived-Mapping"
 
 		raw = {"tool_input": tool_input}
 		usage = getattr(response, "usage", None)
@@ -449,6 +540,9 @@ class AnthropicExtractor(OCRProvider):
 			ambiguous_fields=ambiguous,
 			provider_name=PROVIDER_NAME,
 			raw_response=raw,
+			confidence=confidence,
+			lines=lines,
+			score_sources=score_sources,
 		)
 
 

@@ -161,6 +161,11 @@ def get_ocr_config() -> dict:
 		"model": stored.get("ocr_model") or None,
 		"fallback_model": stored.get("ocr_fallback_model") or None,
 		"confidence_threshold": threshold,
+		# Per-field threshold overrides (spec 04). Resolution stays two-tier —
+		# field_thresholds[field] then the canonical confidence_threshold scalar —
+		# per locked decision #4 (no second scalar; reuses spec-01's field_thresholds
+		# + get_field_threshold). _resolve_above() in run_extraction consumes this.
+		"field_thresholds": _coerce_field_thresholds(stored.get("field_thresholds")),
 		"max_file_mb": max_mb,
 		"force_reextract": bool(stored.get("ocr_force_reextract")),
 	}

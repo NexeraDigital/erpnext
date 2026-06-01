@@ -3,7 +3,7 @@ spec: 04-extraction-confidence-line-items
 title: Extraction — Numeric Per-Field Confidence + Line Items
 plan_step: Step 3 — AI Extraction with Per-Field Confidence (and line items)
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency]
 related: [00-overview, 02-intake-stream-tagging, 03-deduplication, 06-gl-coding-tax-costcenter, 07-classification-doctype-branching, 08-validation-gates, 09-confidence-routing, 10-ap-review-observability]
 ---
