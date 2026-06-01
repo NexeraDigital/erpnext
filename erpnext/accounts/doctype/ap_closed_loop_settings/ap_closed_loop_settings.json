@@ -32,6 +32,13 @@
   "sod_section",
   "enforce_sod",
   "sod_threshold_amount",
+  "supplier_resolution_section",
+  "supplier_fuzzy_threshold",
+  "supplier_fuzzy_min_length",
+  "enable_gated_supplier_creation",
+  "supplier_resolution_column_break",
+  "supplier_autocreate_confidence_threshold",
+  "supplier_change_approver_role",
   "clearing_accounts_section",
   "credit_card_clearing_account",
   "unmapped_card_spend_account",
@@ -216,6 +223,51 @@
    "fieldname": "sod_threshold_amount",
    "fieldtype": "Float",
    "label": "SoD Threshold Amount"
+  },
+  {
+   "fieldname": "supplier_resolution_section",
+   "fieldtype": "Section Break",
+   "label": "Supplier Resolution (spec 05)"
+  },
+  {
+   "default": "90",
+   "description": "rapidfuzz token_set_ratio cutoff (0-100) for Tier-2 fuzzy matching. A Supplier scoring >= this is a candidate; the cutoff is inclusive.",
+   "fieldname": "supplier_fuzzy_threshold",
+   "fieldtype": "Float",
+   "label": "Supplier Fuzzy Threshold"
+  },
+  {
+   "default": "4",
+   "description": "Minimum candidate length (chars) below which Tier-2 fuzzy matching is skipped (treated as Unknown). Guards short/common-name over-scoring (OD-05-2).",
+   "fieldname": "supplier_fuzzy_min_length",
+   "fieldtype": "Int",
+   "label": "Supplier Fuzzy Min Length"
+  },
+  {
+   "default": "0",
+   "description": "When on, an Unknown supplier with high enough OCR confidence queues a Draft Supplier Master Change Request (Tier 3). Off by default — never auto-creates a Supplier.",
+   "fieldname": "enable_gated_supplier_creation",
+   "fieldtype": "Check",
+   "label": "Enable Gated Supplier Creation"
+  },
+  {
+   "fieldname": "supplier_resolution_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0.85",
+   "description": "OCR supplier-name confidence gate (0-1) for Tier-3. The gated create-request fires only when the extracted supplier confidence is at or above this.",
+   "fieldname": "supplier_autocreate_confidence_threshold",
+   "fieldtype": "Float",
+   "label": "Supplier Auto-create Confidence Threshold"
+  },
+  {
+   "default": "Accounts Manager",
+   "description": "Default approver_role stamped onto new Supplier Master Change Requests. The requester != approver SoD backstop applies regardless.",
+   "fieldname": "supplier_change_approver_role",
+   "fieldtype": "Link",
+   "label": "Supplier Change Approver Role",
+   "options": "Role"
   },
   {
    "fieldname": "clearing_accounts_section",

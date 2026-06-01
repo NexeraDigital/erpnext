@@ -60,9 +60,16 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	STATUS_PENDING_REVIEW,
 	STATUS_PROPOSED,
 	STATUS_UNSUPPORTED,
+	SUPPLIER_MATCH_ALIAS,
 	SUPPLIER_MATCH_AMBIGUOUS,
 	SUPPLIER_MATCH_MATCHED,
 	SUPPLIER_MATCH_UNKNOWN,
+	SUPPLIER_TIER_ALIAS,
+	SUPPLIER_TIER_EXACT,
+	SUPPLIER_TIER_FUZZY,
+	SUPPLIER_TIER_NONE,
+	STREAM_INVOICE,
+	STREAM_RECEIPT,
 	SUPPORTED_EXTENSIONS,
 	VALIDATION_SOURCE_DEFAULT,
 	VALIDATION_STATUS_BLOCKED,
@@ -84,10 +91,13 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	is_ready_for_payment,
 	issue_mock_payment,
 	promote_to_purchase_invoice,
+	queue_supplier_create_request,
 	record_manager_decision,
 	request_approval,
 	run_fake_extraction,
 	validate_for_purchase_invoice,
+	_match_supplier,
+	_resolve_supplier,
 )
 
 EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]
@@ -792,22 +802,49 @@ class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
 	# AC-V1: a supplier_name-only match (autoname is by name, but exact-name path
 	# is the primary contract); guard the helper handles ambiguity.
 	def test_validate_flags_ambiguous_supplier(self):
-		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
-
-		original = mod._match_supplier
-		try:
-			mod._match_supplier = lambda name: (None, SUPPLIER_MATCH_AMBIGUOUS)
-			capture = self._confirmed_capture(
-				"validate-ambiguous.pdf",
-				supplier="Some Shared Name",
+		# Real ambiguity through the 3-tier resolver: two active aliases match the
+		# same candidate but point at different Suppliers (spec 05 §5.3 Tier-1).
+		group = (
+			frappe.db.get_value("Supplier", "_Test Supplier", "supplier_group")
+			or "All Supplier Groups"
+		)
+		token = frappe.generate_hash(length=6)
+		names = []
+		for prefix in ("Alpha", "Beta"):
+			doc = frappe.get_doc(
+				{
+					"doctype": "Supplier",
+					"supplier_name": f"{prefix} {token}",
+					"supplier_group": group,
+					"supplier_type": "Company",
+				}
 			)
-			validate_for_purchase_invoice(capture)
-			capture.reload()
-			self.assertEqual(capture.supplier_match_status, SUPPLIER_MATCH_AMBIGUOUS)
-			self.assertEqual(capture.validation_status, VALIDATION_STATUS_BLOCKED)
-			self.assertIn("ambiguous", capture.validation_result.lower())
-		finally:
-			mod._match_supplier = original
+			doc.insert(ignore_permissions=True)
+			names.append(doc.name)
+		candidate = f"SHARED {token} PMT 7"
+		frappe.get_doc(
+			{
+				"doctype": "AP Supplier Alias",
+				"canonical_supplier": names[0],
+				"alias_pattern": f"SHARED {token}*",
+				"match_type": "glob",
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "AP Supplier Alias",
+				"canonical_supplier": names[1],
+				"alias_pattern": f"SHARED {token} PMT*",
+				"match_type": "glob",
+			}
+		).insert(ignore_permissions=True)
+
+		capture = self._confirmed_capture("validate-ambiguous.pdf", supplier=candidate)
+		validate_for_purchase_invoice(capture)
+		capture.reload()
+		self.assertEqual(capture.supplier_match_status, SUPPLIER_MATCH_AMBIGUOUS)
+		self.assertEqual(capture.validation_status, VALIDATION_STATUS_BLOCKED)
+		self.assertIn("ambiguous", capture.validation_result.lower())
 
 
 class TestAPInvoiceCaptureApproval(IntegrationTestCase):
@@ -2097,3 +2134,286 @@ class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
 		)
 		with self.assertRaises(CapturePromotionError):
 			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+
+
+class TestAPSupplierResolution3Tier(IntegrationTestCase):
+	"""Spec 05 — three-tier supplier resolver, stream branching, Tier-3 gate."""
+
+	def setUp(self):
+		# Pin Fake OCR so the synthetic blank PDF yields a complete deterministic
+		# proposal (spec 01 test-env note); rolled back per-test in tearDown.
+		frappe.db.set_single_value(
+			"AP Closed Loop Settings", "ocr_provider", "Fake (Deterministic)"
+		)
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	# --- helpers ---------------------------------------------------------
+	def _supplier_group(self):
+		return (
+			frappe.db.get_value("Supplier", "_Test Supplier", "supplier_group")
+			or "All Supplier Groups"
+		)
+
+	def _sup(self, name, *, disabled=0):
+		doc = frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": name,
+				"supplier_group": self._supplier_group(),
+				"supplier_type": "Company",
+				"disabled": disabled,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc.name
+
+	def _alias(self, canonical, pattern, match_type="glob", **kw):
+		frappe.get_doc(
+			{
+				"doctype": "AP Supplier Alias",
+				"canonical_supplier": canonical,
+				"alias_pattern": pattern,
+				"match_type": match_type,
+				"is_active": kw.get("is_active", 1),
+				"priority": kw.get("priority", 0),
+			}
+		).insert(ignore_permissions=True)
+
+	def _set(self, field, value):
+		frappe.db.set_single_value("AP Closed Loop Settings", field, value)
+
+	def _confirmed(self, supplier, *, stream=None, confidence=None):
+		f = _make_file(f"res-{frappe.generate_hash(length=6)}.pdf")
+		capture = create_capture_from_file(file_doc=f, source_context="resolver test")
+		run_fake_extraction(capture)
+		capture.reload()
+		confirm_extracted_fields(
+			capture,
+			corrections={"supplier": supplier, "currency": "INR", "total_amount": "100.00"},
+			reviewer="Administrator",
+		)
+		capture.reload()
+		if stream:
+			capture.stream = stream
+		if confidence is not None:
+			capture.proposed_supplier_confidence = confidence
+		return capture
+
+	# --- Tier 1: alias ---------------------------------------------------
+	def test_ac_05_1_tier1_exact(self):
+		sup = self._sup(f"AWS {frappe.generate_hash(length=6)}")
+		self._alias(sup, "Amazon Web Services", match_type="exact")
+		res = _resolve_supplier("Amazon Web Services")
+		self.assertEqual(res["matched_supplier"], sup)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_ALIAS)
+		self.assertEqual(res["confidence"], 100.0)
+		self.assertEqual(res["tier"], SUPPLIER_TIER_ALIAS)
+
+	def test_ac_05_2_tier1_glob(self):
+		sup = self._sup(f"Amazon {frappe.generate_hash(length=6)}")
+		self._alias(sup, "AMZN Mktp US*", match_type="glob")
+		res = _resolve_supplier("AMZN Mktp US*4Z9")
+		self.assertEqual(res["matched_supplier"], sup)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_ALIAS)
+
+	def test_ac_05_3_tier1_regex(self):
+		sup = self._sup(f"Stripe {frappe.generate_hash(length=6)}")
+		self._alias(sup, "^STRIPE.*", match_type="regex")
+		res = _resolve_supplier("STRIPE PAYMENTS")
+		self.assertEqual(res["matched_supplier"], sup)
+		self.assertIn(res["match_status"], (SUPPLIER_MATCH_ALIAS, SUPPLIER_MATCH_MATCHED))
+
+	def test_ac_05_4_tier1_bad_regex_is_safe(self):
+		sup = self._sup(f"Vendor {frappe.generate_hash(length=6)}")
+		self._alias(sup, "(unbalanced", match_type="regex")
+		# Must not raise; falls through to Tier 2 (no such Supplier) -> Unknown.
+		res = _resolve_supplier("(unbalanced")
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_UNKNOWN)
+
+	def test_ac_05_5_tier1_ambiguous(self):
+		a = self._sup(f"AlphaCo {frappe.generate_hash(length=6)}")
+		b = self._sup(f"BetaCo {frappe.generate_hash(length=6)}")
+		self._alias(a, "SHARED*", match_type="glob")
+		self._alias(b, "SHARED PMT*", match_type="glob")
+		res = _resolve_supplier("SHARED PMT 7")
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_AMBIGUOUS)
+		self.assertEqual(set(res["competing"]), {a, b})
+
+	def test_ac_05_6_tier1_inactive_ignored(self):
+		sup = self._sup(f"Ghost {frappe.generate_hash(length=6)}")
+		self._alias(sup, "GHOSTPAY*", match_type="glob", is_active=0)
+		res = _resolve_supplier("GHOSTPAY 0001")
+		self.assertNotEqual(res["match_status"], SUPPLIER_MATCH_ALIAS)
+
+	# --- Tier 2: fuzzy ---------------------------------------------------
+	def test_ac_05_7_tier2_single_hit(self):
+		from rapidfuzz import fuzz
+
+		token = frappe.generate_hash(length=6)
+		name = f"Northwind Traders {token}"
+		sup = self._sup(name)
+		candidate = f"Northwind Trader {token}"
+		self._set("supplier_fuzzy_threshold", 80)
+		expected = float(fuzz.token_set_ratio(candidate, name))
+		res = _resolve_supplier(candidate)
+		self.assertEqual(res["matched_supplier"], sup)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_MATCHED)
+		self.assertEqual(res["tier"], SUPPLIER_TIER_FUZZY)
+		self.assertEqual(res["confidence"], expected)
+
+	def test_ac_05_8_tier2_boundary_inclusive(self):
+		from rapidfuzz import fuzz
+
+		token = frappe.generate_hash(length=6)
+		name = f"Contoso Manufacturing {token}"
+		self._sup(name)
+		candidate = f"Contoso Mfg {token}"
+		score = float(fuzz.token_set_ratio(candidate, name))
+		# Cutoff exactly equal to the score must still match (>= is inclusive).
+		self._set("supplier_fuzzy_threshold", score)
+		res = _resolve_supplier(candidate)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_MATCHED)
+		# And just above the score, it must NOT match.
+		if score < 100:
+			self._set("supplier_fuzzy_threshold", score + 0.5)
+			res2 = _resolve_supplier(candidate)
+			self.assertNotEqual(res2["match_status"], SUPPLIER_MATCH_MATCHED)
+
+	def test_ac_05_9_tier2_multiple(self):
+		token = frappe.generate_hash(length=6)
+		base = f"Globex {token} Trading"
+		a = self._sup(f"{base} Incorporated")
+		b = self._sup(f"{base} Limited")
+		self._set("supplier_fuzzy_threshold", 80)
+		res = _resolve_supplier(base)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_AMBIGUOUS)
+		self.assertEqual(set(res["competing"]), {a, b})
+
+	def test_ac_05_10_tier2_none(self):
+		# A candidate that matches nothing -> Unknown, confidence holds best score seen.
+		self._set("supplier_fuzzy_threshold", 95)
+		candidate = f"Zzqwx Unrelated Vendor {frappe.generate_hash(length=8)}"
+		res = _resolve_supplier(candidate)
+		self.assertEqual(res["match_status"], SUPPLIER_MATCH_UNKNOWN)
+		self.assertEqual(res["tier"], SUPPLIER_TIER_NONE)
+		self.assertLess(res["confidence"], 95)
+
+	def test_ac_05_11_exact_still_wins(self):
+		token = frappe.generate_hash(length=6)
+		name = f"Acme Exact {token}"
+		sup = self._sup(name)
+		# Exact PK name.
+		res_pk = _resolve_supplier(sup)
+		self.assertEqual(res_pk["matched_supplier"], sup)
+		self.assertEqual(res_pk["match_status"], SUPPLIER_MATCH_MATCHED)
+		self.assertEqual(res_pk["tier"], SUPPLIER_TIER_EXACT)
+		# Unique supplier_name.
+		res_name = _resolve_supplier(name)
+		self.assertEqual(res_name["matched_supplier"], sup)
+		self.assertEqual(res_name["tier"], SUPPLIER_TIER_EXACT)
+
+	def test_ac_05_back_compat_match_supplier_tuple(self):
+		token = frappe.generate_hash(length=6)
+		name = f"BackCompat {token}"
+		sup = self._sup(name)
+		matched, status = _match_supplier(name)
+		self.assertEqual((matched, status), (sup, SUPPLIER_MATCH_MATCHED))
+		# Unknown still returns the legacy tuple shape.
+		self.assertEqual(_match_supplier(f"No Vendor {token}"), (None, SUPPLIER_MATCH_UNKNOWN))
+		# A Tier-1 alias hit folds to the legacy "Matched" value.
+		self._alias(sup, "BC-ALIAS*", match_type="glob")
+		self.assertEqual(_match_supplier("BC-ALIAS 99"), (sup, SUPPLIER_MATCH_MATCHED))
+
+	# --- AC-05-12: no-auto-create invariant ------------------------------
+	def test_ac_05_12_no_auto_create_on_any_unknown(self):
+		self._set("supplier_fuzzy_threshold", 95)
+		before = frappe.db.count("Supplier")
+		# (a) Tier-2 zero-hit Unknown.
+		_resolve_supplier(f"Nope Vendor {frappe.generate_hash(length=8)}")
+		self.assertEqual(frappe.db.count("Supplier"), before)
+		# (b) Tier-3 gate OFF + high confidence on a blocked capture.
+		self._set("enable_gated_supplier_creation", 0)
+		cap = self._confirmed(
+			f"Unknown Co {frappe.generate_hash(length=6)}",
+			stream=STREAM_INVOICE,
+			confidence=0.99,
+		)
+		validate_for_purchase_invoice(cap)
+		self.assertEqual(frappe.db.count("Supplier"), before)
+		# (c) Tier-3 gate ON but request only queued (no Supplier yet).
+		self._set("enable_gated_supplier_creation", 1)
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		cap2 = self._confirmed(
+			f"Unknown Two {frappe.generate_hash(length=6)}",
+			stream=STREAM_INVOICE,
+			confidence=0.99,
+		)
+		validate_for_purchase_invoice(cap2)
+		self.assertEqual(frappe.db.count("Supplier"), before)
+
+	# --- AC-05-13 / 14: stream branching ---------------------------------
+	def test_ac_05_13_stream_invoice_blocks_unknown(self):
+		cap = self._confirmed(
+			f"Unknown Inv {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.supplier_match_status, SUPPLIER_MATCH_UNKNOWN)
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_BLOCKED)
+		self.assertEqual(cap.action_required, 1)
+
+	def test_ac_05_14_stream_receipt_soft_unknown(self):
+		vendor = f"Card Vendor {frappe.generate_hash(length=6)}"
+		cap = self._confirmed(vendor, stream=STREAM_RECEIPT)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(cap.supplier_match_status, SUPPLIER_MATCH_UNKNOWN)
+		# Raw vendor string preserved verbatim for the Stream-R JE memo.
+		self.assertEqual(cap.final_supplier, vendor)
+		self.assertIn("Unmapped card spend", cap.validation_result)
+
+	# --- AC-05-15 / 16 / 17: Tier-3 gated creation -----------------------
+	def test_ac_05_15_tier3_gate_off(self):
+		self._set("enable_gated_supplier_creation", 0)
+		cap = self._confirmed(
+			f"Gate Off {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.99
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertFalse(cap.supplier_change_request)
+
+	def test_ac_05_16_tier3_gate_on_confident(self):
+		self._set("enable_gated_supplier_creation", 1)
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		before = frappe.db.count("Supplier")
+		cap = self._confirmed(
+			f"Gate On {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.95
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertTrue(cap.supplier_change_request)
+		req = frappe.get_doc("Supplier Master Change Request", cap.supplier_change_request)
+		self.assertEqual(req.workflow_state, "Draft")
+		self.assertEqual(req.change_type, "Create")
+		# No Supplier created yet.
+		self.assertEqual(frappe.db.count("Supplier"), before)
+
+	def test_ac_05_17_tier3_gate_on_not_confident(self):
+		self._set("enable_gated_supplier_creation", 1)
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		cap = self._confirmed(
+			f"Low Conf {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.50
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertFalse(cap.supplier_change_request)
+
+	# --- queue idempotency (Tier-3 helper) -------------------------------
+	def test_tier3_queue_is_idempotent_per_capture(self):
+		cap = self._confirmed(f"Once {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE)
+		r1 = queue_supplier_create_request(cap.name, "Once Vendor")
+		r2 = queue_supplier_create_request(cap.name, "Once Vendor")
+		self.assertEqual(r1, r2)

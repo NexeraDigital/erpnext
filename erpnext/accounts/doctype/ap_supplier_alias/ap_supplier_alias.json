@@ -1,0 +1,126 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:ALIAS-{#####}",
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Tier-1 deterministic supplier alias: maps a vendor-string pattern (exact / glob / regex) to a canonical Supplier. Curated by Accounts Managers; consumed by the 3-tier resolver in AP Invoice Capture (spec 05). Match precedence is exact > glob > regex, then priority asc, then name asc.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "canonical_supplier",
+  "alias_pattern",
+  "match_type",
+  "column_break_alias",
+  "is_active",
+  "priority",
+  "source_capture",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "canonical_supplier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Canonical Supplier",
+   "options": "Supplier",
+   "reqd": 1
+  },
+  {
+   "description": "The vendor-string pattern to match, e.g. 'AMZN Mktp US*' (glob) or '^STRIPE.*' (regex).",
+   "fieldname": "alias_pattern",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Alias Pattern",
+   "reqd": 1
+  },
+  {
+   "default": "glob",
+   "description": "How alias_pattern is compared to the candidate vendor string.",
+   "fieldname": "match_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Match Type",
+   "options": "exact\nglob\nregex",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_alias",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Inactive aliases never match.",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Is Active"
+  },
+  {
+   "default": "0",
+   "description": "Tie-break when two patterns of the same match_type could match (lower = earlier).",
+   "fieldname": "priority",
+   "fieldtype": "Int",
+   "label": "Priority"
+  },
+  {
+   "description": "Provenance: the capture an approved create-request was born from, when applicable.",
+   "fieldname": "source_capture",
+   "fieldtype": "Link",
+   "label": "Source Capture",
+   "options": "AP Invoice Capture"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Supplier Alias",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

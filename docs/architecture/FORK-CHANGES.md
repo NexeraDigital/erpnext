@@ -898,3 +898,34 @@ bench --site <test-site> run-tests --module erpnext.ai.chat.tests.test_chat     
 # Blast-radius (extend_bootinfo runs on every desk boot):
 bench --site <test-site> run-tests --module erpnext.mcp.tests.test_permissions
 ```
+
+## 16. Spec 05 — Supplier Resolution (3-tier) + Gated Creation
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Fifth slice of the v2 build — see `docs/spec/05-supplier-resolution.md`. All 23 acceptance criteria green this session; **36 new automated tests** pass (alias 8, SMCR 6, capture +19 → **107 OK**, settings +3 → **20 OK**); spec-01/02/03/04 + extractor suites pass unchanged. The Fake OCR provider was pinned for the capture-suite run (spec-01 test-env note), then the site's `Anthropic Claude` provider restored.
+
+Replaces today's single-tier `_match_supplier` with a **three-tier supplier resolver** — deterministic alias table → fuzzy match → **gated** create-new-supplier request — preserving the **never-auto-create** guarantee in every branch, and makes validation **stream-aware**: on **Stream I (Invoice)** an unresolved supplier *blocks* (no payable against an unknown vendor); on **Stream R (Receipt / card spend)** it is a *soft* flag (validation passes, the raw vendor string is preserved verbatim for the downstream Unmapped-Card-Spend JE owned by spec 07).
+
+```
+ erpnext/accounts/doctype/ap_supplier_alias/{__init__,ap_supplier_alias}.py + .json + test_ap_supplier_alias.py | NEW master DocType (Tier 1) — canonical_supplier/alias_pattern/match_type(exact|glob|regex)/is_active/priority/source_capture; AM-curated, AU read; 8 tests
+ erpnext/accounts/doctype/supplier_master_change_request/{__init__,supplier_master_change_request}.py + .json + test_*.py | NEW submittable DocType (Tier 3) — the gated vehicle for supplier-master mutations; controller approve/reject with role gate + requester≠approver SoD + idempotent Supplier insert + capture re-validation; 6 tests
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                 | +/- supplier_match_tier (Select None|Alias|Fuzzy|Exact) + supplier_match_confidence (Float) + supplier_change_request (Link) + proposed_supplier_confidence (Float); supplier_match_status Literal gains "Alias"
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                   | +/- _resolve_supplier (3-tier) + _resolve_alias + _resolve_fuzzy; _match_supplier kept as back-compat shim; queue_supplier_create_request + _maybe_queue_supplier_create (Tier-3); validate_for_purchase_invoice rewritten with stream-aware branching; resolve_supplier_for whitelisted wrapper; _write_extraction_detail derives proposed_supplier_confidence
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- supplier_resolution_section: supplier_fuzzy_threshold(90)/supplier_fuzzy_min_length(4)/enable_gated_supplier_creation(0)/supplier_autocreate_confidence_threshold(0.85)/supplier_change_approver_role(Accounts Manager); get_supplier_resolution_settings() helper; validate() rejects a group/non-existent unmapped_card_spend_account (AC-05-23)
+ test/testplans/supplier-resolution-3tier.md                                         | clean-room runbook
+```
+
+**Resolver tiers (`_resolve_supplier`, spec §5.3):** **Tier 1** queries active `AP Supplier Alias` rows — precedence `exact > glob > regex`, then `priority` asc, then `name` asc; a bad `regex` is caught + logged + skipped (never raises into validation); aliases to a disabled Supplier are ignored; one distinct canonical supplier → `Alias` (confidence 100), >1 distinct → `Ambiguous`. **Tier 2a** preserves the legacy exact behaviour (PK / unique `supplier_name`, tier `Exact`, confidence 100). **Tier 2b** runs `rapidfuzz.fuzz.token_set_ratio` over active Suppliers with the `supplier_fuzzy_threshold` cutoff (inclusive `>=`); a candidate shorter than `supplier_fuzzy_min_length` (default 4) is skipped (Unknown); one hit → `Matched`/`Fuzzy`, >1 → `Ambiguous`, zero → `Unknown` carrying the best score seen. **Tier 3** (in the caller) queues a Draft `Supplier Master Change Request` iff the gate is on **AND** `proposed_supplier_confidence >= supplier_autocreate_confidence_threshold` **AND** no open request exists for the capture — **never** creating a Supplier inline.
+
+**Approval (`approve_supplier_master_change_request`):** doubly gated — `frappe.only_for(approver_role)` (default `Accounts Manager`) **and** a requester≠approver SoD backstop in the controller. For `change_type=Create` it creates the Supplier from an allow-listed `proposed_payload` (keys verified against `supplier.json`: `supplier_name`/`supplier_group`/`supplier_type` + optional `country`/`default_currency`/`tax_id`), idempotently (the `created_supplier` short-circuit + the spec-01 `AP Posting Ledger` `with_idempotency` guard when a capture is linked), sets `created_supplier`, moves the request to `Posted`, auto-seeds an `exact` alias from the vendor string (OD-05-3), and re-runs `validate_for_purchase_invoice` so a blocked Stream-I capture flips `BLOCKED → VALIDATED`. The non-`Create` variants are dispatched here but their bodies (Update Bank Details → a **`Bank Account`** row, not the Supplier master; Payment Terms; Disable) are **owned by specs 08/11**.
+
+**Out of scope (deferred):** the native `Workflow` record (states/transitions/Allowed Roles) for the request DocType and the `Treasury Approver` / `Auditor (Read Only)` roles are owned by [[11-approval-sod-workflow]] — until then the lifecycle is controller-driven via the `workflow_state` Select. No cascade-shape change: the richer resolver runs inside the existing post-confirm validation hop.
+
+### 16.1 Running the spec-05 tests
+```bash
+# Pin Fake OCR first (the capture suite calls run_fake_extraction; spec-01 note):
+#   AP Closed Loop Settings -> OCR Provider = Fake (Deterministic)
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_alias.test_ap_supplier_alias                       # 8
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.supplier_master_change_request.test_supplier_master_change_request  # 6
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                     # 107
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings           # 20
+```

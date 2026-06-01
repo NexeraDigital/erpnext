@@ -3,7 +3,7 @@ spec: 05-supplier-resolution
 title: Supplier Resolution (3-tier) + Gated Creation
 plan_step: Step 4 — Supplier Resolution
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 04-extraction-confidence-line-items]
 related: [00-overview, 02-intake-stream-tagging, 06-gl-coding-tax-costcenter, 07-classification-doctype-branching, 08-validation-gates, 09-confidence-routing, 10-ap-review-observability, 11-approval-sod-workflow]
 ---

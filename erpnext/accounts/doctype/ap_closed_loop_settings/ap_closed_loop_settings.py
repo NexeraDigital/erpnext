@@ -63,16 +63,23 @@ class APClosedLoopSettings(Document):
 		dedupe_enabled: DF.Check
 		dedupe_phash_max_distance: DF.Int
 		dedupe_window_days: DF.Int
+		enable_gated_supplier_creation: DF.Check
 		enforce_sod: DF.Check
 		field_thresholds: DF.JSON | None
 		sod_threshold_amount: DF.Float
 		stream_rules: DF.Table[APStreamRule]
+		supplier_autocreate_confidence_threshold: DF.Float
+		supplier_change_approver_role: DF.Link | None
+		supplier_fuzzy_min_length: DF.Int
+		supplier_fuzzy_threshold: DF.Float
 		unmapped_card_spend_account: DF.Link | None
 	# end: auto-generated types
 
 	def validate(self) -> None:
 		self._validate_ocr_provider_has_credentials()
 		self._validate_confidence_threshold()
+		self._validate_unmapped_card_spend_account()
+		self._validate_supplier_resolution_thresholds()
 
 	def _validate_ocr_provider_has_credentials(self) -> None:
 		"""If the live provider is selected, the Anthropic key must be set on
@@ -98,6 +105,33 @@ class APClosedLoopSettings(Document):
 		threshold = self.ocr_confidence_threshold
 		if threshold and not (0.0 <= threshold <= 1.0):
 			frappe.throw(_("OCR Confidence Threshold must be between 0 and 1."))
+
+	def _validate_unmapped_card_spend_account(self) -> None:
+		"""Fail loudly at config time if the Stream-R suspense account is unusable.
+
+		Card spend can never be silently swallowed: the account must exist and be a
+		postable (non-group) ledger. (AC-05-23.) Empty is allowed — the Stream-R
+		posting step (spec 07) surfaces a missing account at point of use."""
+
+		account = self.unmapped_card_spend_account
+		if not account:
+			return
+		row = frappe.db.get_value("Account", account, ["is_group"], as_dict=True)
+		if not row:
+			frappe.throw(
+				_("Unmapped Card Spend Account {0} does not exist.").format(account)
+			)
+		if row.is_group:
+			frappe.throw(
+				_("Unmapped Card Spend Account {0} is a group account; choose a postable ledger account.").format(
+					account
+				)
+			)
+
+	def _validate_supplier_resolution_thresholds(self) -> None:
+		conf = self.supplier_autocreate_confidence_threshold
+		if conf and not (0.0 <= conf <= 1.0):
+			frappe.throw(_("Supplier Auto-create Confidence Threshold must be between 0 and 1."))
 
 
 def get_promote_defaults() -> dict:
@@ -298,6 +332,73 @@ def get_sod_config() -> dict:
 	except (TypeError, ValueError):
 		threshold = 0.0
 	return {"enforce": enforce, "threshold": threshold}
+
+
+DEFAULT_SUPPLIER_FUZZY_THRESHOLD = 90.0
+DEFAULT_SUPPLIER_FUZZY_MIN_LENGTH = 4
+DEFAULT_SUPPLIER_AUTOCREATE_CONFIDENCE = 0.85
+DEFAULT_SUPPLIER_CHANGE_APPROVER_ROLE = "Accounts Manager"
+
+
+def get_supplier_resolution_settings() -> dict:
+	"""Three-tier supplier resolver configuration (spec 05 §5.1).
+
+	Mirrors get_promote_defaults / get_dedupe_config: reads raw Singles text and
+	coerces with the same blank/non-positive -> default trap. Returns::
+
+	    {
+	        "supplier_fuzzy_threshold": float,      # rapidfuzz cutoff 0-100 (default 90)
+	        "supplier_fuzzy_min_length": int,       # min candidate length for fuzzy (default 4)
+	        "supplier_autocreate_confidence_threshold": float,  # OCR gate 0-1 (default 0.85)
+	        "enable_gated_supplier_creation": bool, # Tier-3 master switch (default False)
+	        "supplier_change_approver_role": str,   # default "Accounts Manager"
+	        "unmapped_card_spend_account": str|None # Stream-R suspense account (default None)
+	    }
+	"""
+
+	stored = _settings()
+
+	def _float(key: str, default: float, *, allow_zero: bool = False) -> float:
+		raw = stored.get(key)
+		try:
+			value = float(raw) if raw not in (None, "") else None
+		except (TypeError, ValueError):
+			value = None
+		if value is None:
+			return default
+		if not allow_zero and value <= 0:
+			return default
+		return value
+
+	raw_min_len = stored.get("supplier_fuzzy_min_length")
+	try:
+		min_len = int(float(raw_min_len)) if raw_min_len not in (None, "") else None
+	except (TypeError, ValueError):
+		min_len = None
+	if min_len is None or min_len < 0:
+		min_len = DEFAULT_SUPPLIER_FUZZY_MIN_LENGTH
+
+	raw_gate = stored.get("enable_gated_supplier_creation")
+	try:
+		gate = bool(int(float(raw_gate))) if raw_gate not in (None, "") else False
+	except (TypeError, ValueError):
+		gate = False
+
+	return {
+		"supplier_fuzzy_threshold": _float(
+			"supplier_fuzzy_threshold", DEFAULT_SUPPLIER_FUZZY_THRESHOLD
+		),
+		"supplier_fuzzy_min_length": min_len,
+		"supplier_autocreate_confidence_threshold": _float(
+			"supplier_autocreate_confidence_threshold",
+			DEFAULT_SUPPLIER_AUTOCREATE_CONFIDENCE,
+			allow_zero=True,
+		),
+		"enable_gated_supplier_creation": gate,
+		"supplier_change_approver_role": stored.get("supplier_change_approver_role")
+		or DEFAULT_SUPPLIER_CHANGE_APPROVER_ROLE,
+		"unmapped_card_spend_account": stored.get("unmapped_card_spend_account") or None,
+	}
 
 
 def _coerce_field_thresholds(raw) -> dict:

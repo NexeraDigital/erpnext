@@ -193,6 +193,23 @@ Still **read-only. Still no real changes to your accounting. The AI still only l
 
 ---
 
+## Update (2026-06-01): matching invoices to the right vendor — without polluting the vendor list
+
+When an invoice arrives, the system reads a vendor *name* off it — but that text rarely matches your vendor list exactly. A card statement says `AMZN Mktp US*4Z9`; your books say `Amazon`. Until now the system did one simple check (exact name match) and, failing that, just stopped and asked a human. This update makes that matching far smarter — and adds a **safety gate** so the system can never quietly create junk vendors.
+
+**Three tries to find the right vendor, in order:**
+1. **A nickname table.** You teach it once — "anything starting with `AMZN Mktp US` is Amazon" — and from then on it matches automatically. (Patterns can be exact text, wildcards, or, for power users, regular expressions; a typo'd pattern is safely ignored, never crashes anything.)
+2. **Fuzzy matching.** If no nickname fits, it compares the invoice's vendor text to your existing vendors and accepts a close-enough match (you set how close). Two equally-close matches? It refuses to guess and flags it.
+3. **A gated "create new vendor" request.** Only if the first two fail *and* you've switched this on *and* the AI is confident about the name, it files a **request** to create the vendor — it does **not** create one. A manager reviews and approves it, and — crucially — **the person who raised the request cannot approve their own** (a basic anti-fraud separation-of-duties rule). Approving it creates the vendor, remembers the nickname for next time, and automatically un-blocks the waiting invoice.
+
+   > Creating vendors with no review is a well-known way for bad or duplicate vendor records (and outright fraud) to creep in, so this gate is deliberate. The system **never** auto-creates a vendor on its own — proven by tests that count vendor records before and after every "unknown vendor" path and confirm the count never moves.
+
+**Bills vs. card receipts are treated differently.** For a normal **bill (Invoice)** you haven't paid yet, an unknown vendor is a hard stop — you should never set up a payable to a vendor you can't identify. For an already-paid **card receipt**, the money's already gone, so an unknown vendor is just a soft note: the receipt still goes through, posting to an "Unmapped Card Spend" account with the original vendor text kept as a memo, and someone tidies up the vendor mapping later — it never holds up the bank-reconciliation clock.
+
+There are **two new behind-the-scenes record types** (a vendor-nickname table and the vendor-change-request) and a handful of new knobs on the settings page (how fuzzy is "close enough", whether the create-vendor gate is on, who approves). It's **invisible and inert unless used** — with the gate off (the default) and no nicknames, it behaves exactly like before, just with the smarter fuzzy match added. The actual approval *workflow screen* and a couple of related request types (changing a vendor's bank details, etc.) come in a later step. 36 more automated tests, all passing (the main capture suite is now 107).
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

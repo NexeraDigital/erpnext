@@ -330,3 +330,57 @@ class TestFoundationGetters(IntegrationTestCase):
 		rules = get_stream_rules()
 		# excludes the disabled (enabled=0) row, ordered by priority asc
 		self.assertEqual([r["pattern"] for r in rules], ["a_*", "c_*"])
+
+
+class TestSupplierResolutionSettings(IntegrationTestCase):
+	"""Spec 05 supplier-resolution settings helper + validation."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set(self, field, value):
+		frappe.db.set_single_value("AP Closed Loop Settings", field, value)
+
+	# AC-05-22: documented defaults on a fresh (blank) settings row.
+	def test_get_supplier_resolution_settings_defaults(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_supplier_resolution_settings,
+		)
+
+		for field in (
+			"supplier_fuzzy_threshold",
+			"supplier_fuzzy_min_length",
+			"supplier_autocreate_confidence_threshold",
+			"enable_gated_supplier_creation",
+			"supplier_change_approver_role",
+			"unmapped_card_spend_account",
+		):
+			self._set(field, None)
+
+		cfg = get_supplier_resolution_settings()
+		self.assertEqual(cfg["supplier_fuzzy_threshold"], 90.0)
+		self.assertEqual(cfg["supplier_autocreate_confidence_threshold"], 0.85)
+		self.assertFalse(cfg["enable_gated_supplier_creation"])
+		self.assertEqual(cfg["supplier_change_approver_role"], "Accounts Manager")
+		self.assertIsNone(cfg["unmapped_card_spend_account"])
+		self.assertEqual(cfg["supplier_fuzzy_min_length"], 4)
+
+	# AC-05-23: an unmapped-card-spend account that is a group is rejected at save.
+	def test_unmapped_account_rejects_group_account(self):
+		group = frappe.db.get_value(
+			"Account", {"is_group": 1, "company": "_Test Company"}, "name"
+		)
+		self.assertTrue(group, "expected at least one group Account in _Test Company")
+		settings = frappe.get_single("AP Closed Loop Settings")
+		settings.ocr_provider = "Fake (Deterministic)"  # avoid the Anthropic-key gate
+		settings.unmapped_card_spend_account = group
+		with self.assertRaises(frappe.ValidationError):
+			settings.save()
+
+	# AC-05-23: a non-existent account is rejected at save.
+	def test_unmapped_account_rejects_nonexistent_account(self):
+		settings = frappe.get_single("AP Closed Loop Settings")
+		settings.ocr_provider = "Fake (Deterministic)"
+		settings.unmapped_card_spend_account = "No Such Account - _ZZ"
+		with self.assertRaises(frappe.ValidationError):
+			settings.save()

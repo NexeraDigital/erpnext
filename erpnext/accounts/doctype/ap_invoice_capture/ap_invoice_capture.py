@@ -50,8 +50,15 @@ OCR_STATUS_NEEDS_CORRECTION = "Needs Correction"
 
 SUPPLIER_MATCH_NOT_VALIDATED = "Not Validated"
 SUPPLIER_MATCH_MATCHED = "Matched"
+SUPPLIER_MATCH_ALIAS = "Alias"
 SUPPLIER_MATCH_UNKNOWN = "Unknown"
 SUPPLIER_MATCH_AMBIGUOUS = "Ambiguous"
+
+# Resolver tier labels (spec 05 §5.1) — which tier produced a match.
+SUPPLIER_TIER_NONE = "None"
+SUPPLIER_TIER_ALIAS = "Alias"
+SUPPLIER_TIER_FUZZY = "Fuzzy"
+SUPPLIER_TIER_EXACT = "Exact"
 
 PURCHASE_REF_NOT_VALIDATED = "Not Validated"
 PURCHASE_REF_NON_PO = "Non-PO / Not Applicable"
@@ -193,6 +200,7 @@ class APInvoiceCapture(Document):
 		proposed_invoice_date: DF.Date | None
 		proposed_missing_fields: DF.SmallText | None
 		proposed_supplier: DF.Data | None
+		proposed_supplier_confidence: DF.Float
 		proposed_supplier_invoice_no: DF.Data | None
 		proposed_total_amount: DF.Float
 		subtotal_amount: DF.Currency
@@ -223,8 +231,11 @@ class APInvoiceCapture(Document):
 		validation_message: DF.SmallText | None
 		matched_supplier: DF.Link | None
 		supplier_match_status: DF.Literal[
-			"Not Validated", "Matched", "Unknown", "Ambiguous"
+			"Not Validated", "Matched", "Alias", "Unknown", "Ambiguous"
 		]
+		supplier_match_tier: DF.Literal["None", "Alias", "Fuzzy", "Exact"]
+		supplier_match_confidence: DF.Float
+		supplier_change_request: DF.Link | None
 		purchase_order_reference: DF.Link | None
 		purchase_receipt_reference: DF.Link | None
 		purchase_reference_status: DF.Literal[
@@ -1208,6 +1219,13 @@ def _write_extraction_detail(
 	if resolved_po:
 		capture.purchase_order_reference = resolved_po
 
+	# (4) Derive the single supplier-name confidence scalar the spec-05 Tier-3 gate
+	# reads (OD-05-4: spec 04 owns the full confidence child table; this is the one
+	# derived float). The extractor keys it as "supplier_name" or "supplier".
+	conf_map = getattr(result, "confidence", None) or {}
+	supplier_conf = conf_map.get("supplier_name", conf_map.get("supplier"))
+	capture.proposed_supplier_confidence = _to_float(supplier_conf)
+
 
 # ---------------------------------------------------------------------------
 # AP Clerk review / confirm / correct
@@ -1555,34 +1573,296 @@ def confirm_extracted_fields_for(
 # ---------------------------------------------------------------------------
 
 
-def _match_supplier(supplier_name: str | None) -> tuple[str | None, str]:
-	"""Match an AP-reviewed supplier name against existing Supplier records.
+_ALIAS_TYPE_PRECEDENCE = {"exact": 0, "glob": 1, "regex": 2}
 
-	Returns ``(matched_name, status)``. Suppliers are never auto-created;
-	an unknown name yields ``(None, Unknown)`` so AP correction is required.
+
+def _resolve_supplier(supplier_name: str | None, *, stream: str | None = None) -> dict:
+	"""Three-tier supplier resolver (spec 05 §5.3). NEVER auto-creates a Supplier.
+
+	Returns ``{matched_supplier, match_status, confidence, tier, alias_id, competing}``.
+	Tier 1 = deterministic alias table (exact > glob > regex); Tier 2 = exact PK /
+	unique supplier_name, then rapidfuzz token_set_ratio; Tier 3 (the gated create
+	request) is fired by the caller ``validate_for_purchase_invoice``, never here.
+	``stream`` is accepted for signature symmetry; branching lives in the caller.
 	"""
 
-	if not supplier_name:
-		return None, SUPPLIER_MATCH_UNKNOWN
+	result = {
+		"matched_supplier": None,
+		"match_status": SUPPLIER_MATCH_UNKNOWN,
+		"confidence": 0.0,
+		"tier": SUPPLIER_TIER_NONE,
+		"alias_id": None,
+		"competing": [],
+	}
 
-	candidate = supplier_name.strip()
+	candidate = (supplier_name or "").strip() or None
 	if not candidate:
-		return None, SUPPLIER_MATCH_UNKNOWN
+		return result
 
+	# Tier 1 — alias (deterministic, highest precedence).
+	alias_hit = _resolve_alias(candidate)
+	if alias_hit is not None:
+		return alias_hit
+
+	# Tier 2a — preserve current exact behaviour (PK then unique supplier_name).
 	if frappe.db.exists("Supplier", candidate):
-		return candidate, SUPPLIER_MATCH_MATCHED
+		result.update(
+			matched_supplier=candidate,
+			match_status=SUPPLIER_MATCH_MATCHED,
+			confidence=100.0,
+			tier=SUPPLIER_TIER_EXACT,
+		)
+		return result
 
 	by_supplier_name = frappe.get_all(
-		"Supplier",
-		filters={"supplier_name": candidate},
-		pluck="name",
+		"Supplier", filters={"supplier_name": candidate}, pluck="name"
 	)
 	if len(by_supplier_name) == 1:
-		return by_supplier_name[0], SUPPLIER_MATCH_MATCHED
+		result.update(
+			matched_supplier=by_supplier_name[0],
+			match_status=SUPPLIER_MATCH_MATCHED,
+			confidence=100.0,
+			tier=SUPPLIER_TIER_EXACT,
+		)
+		return result
 	if len(by_supplier_name) > 1:
-		return None, SUPPLIER_MATCH_AMBIGUOUS
+		result.update(
+			match_status=SUPPLIER_MATCH_AMBIGUOUS,
+			confidence=100.0,
+			competing=by_supplier_name,
+		)
+		return result
 
-	return None, SUPPLIER_MATCH_UNKNOWN
+	# Tier 2b — fuzzy (only if exact found nothing).
+	return _resolve_fuzzy(candidate, result)
+
+
+def _resolve_alias(candidate: str) -> "dict | None":
+	"""Tier 1: match ``candidate`` against active AP Supplier Alias rows.
+
+	Precedence exact > glob > regex, then ``priority`` asc, then ``name`` asc. A bad
+	regex is caught + logged + skipped (never raises into validation; AC-05-4).
+	Aliases pointing at a disabled Supplier are ignored. Returns a resolution dict
+	(Alias / Ambiguous) or ``None`` to fall through to Tier 2.
+	"""
+
+	aliases = frappe.get_all(
+		"AP Supplier Alias",
+		filters={"is_active": 1},
+		fields=["name", "canonical_supplier", "alias_pattern", "match_type", "priority"],
+		order_by="priority asc, name asc",
+	)
+	if not aliases:
+		return None
+
+	matches: list[tuple] = []  # (type_precedence, priority, name, canonical_supplier)
+	disabled_cache: dict[str, bool] = {}
+	for a in aliases:
+		mt = a.match_type or "glob"
+		pattern = a.alias_pattern or ""
+		if not pattern:
+			continue
+		try:
+			if mt == "exact":
+				hit = pattern == candidate
+			elif mt == "regex":
+				hit = re.fullmatch(pattern, candidate) is not None
+			else:  # glob (default)
+				hit = fnmatch.fnmatchcase(candidate, pattern)
+		except re.error:
+			# A malformed regex must never block validation — skip + log.
+			frappe.log_error(
+				title="AP Supplier Alias bad regex",
+				message=f"Skipping alias {a.name} with uncompilable regex {pattern!r}.",
+			)
+			continue
+
+		if not hit:
+			continue
+
+		canonical = a.canonical_supplier
+		if canonical not in disabled_cache:
+			disabled_cache[canonical] = bool(
+				frappe.db.get_value("Supplier", canonical, "disabled")
+			)
+		if disabled_cache[canonical]:
+			continue  # alias points at a disabled Supplier — ignore it
+
+		matches.append((_ALIAS_TYPE_PRECEDENCE.get(mt, 9), a.priority or 0, a.name, canonical))
+
+	if not matches:
+		return None
+
+	distinct_suppliers = {m[3] for m in matches}
+	if len(distinct_suppliers) == 1:
+		matches.sort(key=lambda m: (m[0], m[1], m[2]))
+		best = matches[0]
+		return {
+			"matched_supplier": best[3],
+			"match_status": SUPPLIER_MATCH_ALIAS,
+			"confidence": 100.0,
+			"tier": SUPPLIER_TIER_ALIAS,
+			"alias_id": best[2],
+			"competing": [],
+		}
+
+	# Two active aliases point at different suppliers — ambiguous, do not guess.
+	return {
+		"matched_supplier": None,
+		"match_status": SUPPLIER_MATCH_AMBIGUOUS,
+		"confidence": 100.0,
+		"tier": SUPPLIER_TIER_ALIAS,
+		"alias_id": None,
+		"competing": sorted(distinct_suppliers),
+	}
+
+
+def _resolve_fuzzy(candidate: str, result: dict) -> dict:
+	"""Tier 2b: rapidfuzz ``token_set_ratio`` over active Suppliers (spec 05 §5.3).
+
+	Mutates and returns ``result``. A candidate shorter than the settings
+	``supplier_fuzzy_min_length`` floor is left Unknown (OD-05-2 short-name guard).
+	"""
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_supplier_resolution_settings,
+	)
+
+	cfg = get_supplier_resolution_settings()
+	threshold = cfg["supplier_fuzzy_threshold"]
+	min_length = cfg["supplier_fuzzy_min_length"]
+
+	if len(candidate) < min_length:
+		return result  # too short for reliable fuzzy — stays Unknown, confidence 0
+
+	from rapidfuzz import fuzz
+
+	suppliers = frappe.get_all(
+		"Supplier", filters={"disabled": 0}, fields=["name", "supplier_name"]
+	)
+
+	best_score = 0.0
+	hits: list[tuple[float, str]] = []
+	for s in suppliers:
+		target = s.supplier_name or s.name
+		score = float(fuzz.token_set_ratio(candidate, target))
+		if score > best_score:
+			best_score = score
+		if score >= threshold:
+			hits.append((score, s.name))
+
+	if len(hits) == 1:
+		result.update(
+			matched_supplier=hits[0][1],
+			match_status=SUPPLIER_MATCH_MATCHED,
+			confidence=hits[0][0],
+			tier=SUPPLIER_TIER_FUZZY,
+		)
+		return result
+
+	if len(hits) > 1:
+		hits.sort(reverse=True)
+		result.update(
+			match_status=SUPPLIER_MATCH_AMBIGUOUS,
+			confidence=hits[0][0],
+			competing=[name for _score, name in hits],
+		)
+		return result
+
+	# Zero ≥ threshold — Unknown, but surface the best score seen for observability.
+	result.update(match_status=SUPPLIER_MATCH_UNKNOWN, confidence=best_score)
+	return result
+
+
+def _match_supplier(supplier_name: str | None) -> tuple[str | None, str]:
+	"""Back-compat shim over ``_resolve_supplier`` (spec 05 §5.2).
+
+	Returns the legacy ``(matched_name, status)`` tuple so pre-spec-05 callers and
+	tests stay green. A Tier-1 ``Alias`` hit folds into the legacy ``Matched`` value
+	(legacy callers only know Matched / Unknown / Ambiguous). Suppliers are still
+	never auto-created. Mirrors the ``run_fake_extraction = run_extraction`` alias.
+	"""
+
+	resolution = _resolve_supplier(supplier_name)
+	status = resolution["match_status"]
+	if status == SUPPLIER_MATCH_ALIAS:
+		status = SUPPLIER_MATCH_MATCHED
+	return resolution["matched_supplier"], status
+
+
+def queue_supplier_create_request(
+	capture: "APInvoiceCapture | str", candidate: str, payload: dict | None = None
+) -> str:
+	"""Tier 3: create a Draft Supplier Master Change Request. NEVER creates a Supplier.
+
+	Idempotent on ``(evidence_capture, change_type=Create, open)`` — a second call
+	for a capture that already has an open create-request returns the existing one.
+	Returns the request name.
+	"""
+
+	capture_name = capture if isinstance(capture, str) else capture.name
+
+	existing = frappe.get_all(
+		"Supplier Master Change Request",
+		filters={
+			"evidence_capture": capture_name,
+			"change_type": "Create",
+			"workflow_state": ["in", ["Draft", "Pending Approval", "Approved"]],
+		},
+		pluck="name",
+		limit=1,
+	)
+	if existing:
+		req_name = existing[0]
+	else:
+		payload = payload or {"supplier_name": candidate, "supplier_type": "Company"}
+		req = frappe.get_doc(
+			{
+				"doctype": "Supplier Master Change Request",
+				"change_type": "Create",
+				"requested_supplier_name": candidate,
+				"evidence_capture": capture_name,
+				"proposed_payload": json.dumps(payload),
+			}
+		)
+		req.insert(ignore_permissions=True)
+		req_name = req.name
+
+	# Link the request back onto the capture (spec 05 §5.2). When handed a doc, set
+	# the attribute so the caller's pending save persists it; when handed a name,
+	# write directly (the capture isn't in-flight here).
+	if isinstance(capture, str):
+		frappe.db.set_value(
+			"AP Invoice Capture", capture_name, "supplier_change_request", req_name
+		)
+	else:
+		capture.supplier_change_request = req_name
+	return req_name
+
+
+def _maybe_queue_supplier_create(capture: "APInvoiceCapture", candidate: str | None) -> None:
+	"""Fire Tier-3 iff the gate is on AND OCR supplier confidence clears the bar AND
+	no open create-request already exists for this capture (spec 05 §5.3-Tier-3).
+
+	Passes the in-memory doc so the back-link is set on it (persisted by the
+	validate save that follows), not written behind the pending save."""
+
+	if not candidate or capture.supplier_change_request:
+		return
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_supplier_resolution_settings,
+	)
+
+	cfg = get_supplier_resolution_settings()
+	if not cfg["enable_gated_supplier_creation"]:
+		return
+	confidence = capture.proposed_supplier_confidence or 0.0
+	if confidence < cfg["supplier_autocreate_confidence_threshold"]:
+		return
+
+	payload = {"supplier_name": candidate, "supplier_type": "Company"}
+	queue_supplier_create_request(capture, candidate, payload)
 
 
 def _classify_purchase_reference(po_ref: str | None, pr_ref: str | None) -> str:
@@ -1610,12 +1890,17 @@ def validate_for_purchase_invoice(
 
 	Behavior:
 	* Requires AP-reviewed/final fields confirmed (status == Confirmed).
-	* Matches ``final_supplier`` to an existing Supplier by ``name`` or
-	  ``supplier_name``. Unknown suppliers are flagged, never auto-created.
+	* Resolves ``final_supplier`` via the 3-tier resolver (alias → exact → fuzzy);
+	  records the chosen tier + confidence. Suppliers are never auto-created.
+	* **Stream-aware (spec 05 §5.3):** on Stream I (or unset) an Unknown/Ambiguous
+	  supplier is BLOCKING (no payable against an unknown vendor); on Stream R
+	  (already-paid card spend) it is a SOFT flag — validation still passes, the raw
+	  vendor string is preserved verbatim for the downstream Unmapped-Card-Spend JE.
+	* **Tier 3 (gated creation):** an Unknown supplier on the blocking path may queue
+	  a Draft ``Supplier Master Change Request`` when the gate is on and OCR supplier
+	  confidence clears the bar — still never creating a Supplier inline.
 	* Classifies purchase reference handling explicitly (PO / PR / Non-PO).
-	* Records auditable outcome: ``validation_status``, ``validation_result``,
-	  ``validated_by``, ``validated_at``, ``validation_source``.
-	* Does NOT create a Purchase Invoice; that is a separate promotion call.
+	* Records auditable outcome; does NOT create a Purchase Invoice.
 	"""
 
 	if isinstance(capture, str):
@@ -1630,9 +1915,12 @@ def validate_for_purchase_invoice(
 		)
 
 	final_supplier_value = (capture.final_supplier or "").strip() or None
-	matched_supplier, match_status = _match_supplier(final_supplier_value)
-	capture.matched_supplier = matched_supplier
+	resolution = _resolve_supplier(final_supplier_value, stream=capture.stream)
+	match_status = resolution["match_status"]
+	capture.matched_supplier = resolution["matched_supplier"]
 	capture.supplier_match_status = match_status
+	capture.supplier_match_tier = resolution["tier"]
+	capture.supplier_match_confidence = resolution["confidence"]
 
 	purchase_ref_status = _classify_purchase_reference(
 		capture.purchase_order_reference, capture.purchase_receipt_reference
@@ -1646,18 +1934,29 @@ def validate_for_purchase_invoice(
 		if value in (None, "", 0, 0.0):
 			issues.append(_("Missing reviewed {0}").format(logical_name))
 
-	if match_status == SUPPLIER_MATCH_UNKNOWN:
-		issues.append(
-			_("Supplier '{0}' is unknown — AP correction required (no auto-create).").format(
-				final_supplier_value or ""
+	# Stream-aware supplier branching (spec 05 §5.3). On Stream R an unresolved
+	# supplier is SOFT (OD-05-5: Ambiguous treated like Unknown); everywhere else it
+	# BLOCKS, exactly as the pre-spec-05 behaviour did.
+	supplier_unresolved = match_status in (SUPPLIER_MATCH_UNKNOWN, SUPPLIER_MATCH_AMBIGUOUS)
+	soft_supplier = capture.stream == STREAM_RECEIPT and supplier_unresolved
+	competing = resolution.get("competing") or []
+
+	if supplier_unresolved and not soft_supplier:
+		if match_status == SUPPLIER_MATCH_UNKNOWN:
+			issues.append(
+				_("Supplier '{0}' is unknown — AP correction required (no auto-create).").format(
+					final_supplier_value or ""
+				)
 			)
-		)
-	elif match_status == SUPPLIER_MATCH_AMBIGUOUS:
-		issues.append(
-			_("Supplier '{0}' is ambiguous — multiple existing Suppliers share this name.").format(
-				final_supplier_value or ""
+			# Tier 3 — may queue a gated create request (never creates a Supplier).
+			_maybe_queue_supplier_create(capture, final_supplier_value)
+		else:  # Ambiguous
+			detail = (": " + ", ".join(competing)) if competing else ""
+			issues.append(
+				_(
+					"Supplier '{0}' is ambiguous — multiple existing Suppliers share this name{1}."
+				).format(final_supplier_value or "", detail)
 			)
-		)
 
 	capture.validated_by = actor or frappe.session.user
 	capture.validated_at = now_datetime()
@@ -1667,14 +1966,27 @@ def validate_for_purchase_invoice(
 		capture.validation_status = VALIDATION_STATUS_BLOCKED
 		capture.validation_result = "; ".join(issues)
 		capture.action_required = 1
-		capture.action_required_reason = _("Validation blocked: {0}").format(
-			capture.validation_result
-		)
+		if capture.supplier_change_request:
+			capture.action_required_reason = _("Pending supplier approval (request {0})").format(
+				capture.supplier_change_request
+			)
+		else:
+			capture.action_required_reason = _("Validation blocked: {0}").format(
+				capture.validation_result
+			)
 	else:
 		capture.validation_status = VALIDATION_STATUS_VALIDATED
-		capture.validation_result = _(
-			"Supplier matched: {0}. Purchase reference: {1}."
-		).format(matched_supplier, purchase_ref_status)
+		if soft_supplier:
+			# Stream-R soft path: preserve the raw vendor string verbatim (left on
+			# final_supplier/proposed_supplier) for the Unmapped-Card-Spend JE memo
+			# owned by spec 07; record the warning rather than a matched supplier.
+			capture.validation_result = _(
+				"Unmapped card spend — vendor '{0}' preserved as memo; posting to Unmapped Card Spend."
+			).format(final_supplier_value or "")
+		else:
+			capture.validation_result = _(
+				"Supplier matched: {0}. Purchase reference: {1}."
+			).format(capture.matched_supplier, purchase_ref_status)
 		# Confirmed -> Validated does NOT clear action_required by itself;
 		# the next required action is promotion to Purchase Invoice.
 		capture.action_required = 1
@@ -2335,6 +2647,24 @@ def validate_for_purchase_invoice_for(capture: str, source: str | None = None) -
 	"""Whitelisted entrypoint for the validation step."""
 
 	doc = validate_for_purchase_invoice(capture, source=source)
+	doc._kick_next_step()
+	return doc.name
+
+
+@frappe.whitelist()
+def resolve_supplier_for(capture: str, stream: str | None = None) -> str:
+	"""Form-button wrapper: re-run the 3-tier resolver + validation for a capture.
+
+	``stream`` (string-normalized) overrides the capture's stored stream for this
+	run when provided — letting a reviewer test the Stream-R soft path vs the
+	Stream-I blocking path. Returns the capture name (spec 05 §5.2).
+	"""
+
+	doc = frappe.get_doc("AP Invoice Capture", capture)
+	stream = (stream or "").strip() or None
+	if stream and stream in (STREAM_RECEIPT, STREAM_INVOICE, STREAM_UNCLASSIFIED):
+		doc.stream = stream
+	doc = validate_for_purchase_invoice(doc)
 	doc._kick_next_step()
 	return doc.name
 

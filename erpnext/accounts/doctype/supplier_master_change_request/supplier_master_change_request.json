@@ -1,0 +1,204 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Gated vehicle for supplier-master mutations (spec 05). change_type=Create gates new-Supplier creation on Stream I (no Supplier exists yet to gate, so the request holds the unresolved vendor string); reused by specs 08/11 for Update Bank Details / Payment Terms / Disable. Approval is controller-driven (approve_supplier_master_change_request) with role gate + requester!=approver SoD; the native Workflow record is owned by spec 11.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "is_submittable": 1,
+ "field_order": [
+  "naming_series",
+  "change_type",
+  "requested_supplier_name",
+  "target_supplier",
+  "column_break_req",
+  "workflow_state",
+  "evidence_capture",
+  "requested_by",
+  "approver_role",
+  "payload_section",
+  "proposed_payload",
+  "decision_section",
+  "decision_by",
+  "decision_at",
+  "column_break_dec",
+  "decision_reason",
+  "created_supplier"
+ ],
+ "fields": [
+  {
+   "default": "SMCR-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "SMCR-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "default": "Create",
+   "description": "Which supplier-master mutation this requests.",
+   "fieldname": "change_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Change Type",
+   "options": "Create\nUpdate Bank Details\nUpdate Payment Terms\nDisable",
+   "reqd": 1
+  },
+  {
+   "description": "The unresolved vendor string (Create) / display name for Update/Disable.",
+   "fieldname": "requested_supplier_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Requested Supplier Name"
+  },
+  {
+   "description": "Empty for Create; populated for Update/Disable (and keys the Bank Account row via party for Update Bank Details).",
+   "fieldname": "target_supplier",
+   "fieldtype": "Link",
+   "label": "Target Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "column_break_req",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "description": "Controller-driven lifecycle (the native Workflow record is owned by spec 11).",
+   "fieldname": "workflow_state",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Workflow State",
+   "options": "Draft\nPending Approval\nApproved\nPosted\nRejected",
+   "read_only": 1
+  },
+  {
+   "description": "The originating capture; drives re-validation on Posted.",
+   "fieldname": "evidence_capture",
+   "fieldtype": "Link",
+   "label": "Evidence Capture",
+   "options": "AP Invoice Capture"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "The role permitted to approve (default from AP Closed Loop Settings, then Accounts Manager).",
+   "fieldname": "approver_role",
+   "fieldtype": "Link",
+   "label": "Approver Role",
+   "options": "Role"
+  },
+  {
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Proposed Payload"
+  },
+  {
+   "description": "Allow-listed fields written on approval. Create/Disable: native Supplier fields. Update Bank Details: native Bank Account fields.",
+   "fieldname": "proposed_payload",
+   "fieldtype": "Code",
+   "label": "Proposed Payload",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "decision_section",
+   "fieldtype": "Section Break",
+   "label": "Decision"
+  },
+  {
+   "fieldname": "decision_by",
+   "fieldtype": "Link",
+   "label": "Decision By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "decision_at",
+   "fieldtype": "Datetime",
+   "label": "Decision At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_dec",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "decision_reason",
+   "fieldtype": "Small Text",
+   "label": "Decision Reason"
+  },
+  {
+   "description": "Set after Posted (idempotency + traceability).",
+   "fieldname": "created_supplier",
+   "fieldtype": "Link",
+   "label": "Created Supplier",
+   "options": "Supplier",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "Supplier Master Change Request",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

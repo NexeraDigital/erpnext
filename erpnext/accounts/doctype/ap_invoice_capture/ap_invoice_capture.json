@@ -39,6 +39,7 @@
   "ocr_status",
   "ocr_extracted_at",
   "proposed_supplier",
+  "proposed_supplier_confidence",
   "proposed_supplier_invoice_no",
   "proposed_invoice_date",
   "proposed_total_amount",
@@ -65,6 +66,9 @@
   "validation_section",
   "matched_supplier",
   "supplier_match_status",
+  "supplier_match_tier",
+  "supplier_match_confidence",
+  "supplier_change_request",
   "purchase_order_reference",
   "purchase_receipt_reference",
   "column_break_validation",
@@ -339,6 +343,14 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "description": "Extractor's supplier_name confidence (0-1) at extract time; feeds the Tier-3 gated-creation gate (spec 05). Derived from the field_confidences child table (spec 04).",
+   "fieldname": "proposed_supplier_confidence",
+   "fieldtype": "Float",
+   "label": "Proposed Supplier Confidence",
+   "read_only": 1
+  },
+  {
    "description": "Proposed supplier invoice / receipt number (assistive).",
    "fieldname": "proposed_supplier_invoice_no",
    "fieldtype": "Data",
@@ -513,7 +525,32 @@
    "fieldname": "supplier_match_status",
    "fieldtype": "Select",
    "label": "Supplier Match Status",
-   "options": "Not Validated\nMatched\nUnknown\nAmbiguous",
+   "options": "Not Validated\nMatched\nAlias\nUnknown\nAmbiguous",
+   "read_only": 1
+  },
+  {
+   "default": "None",
+   "description": "Which resolver tier produced the match (audit + observability).",
+   "fieldname": "supplier_match_tier",
+   "fieldtype": "Select",
+   "label": "Supplier Match Tier",
+   "options": "None\nAlias\nFuzzy\nExact",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The Tier-2 fuzzy score (0-100) that drove the match; 100 for a Tier-1 alias / exact hit; best score seen for an Unknown.",
+   "fieldname": "supplier_match_confidence",
+   "fieldtype": "Float",
+   "label": "Supplier Match Confidence",
+   "read_only": 1
+  },
+  {
+   "description": "Back-link to the gated Supplier Master Change Request when Tier-3 queues one.",
+   "fieldname": "supplier_change_request",
+   "fieldtype": "Link",
+   "label": "Supplier Change Request",
+   "options": "Supplier Master Change Request",
    "read_only": 1
   },
   {

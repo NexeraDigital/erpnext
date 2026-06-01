@@ -12,6 +12,16 @@ Covers the four properties the helper must guarantee:
 The DocType-level permission boundary (System Manager only) is tested via
 its own permission test that does not call the helper — keeping concerns
 separate so a permission regression doesn't masquerade as a helper bug.
+
+DESTRUCTIVE-TEST GUARD (do not re-introduce ``frappe.db.commit()``):
+  AI Provider Settings holds the operator's REAL Anthropic/OpenAI API keys on a
+  live/dev site. These tests mutate and clear those password fields. They run
+  entirely inside the IntegrationTestCase transaction and **never commit**, so
+  every mutation is rolled back in ``tearDown`` and a pre-existing, committed key
+  is restored untouched. Committing here would PERMANENTLY ERASE the operator's
+  key (this happened — see git history). ``get_ai_credentials`` reads ``__Auth``
+  on the same DB connection, so it sees uncommitted writes within the test — no
+  commit is needed for the round-trip assertions to pass.
 """
 
 from __future__ import annotations
@@ -31,19 +41,26 @@ _FAKE_KEY = "sk-ant-test-" + "x" * 40  # plausible-looking shape, obviously fake
 _FAKE_OPENAI_KEY = "sk-openai-test-" + "y" * 40
 
 
+def _clear_keys_in_txn() -> None:
+	"""Clear both provider keys WITHIN the test transaction (never committed).
+
+	Gives each test a clean slate; ``tearDown``'s rollback restores whatever the
+	site really had (including a live key) because nothing here is committed.
+	"""
+	remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
+	remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
+
+
 class TestAICredentialsHelper(IntegrationTestCase):
 	"""End-to-end behavior of get_ai_credentials against a real (test) site."""
 
 	def setUp(self) -> None:
-		# Wipe any previously-stored passwords so each test starts clean.
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
-		frappe.db.commit()
+		_clear_keys_in_txn()
 
 	def tearDown(self) -> None:
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
-		frappe.db.commit()
+		# Roll back the whole transaction — restores any real, committed key and
+		# discards every mutation this test made. NEVER commit in this suite.
+		frappe.db.rollback()
 
 	def test_round_trip_anthropic_key(self) -> None:
 		# Arrange: save a key via the document (so encryption happens via the
@@ -53,7 +70,6 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		settings.anthropic_default_model = "claude-haiku-4-5-20251001"
 		settings.anthropic_zdr_enabled = 1
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		# Act
 		creds = get_ai_credentials("anthropic")
@@ -66,7 +82,7 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		self.assertTrue(creds.zdr_enabled)
 
 	def test_raises_when_anthropic_key_not_set(self) -> None:
-		# setUp already cleared the key.
+		# setUp already cleared the key (within the transaction).
 		with self.assertRaises(AICredentialsNotConfigured) as ctx:
 			get_ai_credentials("anthropic")
 
@@ -85,7 +101,6 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		settings.anthropic_api_key = _FAKE_KEY  # stored
 		# openai_api_key intentionally left empty
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		with self.assertRaises(AICredentialsNotConfigured) as ctx:
 			get_ai_credentials("openai")
@@ -112,7 +127,6 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		settings.anthropic_api_key = _FAKE_KEY
 		settings.anthropic_default_model = ""  # explicitly blank
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		creds = get_ai_credentials("anthropic")
 		self.assertIsNone(creds.default_model)
@@ -127,7 +141,6 @@ class TestAICredentialsHelper(IntegrationTestCase):
 		settings.anthropic_zdr_enabled = 1
 		settings.openai_api_key = _FAKE_OPENAI_KEY
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		openai_creds = get_ai_credentials("openai")
 		self.assertEqual(openai_creds.api_key, _FAKE_OPENAI_KEY)
@@ -141,14 +154,10 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 	real stored key with raw asterisks."""
 
 	def setUp(self) -> None:
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
-		frappe.db.commit()
+		_clear_keys_in_txn()
 
 	def tearDown(self) -> None:
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "anthropic_api_key")
-		remove_encrypted_password(SETTINGS_DOCTYPE, SETTINGS_DOCTYPE, "openai_api_key")
-		frappe.db.commit()
+		frappe.db.rollback()
 
 	def test_placeholder_save_with_no_prior_key_does_not_store_anything(self) -> None:
 		"""User opens the form, clicks Save without typing. Frontend echoes
@@ -157,7 +166,6 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 		settings = frappe.get_single(SETTINGS_DOCTYPE)
 		settings.anthropic_api_key = "*" * 30  # simulates desk frontend placeholder
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		with self.assertRaises(AICredentialsNotConfigured):
 			get_ai_credentials("anthropic")
@@ -171,7 +179,6 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 		settings = frappe.get_single(SETTINGS_DOCTYPE)
 		settings.anthropic_api_key = _FAKE_KEY
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		# Step 2: re-fetch the doc and simulate a no-change save where the
 		# frontend has substituted asterisks for the password field
@@ -179,7 +186,6 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 		settings.anthropic_api_key = "*" * 30
 		settings.anthropic_zdr_enabled = 1  # the field the user actually intended to change
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		# Step 3: the real key must still be retrievable
 		creds = get_ai_credentials("anthropic")
@@ -195,7 +201,6 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 		settings = frappe.get_single(SETTINGS_DOCTYPE)
 		settings.anthropic_api_key = mixed_value
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		creds = get_ai_credentials("anthropic")
 		self.assertEqual(creds.api_key, mixed_value)
@@ -207,7 +212,6 @@ class TestPasswordPlaceholderProtection(IntegrationTestCase):
 		settings = frappe.get_single(SETTINGS_DOCTYPE)
 		settings.anthropic_api_key = "•" * 12
 		settings.save(ignore_permissions=True)
-		frappe.db.commit()
 
 		with self.assertRaises(AICredentialsNotConfigured):
 			get_ai_credentials("anthropic")
