@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-010`
+- **Next ID:** `T-011`
 
 **Priority labels.**
 
@@ -59,6 +59,8 @@ _Nothing in progress._
       _(P2 · added 2026-05-31 · ref: docs/planning/mcp-server-NEXT-STEPS.md §3 item 7)_
 - [ ] **T-006** Remove the `.claude/worktrees/mcp-server` gitlink artifact (`git worktree remove`) once the MCP work is merged, so it isn't committed accidentally.
       _(P3 · added 2026-05-31 · ref: docs/planning/mcp-server-NEXT-STEPS.md §3 item 6)_
+- [ ] **T-010** Confirm the Stream-R (already-paid card receipt) posting model with the customer/accounting lead. We are building spec 07 with the **provisional default = Option 1: Purchase Invoice with `is_paid=1`** (decision D-07-1 / gating #1) — chosen for least-custom-code + keeps supplier visible in AP/spend-by-supplier reports. It is **reversible**: the posting is built behind a single `_build_already_paid_voucher()` seam, so switching to a direct Journal Entry or PI+Clearing later is a one-function config change, not a rewrite. Get sign-off (or a different choice) from the customer before go-live; this also informs #2 (Bank Transaction guardrail) for specs 13/14.
+      _(P1 · added 2026-06-01 · ref: docs/spec/07-classification-doctype-branching.md §8 D-07-1; docs/spec/STATUS.md decision #1 · customer decision, not a code blocker)_
 - [ ] **T-009** Consider an extra chat-specific scope-limit control for the AI chat panel — a per-tool `chat_enabled` flag (on `MCP Tool Config`) letting ops restrict the AI's tool surface *more tightly than* a user's own role/permissions. Not a security boundary (Frappe RBAC already binds the chat to the calling user's access); add only if a concrete governance/compliance requirement appears. Cheap to add later, no rework of the chat plan.
       _(P3 · added 2026-05-31 · ref: docs/planning/ai-chat-panel-brief.md; deferred from AI-chat-panel security design discussion)_
 

@@ -22,7 +22,7 @@
 
 Lock these before starting the specs they gate. See each spec's §8 and [[00-overview]] for full options.
 
-- [ ] **#1 — Stream-R posting model** → recommend **PI `is_paid=1`** (vs direct JE vs PI+Clearing). *Gates 07, 13, 14.* — owner: accounting lead
+- [~] **#1 — Stream-R posting model** → **PROVISIONALLY LOCKED = Option C: PI `is_paid=1`** (2026-06-01) for spec-07 build — least custom code, keeps the supplier visible in AP/spend-by-supplier. **Reversible** via the single `_build_already_paid_voucher()` seam (swap to direct JE / PI+Clearing is a one-function change). **Customer sign-off still pending** (see TODO T-010); also informs #2 for 13/14. *Gates 07, 13, 14.* — owner: accounting lead
 - [ ] **#2 — Retire the "no Bank Transaction" guardrail** (+ write the ADR; dual closure `settled`+`bank_cleared`). *Gates 13, 14.*
 - [ ] **#3 — `allow_self_approval` semantics** — verify on the running **v16** instance; app-code SoD backstop regardless. *Gates 11.*
 - [x] **#4 — Confidence-threshold field reconciliation** — **LOCKED (spec 01):** keep `ocr_confidence_threshold` canonical + a `get_confidence_threshold(field)` getter; no second scalar. *Gates 04, 09.*
