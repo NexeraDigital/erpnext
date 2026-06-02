@@ -151,6 +151,8 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	ROOT_CAUSE_POLICY_VIOLATION,
 	REJECTION_ACTION_REJECTED,
 	REJECTION_ACTION_REOPENED,
+	_evaluate_confirm_signals,
+	auto_confirm_extracted_fields_for,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3836,3 +3838,135 @@ class TestAPReviewGate(IntegrationTestCase):
 		self.assertEqual(chart.document_type, "AP Review Event")
 		self.assertEqual(chart.chart_type, "Group By")
 		self.assertEqual(chart.group_by_based_on, "root_cause_tag")
+
+
+class TestAPInvoiceCaptureAutoConfirm(IntegrationTestCase):
+	"""T-015 — confidence-gated auto-confirm (spec 04/09 §5.6).
+
+	The cascade auto-confirms the OCR proposal (skipping the human pause at Proposed)
+	when every mandatory header field cleared its confidence threshold, no validation
+	flag is open, and the opt-in setting is ON. Off by default — escalate the doubtful.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set_auto_confirm(self, on):
+		frappe.db.set_single_value("AP Closed Loop Settings", "auto_confirm_enabled", 1 if on else 0)
+
+	def _proposed(self):
+		"""A capture at Proposed with all 5 mandatory confidences above threshold
+		(the fake extractor scores them 0.95)."""
+		f = _make_file("auto-confirm-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="Auto-confirm test")
+		run_fake_extraction(cap)
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_PROPOSED)
+		return cap
+
+	def _low_conf(self, cap, field_name):
+		for row in cap.field_confidences:
+			if row.field_name == field_name:
+				row.is_above_threshold = 0
+		cap.save()
+		cap.reload()
+
+	# --- evaluator ---------------------------------------------------------
+
+	def test_confirm_signals_clean(self):
+		cap = self._proposed()
+		d = _evaluate_confirm_signals(cap)
+		self.assertTrue(d.fields_ok)
+		self.assertTrue(d.flags_ok)
+
+	def test_confirm_signals_low_confidence(self):
+		cap = self._proposed()
+		self._low_conf(cap, "invoice_date")
+		d = _evaluate_confirm_signals(cap)
+		self.assertFalse(d.fields_ok)
+		self.assertEqual(d.failing_field, "invoice_date")
+
+	def test_confirm_signals_open_flag(self):
+		cap = self._proposed()
+		cap.three_way_match_status = THREE_WAY_MATCH_EXCEPTION
+		cap.save()
+		cap.reload()
+		d = _evaluate_confirm_signals(cap)
+		self.assertFalse(d.flags_ok)
+
+	# --- cascade routing (the hop) ----------------------------------------
+
+	# AC-04-16 / AC-09-15 (routing): clean + ON → the cascade picks the auto-confirm hop.
+	def test_ac_04_16_hop_selected_when_clean(self):
+		cap = self._proposed()
+		self._set_auto_confirm(True)
+		nxt = cap._determine_next_step()
+		self.assertEqual(nxt[0], "auto_confirm_extracted_fields_for")
+
+	# AC-04-17 / AC-09-16 (fail-safe): low confidence → no auto-confirm hop.
+	def test_ac_04_17_failsafe_low_confidence(self):
+		cap = self._proposed()
+		self._low_conf(cap, "currency")
+		self._set_auto_confirm(True)
+		nxt = cap._determine_next_step()
+		self.assertNotEqual((nxt or [None])[0], "auto_confirm_extracted_fields_for")
+
+	# AC-04-18 (fail-safe): open validation flag → no auto-confirm hop.
+	def test_ac_04_18_failsafe_open_flag(self):
+		cap = self._proposed()
+		cap.three_way_match_status = THREE_WAY_MATCH_EXCEPTION
+		cap.save()
+		cap.reload()
+		self._set_auto_confirm(True)
+		nxt = cap._determine_next_step()
+		self.assertNotEqual((nxt or [None])[0], "auto_confirm_extracted_fields_for")
+
+	# AC-04-19 / AC-09-17 (regression): default OFF → still pauses at Proposed.
+	def test_ac_04_19_default_off_pauses(self):
+		cap = self._proposed()
+		self._set_auto_confirm(False)
+		nxt = cap._determine_next_step()
+		self.assertNotEqual((nxt or [None])[0], "auto_confirm_extracted_fields_for")
+
+	# --- the action -------------------------------------------------------
+
+	# AC-04-16 (action): auto-confirm advances to Confirmed with no human + no event.
+	def test_ac_04_16_action_confirms_without_human(self):
+		cap = self._proposed()
+		self._set_auto_confirm(True)
+		events_before = frappe.db.count("AP Review Event", {"capture": cap.name})
+		auto_confirm_extracted_fields_for(cap.name)
+		cap.reload()
+		self.assertEqual(cap.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertIn("Auto-confirmed", cap.review_notes or "")
+		# No field_corrected/coding AP Review Event emitted (auto-confirm is not an escalation).
+		fc = frappe.get_all(
+			"AP Review Event",
+			filters={"capture": cap.name, "action_taken": ["in", ["field_corrected", "coding_completed"]]},
+		)
+		self.assertEqual(len(fc), 0)
+
+	# AC-04-16 (end-to-end): with auto-confirm ON, resuming the cascade from Proposed
+	# auto-advances past the human pause with no human click.
+	def test_ac_04_16_end_to_end_skips_proposed(self):
+		cap = self._proposed()  # built with auto-confirm OFF → parked at Proposed
+		self._set_auto_confirm(True)
+		cap.reload()
+		# The cascade is opt-in under in_test; enable it to drive the auto-confirm hop.
+		frappe.flags.ap_auto_progress_enabled = True
+		try:
+			cap._kick_next_step()
+		finally:
+			frappe.flags.ap_auto_progress_enabled = False
+		cap.reload()
+		self.assertEqual(cap.ocr_status, OCR_STATUS_CONFIRMED)
+		self.assertNotEqual(cap.status, STATUS_PROPOSED)
+
+	# Gate lost after enqueue → the action no-ops (stays at Proposed).
+	def test_action_noops_when_gate_lost(self):
+		cap = self._proposed()
+		self._low_conf(cap, "supplier")  # gate no longer holds
+		self._set_auto_confirm(True)
+		auto_confirm_extracted_fields_for(cap.name)
+		cap.reload()
+		self.assertEqual(cap.ocr_status, OCR_STATUS_PROPOSED)

@@ -1062,3 +1062,24 @@ Turns Step 9 from a silent exception handler into an instrumented **feedback gat
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 185
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_review_event.test_ap_review_event          # 4
 ```
+
+## 22. T-015 — Confidence-gated auto-confirm (the #1 automation lever)
+
+> **Status (2026-06-02):** implemented + tested on `russ/migrateToV16`. First **automation-first** slice off the 2026-06-02 re-vision — builds the planned auto-confirm ACs in specs 04 §5.6 + 09 §5.6. **10 new tests** (capture suite 185 → **195 OK**, skipped=1); zero regressions (default OFF).
+
+The whole pipeline already auto-advances the common case **except** the OCR-confirm pause: every capture stopped at `Proposed` for a human to confirm the OCR proposal **regardless of confidence**, so 100% of documents touched a human at least once. This closes that gap: when opted in, a clean+confident extraction auto-confirms and flows on — only the doubtful ones pause.
+
+```
+ erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- auto_confirm_enabled Check (default OFF) + is_auto_confirm_enabled()
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _confidence_fields_ok (shared confidence axis, extracted from _evaluate_routing_signals — one copy of the gate) + _evaluate_confirm_signals (ConfirmDecision; fields_ok + residual-gate flags_ok, no amount axis); _determine_next_step Step 1a auto-confirm hop; auto_confirm_extracted_fields_for wrapper (re-checks the gate, suppresses the AP Review Event); confirm_extracted_fields gains emit_event param
+ docs/architecture/AP-CAPTURE-SEQUENCE.md + .png | new Step 1a auto-confirm branch at the OCR-review pause
+```
+
+**The gate (OCR-confirm seam).** Reuses the approval evaluator's confidence axis (`_confidence_fields_ok` — all mandatory `field_confidences` rows `is_above_threshold`, fail-closed on a missing row) but **no amount axis** (no posting/authorization decision at confirm time) and a confirm-appropriate flags check (the spec-08 residual-gate guard — validation hasn't run yet at `Proposed`). On pass → auto-calls the existing `confirm_extracted_fields` with no corrections and no human; on any fail (low/missing confidence, open flag, or setting OFF) → falls back to the shipped `Proposed` human pause. **Auto-confirm emits no AP Review Event** — it is the opposite of an escalation, so it must not pollute the spec-10 root-cause report that measures *avoidable* human work.
+
+**Default OFF.** `auto_confirm_enabled` ships `0`; the cascade is byte-for-byte unchanged until a site opts in (the pilot turns it on). The slice ticks AC-04-16..19 and AC-09-15..17 (previously "planned").
+
+### 22.1 Running the T-015 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 195
+```

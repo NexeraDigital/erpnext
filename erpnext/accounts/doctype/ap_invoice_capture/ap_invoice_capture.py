@@ -535,6 +535,28 @@ class APInvoiceCapture(Document):
 		):
 			return ("run_fake_extraction_for", "auto: post-intake OCR")
 
+		# Step 1a (spec 04/09 §5.6, T-015): confidence-gated auto-confirm. A freshly
+		# extracted capture normally pauses at Proposed for a human to confirm the OCR
+		# proposal. When auto-confirm is opted in AND every mandatory header field
+		# cleared its confidence threshold AND no validation flag is open, skip that
+		# pause and auto-confirm — escalate only the doubtful. Gated last so the
+		# settings read is skipped entirely when the cheap state checks miss.
+		if (
+			self.status == STATUS_PROPOSED
+			and self.ocr_status == OCR_STATUS_PROPOSED
+		):
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				is_auto_confirm_enabled,
+			)
+
+			if is_auto_confirm_enabled():
+				decision = _evaluate_confirm_signals(self)
+				if decision.fields_ok and decision.flags_ok:
+					return (
+						"auto_confirm_extracted_fields_for",
+						"auto: confidence-gated auto-confirm",
+					)
+
 		# Step 1b (spec 07): Confirmed OCR, not yet classified → Step-6 classification.
 		# Runs before validation so the doctype fork is decided first. A clerk override
 		# is honoured (re-classify supersedes); an Employee/Manual-Review outcome parks
@@ -1456,6 +1478,7 @@ def confirm_extracted_fields(
 	reviewer: str | None = None,
 	notes: str | None = None,
 	save: bool = True,
+	emit_event: bool = True,
 ) -> "APInvoiceCapture":
 	"""Record an AP clerk's review of an OCR proposal.
 
@@ -1522,29 +1545,33 @@ def confirm_extracted_fields(
 		capture.action_required = 0
 		capture.action_required_reason = None
 
-	# Spec 10 instrumentation: one AP Review Event per confirm action. Header field
-	# change → field_corrected; clerk-supplied GL coding with no header change →
-	# coding_completed (decision D-7). Telemetry never blocks the clerk action.
-	_changed = {
-		logical: {"from": _final_before.get(logical), "to": capture.get(final_field)}
-		for logical, _proposed, final_field in MANDATORY_HEADER_FIELDS
-		if _final_before.get(logical) != capture.get(final_field)
-	}
-	_coding_supplied = any(k in corrections for k in ("cost_center", "expense_account"))
-	_action = (
-		REVIEW_ACTION_CODING_COMPLETED
-		if (_coding_supplied and not _changed)
-		else REVIEW_ACTION_FIELD_CORRECTED
-	)
-	_safe_emit_review_event(
-		capture,
-		action_taken=_action,
-		root_cause_tag=ROOT_CAUSE_EXTRACTION_MISS,
-		exception_reason_code="ocr_review",
-		fields_changed=_changed or None,
-		note=notes,
-		clerk=reviewer or frappe.session.user,
-	)
+	# Spec 10 instrumentation: one AP Review Event per HUMAN confirm action. Header
+	# field change → field_corrected; clerk-supplied GL coding with no header change →
+	# coding_completed (decision D-7). Telemetry never blocks the action. Suppressed on
+	# the confidence-gated auto-confirm path (emit_event=False) — an auto-confirm is the
+	# opposite of an escalation (no human acted), so it must not pollute the spec-10
+	# root-cause report that measures avoidable human work.
+	if emit_event:
+		_changed = {
+			logical: {"from": _final_before.get(logical), "to": capture.get(final_field)}
+			for logical, _proposed, final_field in MANDATORY_HEADER_FIELDS
+			if _final_before.get(logical) != capture.get(final_field)
+		}
+		_coding_supplied = any(k in corrections for k in ("cost_center", "expense_account"))
+		_action = (
+			REVIEW_ACTION_CODING_COMPLETED
+			if (_coding_supplied and not _changed)
+			else REVIEW_ACTION_FIELD_CORRECTED
+		)
+		_safe_emit_review_event(
+			capture,
+			action_taken=_action,
+			root_cause_tag=ROOT_CAUSE_EXTRACTION_MISS,
+			exception_reason_code="ocr_review",
+			fields_changed=_changed or None,
+			note=notes,
+			clerk=reviewer or frappe.session.user,
+		)
 
 	if save:
 		capture.save()
@@ -1795,6 +1822,28 @@ def confirm_extracted_fields_for(
 	else:
 		parsed = corrections or None
 	doc = confirm_extracted_fields(capture, corrections=parsed, notes=notes)
+	doc._kick_next_step()
+	return doc.name
+
+
+@frappe.whitelist()
+def auto_confirm_extracted_fields_for(capture: str) -> str:
+	"""Cascade entrypoint for confidence-gated auto-confirm (spec 04/09 §5.6, T-015).
+
+	Promotes the OCR proposal to final with NO corrections and NO human, when the
+	confirm-seam gate has already passed in ``_determine_next_step``. Re-checks the
+	gate defensively (a concurrent edit could have changed state) and falls back to
+	the human pause if it no longer holds. Suppresses the spec-10 AP Review Event —
+	an auto-confirm is not an escalation. Resumes the cascade."""
+
+	doc = frappe.get_doc("AP Invoice Capture", capture)
+	decision = _evaluate_confirm_signals(doc)
+	if not (decision.fields_ok and decision.flags_ok):
+		# Lost the gate since enqueue — leave it at the human pause; do not auto-confirm.
+		return doc.name
+	doc = confirm_extracted_fields(
+		doc, notes=_("Auto-confirmed (confidence-gated, T-015)"), emit_event=False
+	)
 	doc._kick_next_step()
 	return doc.name
 
@@ -3825,6 +3874,47 @@ def _residual_gate_flag(capture: "APInvoiceCapture") -> "str | None":
 	return None
 
 
+def _confidence_fields_ok(capture: "APInvoiceCapture") -> "tuple[bool, str | None]":
+	"""The shared confidence axis — every mandatory header field is above threshold.
+
+	Used by BOTH the approval seam (``_evaluate_routing_signals``) and the OCR-confirm
+	seam (``_evaluate_confirm_signals``) so there is **one** copy of the gate (spec 09
+	§5.6). A *populated* ``field_confidences`` table with a missing or below-threshold
+	mandatory row **fails closed** (returns the field name). An **empty** table (no
+	extraction confidence at all — e.g. a manually built capture) degrades to pass.
+	"""
+
+	rows = capture.get("field_confidences") or []
+	if not rows:
+		return True, None
+	by_name = {row.field_name: row for row in rows}
+	for logical_name, _proposed, _final in MANDATORY_HEADER_FIELDS:
+		row = by_name.get(logical_name)
+		if row is None or not row.is_above_threshold:
+			return False, logical_name
+	return True, None
+
+
+ConfirmDecision = namedtuple("ConfirmDecision", ["fields_ok", "flags_ok", "failing_field", "failing_flag"])
+
+
+def _evaluate_confirm_signals(capture: "APInvoiceCapture") -> ConfirmDecision:
+	"""Pure read of the OCR-confirm seam gate (spec 04/09 §5.6, T-015). No writes.
+
+	Whether a freshly-extracted capture is clean+confident enough to auto-confirm the
+	OCR proposal and skip the human pause at ``Proposed``. Same ``fields_ok`` confidence
+	logic as the approval seam (shared ``_confidence_fields_ok``) but **no amount axis**
+	(there is no posting/authorization decision at confirm time) and a confirm-appropriate
+	``flags_ok``: validation has not run yet at ``Proposed``, so the flag check is the
+	residual spec-08 gate guard only (normally clean here; catches an edge state). Any
+	failure → fall back to the human review pause (escalate only the doubtful).
+	"""
+
+	fields_ok, failing_field = _confidence_fields_ok(capture)
+	failing_flag = _residual_gate_flag(capture)
+	return ConfirmDecision(fields_ok, failing_flag is None, failing_field, failing_flag)
+
+
 def _evaluate_routing_signals(
 	capture: "APInvoiceCapture", threshold: float | None = None, source: str | None = None
 ) -> RoutingDecision:
@@ -3832,11 +3922,8 @@ def _evaluate_routing_signals(
 
 	* ``amount_ok`` — ``final_total_amount <= resolved auto_post_amount_threshold``.
 	* ``fields_ok`` — every ``MANDATORY_HEADER_FIELDS`` confidence row is above
-	  threshold (spec 04's pre-computed ``is_above_threshold``; decision D-8). A
-	  *populated* confidence table with a missing or below-threshold mandatory row
-	  **fails closed** (``failing_field`` names it). An **empty** table (no
-	  extraction confidence at all — e.g. a manually built capture) degrades to
-	  pass, so non-extracted captures route on amount/flags exactly as before.
+	  threshold (spec 04's pre-computed ``is_above_threshold``; decision D-8), via the
+	  shared ``_confidence_fields_ok``.
 	* ``flags_ok`` — ``validation_status == Validated`` AND no residual hard spec-08
 	  gate failure (``failing_flag`` names the first one).
 	"""
@@ -3845,17 +3932,7 @@ def _evaluate_routing_signals(
 	amount = float(capture.final_total_amount or 0.0)
 	amount_ok = amount <= resolved_threshold
 
-	rows = capture.get("field_confidences") or []
-	fields_ok = True
-	failing_field = None
-	if rows:
-		by_name = {row.field_name: row for row in rows}
-		for logical_name, _proposed, _final in MANDATORY_HEADER_FIELDS:
-			row = by_name.get(logical_name)
-			if row is None or not row.is_above_threshold:
-				fields_ok = False
-				failing_field = logical_name
-				break
+	fields_ok, failing_field = _confidence_fields_ok(capture)
 
 	flags_ok = capture.validation_status == VALIDATION_STATUS_VALIDATED
 	failing_flag = None

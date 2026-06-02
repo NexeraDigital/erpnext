@@ -25,6 +25,7 @@
   "thresholds_section",
   "field_thresholds",
   "auto_post_amount_threshold",
+  "auto_confirm_enabled",
   "dedupe_section",
   "dedupe_enabled",
   "dedupe_window_days",
@@ -188,6 +189,13 @@
    "fieldname": "auto_post_amount_threshold",
    "fieldtype": "Float",
    "label": "Auto-Post Amount Threshold"
+  },
+  {
+   "default": "0",
+   "description": "Confidence-gated auto-confirm (spec 04/09 §5.6 / T-015). When ON, a freshly-extracted capture whose every mandatory header field cleared its confidence threshold and has no open validation flag is auto-confirmed by the cascade — skipping the human OCR-review pause at Proposed. OFF by default: behaviour is byte-for-byte unchanged until a site opts in. Any low/missing confidence or open flag falls back to the human pause (escalate only the doubtful).",
+   "fieldname": "auto_confirm_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Confidence-Gated Auto-Confirm"
   },
   {
    "collapsible": 1,

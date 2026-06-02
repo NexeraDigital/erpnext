@@ -3,7 +3,7 @@
 > Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-06-01 (spec 10).
+> Last derived from code: 2026-06-02 (T-015 auto-confirm).
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
@@ -59,11 +59,15 @@ sequenceDiagram
     Q->>OCR: run_extraction()
     OCR->>Set: get_ocr_config() (provider / model / thresholds)
     OCR-->>Cap: proposed_* + line_items + field_confidences (per-field scores),<br/>subtotal/tax, status=Proposed
-    Note over Cap,Clerk: ⏸ PAUSE — human OCR review
-    Note over Clerk,Cap: spec 10 — at any review pause a clerk may reject_capture (→ Rejected,<br/>terminal-quiet, logged) or reopen_capture (→ restore prior stage).<br/>Every review action emits one AP Review Event (root-cause tagged).
-
-    Clerk->>Cap: confirm_extracted_fields() (+ corrections)
-    Cap->>Cap: proposed_* → final_*, ocr_status=Confirmed
+    alt Step 1a — auto_confirm_enabled AND all mandatory fields confident AND no open flag (spec 04/09, T-015)
+        Q->>Cap: auto_confirm_extracted_fields_for() — NO human, NO AP Review Event
+        Cap->>Cap: proposed_* → final_*, ocr_status=Confirmed (auto)
+    else low confidence / open flag / opt-out (default OFF)
+        Note over Cap,Clerk: ⏸ PAUSE — human OCR review
+        Note over Clerk,Cap: spec 10 — at any review pause a clerk may reject_capture (→ Rejected,<br/>terminal-quiet, logged) or reopen_capture (→ restore prior stage).<br/>Every review action emits one AP Review Event (root-cause tagged).
+        Clerk->>Cap: confirm_extracted_fields() (+ corrections)
+        Cap->>Cap: proposed_* → final_*, ocr_status=Confirmed
+    end
     Cap->>Q: _kick_next_step()
 
     Note over Q,Cap: Step 1b — document-type classification (spec 07)
@@ -157,6 +161,13 @@ sequenceDiagram
   failure (recorded-only on Stream R). The bank-change gate **re-asserts inside
   `promote_to_purchase_invoice`**, so a bank change made *after* a clean validation
   still blocks promotion until an approved Update-Bank-Details request lifts it.
+- **Confidence-gated auto-confirm (T-015 — automation-first).** Step 1a: when
+  `auto_confirm_enabled` is on AND every mandatory header field cleared its confidence
+  threshold AND no validation flag is open, the cascade auto-confirms the OCR proposal
+  (`auto_confirm_extracted_fields_for`) with no human and no AP Review Event — skipping
+  the `Proposed` pause. Default OFF (opt-in). Any low/missing confidence or open flag
+  falls back to the human review pause — escalate only the doubtful. This is the lever
+  that turns "every document needs a human once" into "only the doubtful ones do."
 - **AP review + instrumentation (spec 10).** Reject/reopen are explicit clerk
   actions (not auto-cascade hops): `reject_capture` sets `status = Rejected`
   (terminal-quiet, `action_required = 0`, excluded from `_determine_next_step`) with

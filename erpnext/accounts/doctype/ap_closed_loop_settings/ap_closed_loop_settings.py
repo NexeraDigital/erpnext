@@ -69,6 +69,7 @@ class APClosedLoopSettings(Document):
 		ocr_max_file_mb: DF.Int
 		ocr_force_reextract: DF.Check
 		auto_post_amount_threshold: DF.Float
+		auto_confirm_enabled: DF.Check
 		credit_card_clearing_account: DF.Link | None
 		dedupe_enabled: DF.Check
 		dedupe_phash_max_distance: DF.Int
@@ -236,6 +237,21 @@ def get_auto_post_threshold() -> float:
 	except (TypeError, ValueError):
 		value = 0.0
 	return value if value > 0 else DEFAULT_AUTO_POST_THRESHOLD
+
+
+def is_auto_confirm_enabled() -> bool:
+	"""Whether confidence-gated auto-confirm is opted in (spec 04/09 §5.6, T-015).
+
+	Default OFF — a blank/unset value means the cascade keeps pausing at Proposed for
+	a human, exactly as shipped, until a site turns this on."""
+
+	raw = _settings().get("auto_confirm_enabled")
+	if raw in (None, ""):
+		return False
+	try:
+		return bool(int(float(raw)))
+	except (TypeError, ValueError):
+		return False
 
 
 def get_routing_config() -> dict:
