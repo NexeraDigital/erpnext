@@ -360,7 +360,10 @@ class TestSupplierResolutionSettings(IntegrationTestCase):
 		cfg = get_supplier_resolution_settings()
 		self.assertEqual(cfg["supplier_fuzzy_threshold"], 90.0)
 		self.assertEqual(cfg["supplier_autocreate_confidence_threshold"], 0.85)
-		self.assertFalse(cfg["enable_gated_supplier_creation"])
+		# T-018 (automation-first): gated supplier auto-create now defaults ON — an
+		# unset value coerces to True so confident, high-threshold names flow through
+		# (the confidence gate is the real guard; creation stays gated behind it).
+		self.assertTrue(cfg["enable_gated_supplier_creation"])
 		self.assertEqual(cfg["supplier_change_approver_role"], "Accounts Manager")
 		self.assertIsNone(cfg["unmapped_card_spend_account"])
 		self.assertEqual(cfg["supplier_fuzzy_min_length"], 4)
