@@ -1193,3 +1193,24 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 217
 ```
+
+## 29. Spec 14 — Closure & Audit Trail (pilot: audit composite, flag-only retention, TB-drift report)
+
+> **Status (2026-06-02):** implemented + tested (**pilot scope — 7/16 ACs**; richer ACs deferred to TODO T-019..T-022). 14th spec. **6 new tests** (`TestAPClosureAudit`) (capture suite 217 → **223 OK**); zero regressions. Dual-signal closure itself landed in §28 (spec 13).
+
+"Closure is **derived, not declared**, and audit-readiness costs no routine human effort." There is **no human 'mark closed' step** — `payment_lifecycle_status` flips passively to `Bank Cleared` the moment `settled AND bank_cleared` agree (re-derived each time evidence is built). The audit trail, retention flag, and TB-drift report are **automated outputs**; a human is pulled in only for a surfaced exception.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | + build_audit_trail_for (closure evidence + Frappe Version field-level history) + build_audit_trail_for_capture (whitelisted) + AP_RETENTION_YEARS=7 + enforce_retention_policy (flag-only 7-year IRS scan — logs, NEVER deletes); reject_capture now saves ignore_version=False (audit Version always written — v16 in_test parity)
+ erpnext/accounts/report/accounts_payable_trial_balance_drift/* | + pilot "Accounts Payable Trial Balance Drift" Query Report (current AP-control-account GL balances; PCV-snapshot drift comparison deferred — T-020)
+ erpnext/hooks.py | + scheduler_events["monthly"] → enforce_retention_policy
+```
+
+**v16 versioning note.** Frappe v16 defaults `ignore_version = frappe.in_test` (`frappe/model/document.py:537`), so Version rows are suppressed under `bench run-tests`. This broke three pre-existing version-dependent tests (`test_ac_10_5_reject_writes_version`, `test_ac_08_16*` bank-change detection) on a clean tree. Fixed by forcing `ignore_version=False` where the audit Version is semantically required: in `reject_capture` (code — a no-op in production) and on the Bank-Account mutation in the two bank-change tests (test-local — mirrors the production write the detector diffs against).
+
+**Pilot scope.** Built: dual-signal closure (spec 13), `build_audit_trail_for` composite, flag-only 7-year retention (no-delete), pilot TB-drift report. Deferred (TODO T-019..T-022): rich `bank_match` sub-fields, blocked-lifecycle/Stream-R assertions, PCV-snapshot TB-drift, Notification/`archive_pending` retention + config `retention_years`, and the `AP Audit Trail` print format.
+
+### 29.1 Running the spec-14 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 223 OK
+```

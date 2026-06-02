@@ -3887,7 +3887,12 @@ def reject_capture(
 	)
 
 	if save:
-		capture.save()
+		# Reject is an audit-critical action: the rejection must always leave a
+		# Version row. Frappe v16 defaults ``ignore_version=True`` under
+		# ``frappe.in_test`` (document.py), which would suppress that audit trail in
+		# tests; force it on so the reject Version is written in every context
+		# (a no-op in production, where in_test is already False).
+		capture.save(ignore_version=False)
 	return capture
 
 
@@ -4725,6 +4730,76 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 			"closed flag is stored — both signals are re-derived from native state."
 		),
 	}
+
+
+def build_audit_trail_for(capture: "APInvoiceCapture | str") -> dict:
+	"""Single-record audit retrieval (spec 14): the full audit chain in one composite.
+
+	Assembles the live closure evidence (image → OCR → validation → gates → approval →
+	payment → bank-match → dual-signal closure) PLUS the Frappe ``Version`` field-level
+	history (who changed what, when) into one dict — the basis for the ``AP Audit Trail``
+	print format. Read-only; nothing is stored."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	evidence = build_closure_evidence(capture)
+
+	history: list[dict] = []
+	for v in frappe.get_all(
+		"Version",
+		filters={"ref_doctype": "AP Invoice Capture", "docname": capture.name},
+		fields=["name", "owner", "creation", "data"],
+		order_by="creation asc",
+	):
+		try:
+			changed = (json.loads(v.data or "{}")).get("changed", [])
+		except (ValueError, TypeError):
+			changed = []
+		history.append(
+			{
+				"version": v.name,
+				"by": v.owner,
+				"at": v.creation,
+				"changes": [
+					{"field": c[0], "from": c[1], "to": c[2]} for c in changed if c and len(c) >= 3
+				],
+			}
+		)
+
+	return {**evidence, "history": history, "history_count": len(history)}
+
+
+@frappe.whitelist()
+def build_audit_trail_for_capture(capture: str) -> dict:
+	"""Whitelisted single-record audit retrieval (spec 14)."""
+
+	return build_audit_trail_for(capture)
+
+
+AP_RETENTION_YEARS = 7  # IRS record-retention window (spec 14)
+
+
+def enforce_retention_policy() -> dict:
+	"""Flag-only 7-year retention scan (spec 14) — IRS; NEVER deletes.
+
+	Identifies captures whose ``received_at`` is older than the ``AP_RETENTION_YEARS``
+	IRS window so a human can review them for archival. Deliberately does **not**
+	delete or modify any record — retention here is a *reporting* signal, not a purge.
+	Returns ``{"cutoff": <date>, "past_retention": <count>}``. Scheduler entry (monthly)."""
+
+	cutoff = add_to_date(today(), years=-AP_RETENTION_YEARS)
+	past = frappe.get_all(
+		"AP Invoice Capture",
+		filters={"received_at": ["<", cutoff]},
+		pluck="name",
+	)
+	if past:
+		frappe.logger("ap_retention").info(
+			"AP retention scan: {0} capture(s) past the {1}-year IRS window (cutoff {2}); "
+			"flagged for review, none deleted.".format(len(past), AP_RETENTION_YEARS, cutoff)
+		)
+	return {"cutoff": cutoff, "past_retention": len(past)}
 
 
 def get_ap_lifecycle_rows() -> list[dict]:

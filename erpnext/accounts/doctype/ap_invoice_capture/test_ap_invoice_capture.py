@@ -9,7 +9,7 @@ import unittest
 
 import frappe
 from frappe.tests import IntegrationTestCase
-from frappe.utils import add_to_date, flt, getdate, now_datetime
+from frappe.utils import add_to_date, flt, getdate, now_datetime, today
 from pypdf import PdfWriter
 
 try:
@@ -158,6 +158,8 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	resolve_approver_role,
 	reconcile_bank_for,
 	PAYMENT_LIFECYCLE_BANK_CLEARED,
+	build_audit_trail_for,
+	enforce_retention_policy,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3342,9 +3344,12 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 		bank, ba = self._bank_setup(supplier)
 		self._submit_pe(supplier)  # anchor
 		# Mutate a watched field AFTER the payment -> Version row written.
+		# Frappe v16 defaults ignore_version=True under frappe.in_test, which would
+		# suppress the Bank Account Version the change-detector diffs against; force
+		# it on so the test mirrors production (where in_test is False).
 		ba_doc = frappe.get_doc("Bank Account", ba)
 		ba_doc.iban = "DE89370400440532013000"
-		ba_doc.save(ignore_permissions=True)
+		ba_doc.save(ignore_permissions=True, ignore_version=False)
 		self.assertTrue(
 			frappe.db.exists("Version", {"ref_doctype": "Bank Account", "docname": ba})
 		)
@@ -3382,10 +3387,12 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 		cap.reload()
 		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
 		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
-		# Fraudster changes the bank AFTER validation.
+		# Fraudster changes the bank AFTER validation. (Force versioning so the
+		# detector has a Bank Account Version to diff against under v16 in_test —
+		# see test_ac_08_16 above.)
 		ba_doc = frappe.get_doc("Bank Account", ba)
 		ba_doc.iban = "DE89370400440532013000"
-		ba_doc.save(ignore_permissions=True)
+		ba_doc.save(ignore_permissions=True, ignore_version=False)
 		# Promotion re-detects and blocks with the bank-specific error.
 		with self.assertRaises(CapturePromotionError):
 			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
@@ -4458,3 +4465,133 @@ class TestAPBankReconciliation(IntegrationTestCase):
 		ev = build_closure_evidence(cap)
 		self.assertGreaterEqual(ev["native"]["bank_transaction_count"], 1)  # a BT exists
 		self.assertTrue(ev["closed"])  # and that is what CLOSES it now
+
+
+class TestAPClosureAudit(IntegrationTestCase):
+	"""Spec 14 — single-record audit retrieval (closure evidence + Version history) and
+	the flag-only 7-year IRS retention scan (NEVER deletes)."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _settled(self, filename="audit.pdf", total_amount="250.00"):
+		f = _make_file(filename)
+		cap = create_capture_from_file(file_doc=f, source_context="Audit test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "total_amount": total_amount, "currency": "INR"},
+			reviewer="Administrator",
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		if cap.approval_status == APPROVAL_STATUS_PENDING_MANAGER:
+			record_manager_decision(cap, approve=True, notes="Approved for audit test.")
+			cap.reload()
+		issue_mock_payment(cap)
+		cap.reload()
+		return cap
+
+	# AC-14: the audit trail composes the full closure evidence PLUS field-level history.
+	def test_audit_trail_composes_evidence_and_history(self):
+		cap = self._settled("audit-compose.pdf")
+		# Frappe v16 defaults ignore_version=True under frappe.in_test, so the
+		# lifecycle's own saves leave no Version in test mode. Write one tracked
+		# Version explicitly so the audit-history block is exercised deterministically
+		# (in production the lifecycle saves produce these versions on their own).
+		audit_doc = frappe.get_doc("AP Invoice Capture", cap.name)
+		audit_doc.source_context = (audit_doc.source_context or "") + " [audit-review]"
+		audit_doc.save(ignore_version=False)
+		cap.reload()
+
+		trail = build_audit_trail_for(cap)
+
+		# Closure-evidence backbone is present (composite includes everything closure has).
+		self.assertEqual(trail["capture"]["name"], cap.name)
+		self.assertIn("ocr", trail)
+		self.assertIn("validation", trail)
+		self.assertIn("approval", trail)
+		self.assertIn("payment", trail)
+		self.assertIn("settled", trail)
+		self.assertIn("closed", trail)
+		# Version history block (track_changes=1 → the lifecycle saves produced versions).
+		self.assertIsInstance(trail["history"], list)
+		self.assertIsInstance(trail["history_count"], int)
+		self.assertEqual(trail["history_count"], len(trail["history"]))
+		self.assertGreater(trail["history_count"], 0)
+		entry = trail["history"][0]
+		self.assertIn("version", entry)
+		self.assertIn("by", entry)
+		self.assertIn("at", entry)
+		self.assertIsInstance(entry["changes"], list)
+		# Every recorded change is a well-formed {field, from, to} triple.
+		for chg in entry["changes"]:
+			self.assertIn("field", chg)
+			self.assertIn("from", chg)
+			self.assertIn("to", chg)
+
+	# AC-14-3 (audit-trail negative): an unknown capture raises DoesNotExistError.
+	def test_audit_trail_unknown_raises(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			build_audit_trail_for("AP-DOES-NOT-EXIST-0000")
+
+	# AC-14-4 (audit-trail edge): a capture with no PI/PE yields bank_match == None
+	# and does NOT throw (history may be empty in test mode).
+	def test_audit_trail_no_payment_no_throw(self):
+		f = _make_file("audit-nopay.pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="Audit no-pay")
+		run_fake_extraction(cap)
+		cap.reload()
+		trail = build_audit_trail_for(cap)  # must not raise
+		# No PE yet → unmatched bank_match (bank_cleared False, no Bank Transaction),
+		# not settled, not closed, empty history — all without throwing.
+		self.assertFalse(trail["bank_match"]["bank_cleared"])
+		self.assertIsNone(trail["bank_match"]["bank_transaction"])
+		self.assertFalse(trail["settled"])
+		self.assertFalse(trail["closed"])
+		self.assertIsInstance(trail["history"], list)
+
+	# AC-14: the whitelisted wrapper resolves a name and returns the same composite shape.
+	def test_audit_trail_by_name_matches_doc(self):
+		cap = self._settled("audit-byname.pdf")
+		by_doc = build_audit_trail_for(cap)
+		by_name = build_audit_trail_for(cap.name)
+		self.assertEqual(by_name["capture"]["name"], by_doc["capture"]["name"])
+		self.assertEqual(by_name["history_count"], by_doc["history_count"])
+
+	# AC-14: retention is flag-only — old captures are COUNTED, never deleted.
+	def test_retention_flags_old_captures_without_deleting(self):
+		cap = self._settled("audit-old.pdf")
+		# Backdate beyond the 7-year IRS window.
+		old_date = add_to_date(today(), years=-8)
+		frappe.db.set_value("AP Invoice Capture", cap.name, "received_at", old_date)
+
+		before = frappe.db.count("AP Invoice Capture")
+		result = enforce_retention_policy()
+		after = frappe.db.count("AP Invoice Capture")
+
+		self.assertEqual(result["cutoff"], add_to_date(today(), years=-7))
+		self.assertGreaterEqual(result["past_retention"], 1)
+		# NEVER deletes: the record still exists and the row count is unchanged.
+		self.assertEqual(before, after)
+		self.assertTrue(frappe.db.exists("AP Invoice Capture", cap.name))
+
+	# AC-14: a recently-received capture is NOT past retention.
+	def test_retention_excludes_recent_capture(self):
+		cap = self._settled("audit-recent.pdf")
+		frappe.db.set_value("AP Invoice Capture", cap.name, "received_at", today())
+		# Sweep all backdated captures so only the recent one is in scope for the delta check.
+		past_names = set(
+			frappe.get_all(
+				"AP Invoice Capture",
+				filters={"received_at": ["<", add_to_date(today(), years=-7)]},
+				pluck="name",
+			)
+		)
+		self.assertNotIn(cap.name, past_names)

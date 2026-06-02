@@ -505,6 +505,9 @@ scheduler_events = {
 	"weekly": [
 		"erpnext.accounts.utils.auto_create_exchange_rate_revaluation_weekly",
 	],
+	"monthly": [
+		"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.enforce_retention_policy",
+	],
 	"monthly_long": [
 		"erpnext.accounts.deferred_revenue.process_deferred_accounting",
 		"erpnext.accounts.utils.auto_create_exchange_rate_revaluation_monthly",

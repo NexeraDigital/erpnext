@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-019`
+- **Next ID:** `T-023`
 
 **Priority labels.**
 
@@ -46,6 +46,17 @@ The next free ID is tracked in the counter below — bump it whenever you add a 
 _Nothing in progress._
 
 ## Backlog
+
+### Spec 14 (Closure & Audit) — deferred ACs beyond the 2026-06-02 pilot
+
+- [ ] **T-019** Spec-14 audit-trail completeness — populate `bank_match` with the rich sub-fields (`date`, `amount`, `reconciled_by`, `reconciled_at` from BT `modified_by`/`modified`, D-14-5), add the blocked-lifecycle assertion (AC-14-7), and the Stream-R JE close stub (AC-14-8). Pilot ships the dual-signal close + minimal `bank_match` only.
+      _(P2 · added 2026-06-02 · ref: docs/spec/14-closure-audit-retention.md AC-14-6/7/8; docs/spec/STATUS.md spec-14 block)_
+- [ ] **T-020** Spec-14 TB-drift report — upgrade `Accounts Payable Trial Balance Drift` from the pilot AP-control-balance listing to the PCV-snapshot comparison: diff current-period Creditors/Credit-Card-Clearing GL against the prior `Account Closing Balance` via the vendored `get_previous_closing_entries`, emit `drift` + `over_threshold`, no-PCV → prior=0 (AC-14-9/10/11).
+      _(P2 · added 2026-06-02 · ref: docs/spec/14-closure-audit-retention.md AC-14-9..11; erpnext/accounts/report/accounts_payable_trial_balance_drift/)_
+- [ ] **T-021** Spec-14 retention enrichment — upgrade `enforce_retention_policy` from flag-only-log to setting `archive_pending`/`archived_flagged_at` on the capture, creating an idempotent Notification for `ap_notification_role`, flagging the linked File, and reading a configurable `retention_years` (fallback 7) (AC-14-12/15). No-delete invariant preserved.
+      _(P2 · added 2026-06-02 · ref: docs/spec/14-closure-audit-retention.md AC-14-12/14/15)_
+- [ ] **T-022** Spec-14 `AP Audit Trail` Print Format — a single-PDF print format for a closed capture rendering image ref, extraction, validation, approval, payment, bank-match, GL/posting, history, and gates sections (AC-14-16), driven by `build_audit_trail_for`.
+      _(P3 · added 2026-06-02 · ref: docs/spec/14-closure-audit-retention.md AC-14-16)_
 
 ### Automation-first backlog (from the 2026-06-02 spec re-vision)
 

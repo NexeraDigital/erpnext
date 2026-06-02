@@ -3,9 +3,10 @@ spec: 14-closure-audit-retention
 title: Closure & Audit Trail (dual-signal closure, TB drift, 7-year retention)
 plan_step: Step 13 — Closure & Audit Trail
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 13-bank-feed-reconciliation, 07-classification-doctype-branching]
 related: [00-overview, 08-validation-gates, 10-ap-review-observability, 11-approval-sod-workflow, 12-payment-execution, 05-supplier-resolution]
+status_note: "Built 2026-06-02 (pilot). build_audit_trail_for composite (closure evidence + Version history) + 7-year flag-only retention scan (enforce_retention_policy, NEVER deletes) + 'Accounts Payable Trial Balance Drift' Query Report; dual-signal closure (settled AND bank_cleared) landed in spec 13. Tests green this session: TestAPClosureAudit 4/4; full module Ran 221 tests OK."
 ---
 
 # 14 — Closure & Audit Trail (dual-signal closure, TB drift, 7-year retention)

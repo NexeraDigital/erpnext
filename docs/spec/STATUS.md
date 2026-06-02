@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 237 (221 original + 16 automation-first: T-015 ×7, T-016 ×4, T-017 ×2, T-018 ×3) · **Overall:** 🟡 13/14 done — **specs 01–13 ✅** (11 SoD, 12 auto-pay, 13 bank-reconcile pilots) (182/237 ACs green; no regressions) + **automation-first backlog COMPLETE: T-015 auto-confirm, T-016 coding-from-history, T-017 trust-content, T-018 gated-create-default built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 237 (221 original + 16 automation-first: T-015 ×7, T-016 ×4, T-017 ×2, T-018 ×3) · **Overall:** 🟢 13/14 ✅ + **spec 14 👀 pilot (7/16 ACs)** — **specs 01–13 ✅** (11 SoD, 12 auto-pay, 13 bank-reconcile pilots) + **spec 14 closure/audit pilot** (dual-signal closure, `build_audit_trail_for`, flag-only 7-year retention, pilot TB-drift report) (189/237 ACs green; no regressions; full module `Ran 223 tests … OK` this session) + **automation-first backlog COMPLETE: T-015 auto-confirm, T-016 coding-from-history, T-017 trust-content, T-018 gated-create-default built**. **Gate phase (08–10) complete.** Spec-14 deferred ACs → TODO T-019..T-022. Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 >
 > **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and added new automation-first ACs; unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Automation backlog **COMPLETE** — T-015 (auto-confirm), T-016 (coding-from-history), T-017 (trust-content), T-018 (gated-create default) all built + green.
 >
@@ -67,7 +67,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 | 11 | [[11-approval-sod-workflow]] | 4 Approve | ✅ (pilot) | pilot ACs | L | 02, 05, 08 | native Workflow deferred (D-2/D-8) | working tree |
 | 12 | [[12-payment-execution]] | 4 Approve | ✅ (pilot) | pilot ACs | M | 01, 02, 07 | real rail seam deferred | working tree |
 | 13 | [[13-bank-feed-reconciliation]] | 5 Close | ✅ (pilot) | pilot ACs | M | 01, 02, 07 | live feed (Plaid) deferred to cutover | working tree |
-| 14 | [[14-closure-audit-retention]] | 5 Close | 🔲 | 0/16 | L | 01, 07, 13 | #1, #2 (consumes) | — |
+| 14 | [[14-closure-audit-retention]] | 5 Close | 👀 | 7/16 | L | 01, 07, 13 | #1, #2 (consumes) | working tree |
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
 
@@ -383,22 +383,24 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [ ] AC-13-13
 </details>
 
-<details><summary><b>14 — Closure & Audit / Retention · 0/16</b></summary>
+<details><summary><b>14 — Closure & Audit / Retention · 7/16 (pilot)</b></summary>
 
-- [ ] AC-14-1
-- [ ] AC-14-2
-- [ ] AC-14-3
-- [ ] AC-14-4
-- [ ] AC-14-5
-- [ ] AC-14-6
-- [ ] AC-14-7
-- [ ] AC-14-8
-- [ ] AC-14-9
-- [ ] AC-14-10
-- [ ] AC-14-11
-- [ ] AC-14-12
-- [ ] AC-14-13
-- [ ] AC-14-14
-- [ ] AC-14-15
-- [ ] AC-14-16
+_Pilot slice (2026-06-02): dual-signal closure (from spec 13) + `build_audit_trail_for` composite + flag-only 7-year retention scan + pilot `Accounts Payable Trial Balance Drift` report. Verified by `TestAPClosureAudit` (6) + the closure/bank-recon classes; `Ran 223 tests … OK` this session. The deferred ACs (rich `bank_match`, blocked-lifecycle assertion, Stream-R close, PCV-snapshot drift, Notification/`archive_pending` retention, config `retention_years`, print format) are tracked as TODO T-019..T-022._
+
+- [x] AC-14-1 — audit-trail composite returns the full key-set · `test_audit_trail_composes_evidence_and_history`
+- [x] AC-14-2 — history non-empty, ordered `creation asc` · `test_audit_trail_composes_evidence_and_history`
+- [x] AC-14-3 — unknown capture raises `DoesNotExistError` · `test_audit_trail_unknown_raises`
+- [x] AC-14-4 — no-PE capture: unmatched `bank_match`, not closed, no throw · `test_audit_trail_no_payment_no_throw`
+- [x] AC-14-5 — dual closure, settled-only (settled True / bank_cleared False / closed False) · `test_closure_evidence_reconstructs_full_lifecycle`
+- [ ] AC-14-6 — bank-cleared close verified, but **rich `bank_match` sub-fields (date/amount/reconciled_by/at) deferred** (T-019)
+- [ ] AC-14-7 — blocked-lifecycle assertion (deferred, T-019)
+- [ ] AC-14-8 — Stream-R JE close stub (deferred, T-019)
+- [ ] AC-14-9 — TB-drift over-threshold w/ PCV snapshot (pilot report is AP-control balances; deferred, T-020)
+- [ ] AC-14-10 — TB-drift zero (T-020)
+- [ ] AC-14-11 — TB-drift no-PCV edge (T-020)
+- [ ] AC-14-12 — retention: `archive_pending`/Notification/File flag (pilot is flag-only log; deferred, T-021)
+- [x] AC-14-13 — retention negative: recent capture not flagged · `test_retention_excludes_recent_capture`
+- [x] AC-14-14 — retention no-delete (idempotent) · `test_retention_flags_old_captures_without_deleting`
+- [ ] AC-14-15 — config `retention_years` fallback (pilot is fixed `AP_RETENTION_YEARS=7`; deferred, T-021)
+- [ ] AC-14-16 — `AP Audit Trail` print format (deferred, T-022)
 </details>

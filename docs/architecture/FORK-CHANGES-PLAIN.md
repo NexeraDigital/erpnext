@@ -322,6 +322,12 @@ Paying a bill moves real money, so it's the one place where "stop and let a huma
 
 ---
 
+## Update (2026-06-02): a bill isn't "done" until the bank says so — plus a one-click audit trail
+
+Two finishing pieces. **First, what counts as "closed."** A bill being marked paid in the system isn't the same as the money actually leaving the bank. So closure now needs **two** independent signals to agree: the internal one (the invoice is booked and a payment was issued) **and** the external one (the bank feed confirms a matching transaction actually cleared). Until both line up, the bill sits in a "paid but not yet bank-confirmed" state. Nobody ever hand-marks a bill "closed" — the system *derives* it the moment both signals agree. **Second, the audit trail.** For any bill you can now pull a single, complete record — the original image, what was read off it, every validation and fraud check, who approved it, how it was paid, the bank match, and a field-by-field history of who changed what and when — assembled on demand, no manual file-gathering. There's also a **7-year retention scan** that simply *flags* old records for review (it never deletes anything — deletion is always a human decision) and an early **trial-balance drift** report to spot when the AP ledger and the books disagree. This is a **pilot slice**: the core (two-signal closure, the audit record, the retention flag, a first drift report) is built and tested (**6 more automated tests, suite now 223**); the fuller versions of the report, the retention notifications, and a printable audit PDF are written down as explicit follow-ups (TODO T-019..T-022) rather than half-built.
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**
