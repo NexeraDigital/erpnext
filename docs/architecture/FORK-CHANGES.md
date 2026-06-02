@@ -1138,3 +1138,22 @@ One-line default flip — no new desk surface (the auto-filed-request behaviour 
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 205
 ```
+
+## 26. Spec 11 — Approval & Segregation of Duties (automation-first pilot)
+
+> **Status (2026-06-02):** implemented + tested (pilot scope). 11th spec — see `docs/spec/11-approval-sod-workflow.md`. **6 new tests** + a strengthened AC-08-18 (capture suite 205 → **211 OK**); zero regressions.
+
+Closes the real control gap: **the person who prepared an invoice may not also approve it.** The shipped engine only checked a *role* (`frappe.only_for`) — it could not stop a manager from approving an invoice they themselves entered. The pilot keeps the engine (in-policy invoices still auto-approve, spec 09) and adds the identity control; the company-wide native `Workflow` on Purchase Invoice is a **deferred, opt-in upgrade** (§5.6 / D-2/D-8 — it would govern every PI company-wide).
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- record_manager_decision app-code SoD guard (above-threshold approve by reviewed_by/validated_by raises; self-reject allowed; Administrator break-glass exempt); resolve_approver_role (pilot default; matrix deferred); has_approved_bank_change now requires a non-requester Treasury Approver (T-012)
+ erpnext/accounts/ap_closed_loop/install.py | +/- _seed_ap_roles — AP Clerk / Treasury Approver / Auditor (Read Only), idempotent, on after_migrate
+ test/testplans/specs/11-approval-sod-workflow.md | clean-room runbook
+```
+
+**SoD guard (the control).** Above threshold (`approval_status == Pending Manager`), `record_manager_decision(approve=True)` raises `CaptureApprovalError` when the approver is the recorded preparer. Administrator is the audited break-glass exception (D-7 a; also the all-Administrator test harness). **Bank-change (T-012):** the bank-change promotion block (spec 08) is now lifted only by a Posted Update-Bank-Details request **decided by a non-requester holding the Treasury Approver role** — an AP clerk can no longer lift it. **Deferred:** native Workflow + `AP Approval Matrix` + Expense Claim (hrms absent). The SoD *failure path* is unit-tested rather than screenshotted (the desk session is Administrator, which is exempt by design); the roles are desk-visible.
+
+### 26.1 Running the spec-11 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 211
+```

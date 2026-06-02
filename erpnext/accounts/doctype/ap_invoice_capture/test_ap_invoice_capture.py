@@ -155,6 +155,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	auto_confirm_extracted_fields_for,
 	_derive_coding_from_history,
 	ROOT_CAUSE_STREAM_MISTAG,
+	resolve_approver_role,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3378,8 +3379,19 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
 
 	# AC-08-18
+	def _user_with_roles(self, tag, roles):
+		email = "{0}-{1}@example.com".format(tag, frappe.generate_hash(length=6))
+		u = frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": tag, "send_welcome_email": 0}
+		).insert(ignore_permissions=True)
+		u.add_roles(*roles)
+		return u.name
+
 	def test_ac_08_18_sod_ap_self_approval_does_not_lift(self):
 		supplier = self._new_supplier()
+		ap_user = self._user_with_roles("ap", ["Accounts User"])
+		ap_user2 = self._user_with_roles("ap2", ["Accounts User"])
+		treasury = self._user_with_roles("treasury", ["Treasury Approver"])
 
 		def _smcr(requested_by, decision_by):
 			req = frappe.get_doc(
@@ -3391,20 +3403,19 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 					"decision_by": decision_by,
 				}
 			)
-			req.flags.ignore_links = True  # synthetic emails are not real Users
 			req.insert(ignore_permissions=True, ignore_mandatory=True)
-			frappe.db.set_value(
-				"Supplier Master Change Request", req.name, "workflow_state", "Posted"
-			)
+			frappe.db.set_value("Supplier Master Change Request", req.name, "workflow_state", "Posted")
 			return req.name
 
-		# Self-approved (requester == decider) -> SoD fails -> NOT lifted.
-		name = _smcr("ap@example.com", "ap@example.com")
+		# (1) Self-approved (requester == decider) → NOT lifted.
+		name = _smcr(ap_user, ap_user)
 		self.assertFalse(has_approved_bank_change(supplier))
-		# A genuine non-self approval lifts it.
-		frappe.db.set_value(
-			"Supplier Master Change Request", name, "decision_by", "treasury@example.com"
-		)
+		# (2) Non-self but the decider lacks the Treasury Approver role → still NOT
+		#     lifted (T-012: an AP clerk can't lift a bank-change block).
+		frappe.db.set_value("Supplier Master Change Request", name, "decision_by", ap_user2)
+		self.assertFalse(has_approved_bank_change(supplier))
+		# (3) A non-requester Treasury Approver lifts it.
+		frappe.db.set_value("Supplier Master Change Request", name, "decision_by", treasury)
 		self.assertTrue(has_approved_bank_change(supplier))
 
 	# ---- wiring / integration --------------------------------------------
@@ -4204,3 +4215,91 @@ class TestAPClassificationTrustContent(IntegrationTestCase):
 		cap.reload()
 		self.assertEqual(cap.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
 		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)
+
+
+class TestAPApprovalSoD(IntegrationTestCase):
+	"""Spec 11 (automation-first pilot) — segregation-of-duties identity guard + roles.
+
+	The real control: a role check alone can't stop a manager from approving an invoice
+	they themselves prepared. The app-code SoD guard blocks self-approval above threshold
+	(Administrator is the audited break-glass exception).
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _user(self, tag):
+		email = "{0}-{1}@example.com".format(tag, frappe.generate_hash(length=6))
+		frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": tag, "send_welcome_email": 0}
+		).insert(ignore_permissions=True)
+		return email
+
+	def _pending_manager(self):
+		"""A promoted capture routed to Pending Manager (total over threshold)."""
+		f = _make_file("sod-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="SoD test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(cap, corrections={"supplier": "_Test Supplier", "total_amount": "5000", "currency": "INR"})
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+		return cap
+
+	# AC-11-4 — the recorded preparer may NOT approve above threshold (the control).
+	def test_ac_11_4_preparer_cannot_self_approve(self):
+		prep = self._user("prep")
+		cap = self._pending_manager()
+		cap.reviewed_by = prep
+		cap.validated_by = prep
+		cap.save(ignore_permissions=True)
+		with self.assertRaises(CaptureApprovalError):
+			record_manager_decision(cap, approve=True, actor=prep)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_PENDING_MANAGER)  # not advanced
+
+	# AC-11-5 — a clean approver (not the preparer) passes.
+	def test_ac_11_5_clean_approver_passes(self):
+		prep = self._user("prep")
+		approver = self._user("appr")
+		cap = self._pending_manager()
+		cap.reviewed_by = prep
+		cap.validated_by = prep
+		cap.save(ignore_permissions=True)
+		record_manager_decision(cap, approve=True, actor=approver)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_MANAGER_APPROVED)
+
+	# Self-REJECT is allowed (the control blocks self-approval, not self-rejection).
+	def test_preparer_may_self_reject(self):
+		prep = self._user("prep")
+		cap = self._pending_manager()
+		cap.reviewed_by = prep
+		cap.validated_by = prep
+		cap.save(ignore_permissions=True)
+		record_manager_decision(cap, approve=False, actor=prep)  # must not raise
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_REJECTED)
+
+	# Administrator is the audited break-glass exception (also the test harness).
+	def test_administrator_exempt(self):
+		cap = self._pending_manager()  # reviewed_by/validated_by = Administrator
+		record_manager_decision(cap, approve=True, actor="Administrator")
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_MANAGER_APPROVED)
+
+	# AC-11-8 — resolve_approver_role returns the default; never raises on no matrix.
+	def test_ac_11_8_resolve_approver_role_default(self):
+		cap = self._pending_manager()
+		self.assertEqual(resolve_approver_role(cap), MANAGER_APPROVAL_ROLE_DEFAULT)
+
+	# AC-11-9 — the AP closed-loop roles are installed.
+	def test_ac_11_9_roles_installed(self):
+		for role in ("AP Clerk", "Treasury Approver", "Auditor (Read Only)"):
+			self.assertTrue(frappe.db.exists("Role", role))

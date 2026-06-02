@@ -3,7 +3,7 @@ spec: 11-approval-sod-workflow
 title: Approval Routing with Segregation of Duties (native Workflow)
 plan_step: Step 10 — Approval Routing with Segregation of Duties (Stream I only)
 stream: I
-status: Draft
+status: Done
 depends_on: [05-supplier-resolution, 08-validation-gates, 02-intake-stream-tagging]
 related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-tax-costcenter, 07-classification-doctype-branching, 09-confidence-routing, 10-ap-review-observability, 12-payment-execution]
 ---

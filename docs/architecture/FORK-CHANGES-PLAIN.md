@@ -308,6 +308,14 @@ This is the measurement backbone for "are we automating everything we can?" Ship
 
 ---
 
+## Update (2026-06-02): the person who enters an invoice can't also approve it
+
+A basic anti-fraud rule (segregation of duties): whoever prepared/coded an invoice shouldn't be the one who signs off on paying it. The system *looked* like it enforced this — it checked job title — but it never checked the actual **person**, so a manager could approve an invoice they themselves entered. This update closes that hole: an above-limit approval by the same person who prepared the document is **blocked**, and they're told a different approver is needed. (Rejecting your own is still fine — the risk is self-*approval*.) It also adds the **roles** the workflow needs (AP Clerk, Treasury Approver, Auditor) and tightens the **bank-change** safety check so that lifting a "vendor changed their bank details" block now requires a dedicated **Treasury Approver** — an ordinary AP clerk can't wave it through.
+
+Two honest notes: an admin account is deliberately exempt (the break-glass override, logged), and the *bigger* version of this — putting ERPNext's full built-in approval workflow on every purchase invoice company-wide — is intentionally **deferred** until someone signs off on that company-wide impact. Routine, in-limit invoices still flow through automatically; only the bigger ones and the genuine exceptions stop for a human. Ships with **6 more automated tests** (the main capture suite is now 211).
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

@@ -53,6 +53,25 @@ def install_ap_defaults() -> None:
 			frappe.db.set_single_value(SETTINGS_DOCTYPE, field, default)
 
 	_seed_stream_rules()
+	_seed_ap_roles()
+
+
+# AP closed-loop roles (spec 11). Created idempotently so the SoD / approval roles
+# the workflow references always exist. desk_access=1 so holders can use the desk.
+AP_ROLES = ("AP Clerk", "Treasury Approver", "Auditor (Read Only)")
+
+
+def _seed_ap_roles() -> None:
+	"""Create the AP closed-loop roles if absent (spec 11). Idempotent; never edits
+	an existing Role."""
+
+	if not frappe.db.exists("DocType", "Role"):
+		return
+	for role_name in AP_ROLES:
+		if not frappe.db.exists("Role", role_name):
+			frappe.get_doc(
+				{"doctype": "Role", "role_name": role_name, "desk_access": 1}
+			).insert(ignore_permissions=True)
 
 
 # Default Receipt-vs-Invoice tagging rules (spec 02 OD-3) — make the feature

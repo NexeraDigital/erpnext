@@ -2577,7 +2577,14 @@ def has_approved_bank_change(supplier: str | None) -> bool:
 		},
 		fields=["requested_by", "decision_by"],
 	):
-		if req.decision_by and req.decision_by != req.requested_by:
+		# T-012 (spec 11): the lift requires a dedicated **Treasury Approver** who is
+		# NOT the requester — an AP clerk must not be able to lift a bank-change block
+		# even by deciding someone else's request. Both conditions must hold.
+		if (
+			req.decision_by
+			and req.decision_by != req.requested_by
+			and "Treasury Approver" in frappe.get_roles(req.decision_by)
+		):
 			return True
 	return False
 
@@ -4122,6 +4129,18 @@ def _emit_review_event(
 		return None
 
 
+def resolve_approver_role(capture: "APInvoiceCapture") -> str:
+	"""The approver Role this capture routes to (spec 11 §5.2).
+
+	Pilot: the threshold-driven default (``Accounts Manager``). The optional
+	``AP Approval Matrix`` (department / cost-center / supplier-risk routing) is a
+	deferred upgrade (spec 11 D-2), so this returns the default and **never raises**
+	on an empty/absent matrix (AC-11-8). When the matrix lands, this resolves the
+	highest-priority matching row's ``approver_role`` here."""
+
+	return MANAGER_APPROVAL_ROLE_DEFAULT
+
+
 def request_approval(
 	capture: "APInvoiceCapture | str",
 	threshold: float | None = None,
@@ -4293,6 +4312,23 @@ def record_manager_decision(
 				capture.approval_status or APPROVAL_STATUS_NOT_REQUIRED
 			)
 		)
+
+	# Segregation of duties (spec 11 — THE control this spec exists to add). A role
+	# check alone can't stop a manager from approving an invoice they themselves
+	# entered/coded/promoted. Block self-APPROVAL above threshold: the approver must
+	# not be the recorded preparer (reviewed_by = who confirmed extraction;
+	# validated_by = who validated/promoted). Administrator is the audited break-glass
+	# exception (D-7 a; also the all-Administrator test harness). Self-reject is allowed.
+	approver = actor or frappe.session.user
+	if approve and approver != "Administrator":
+		preparers = {capture.reviewed_by, capture.validated_by} - {None, ""}
+		if approver in preparers:
+			raise CaptureApprovalError(
+				_(
+					"Segregation of duties: {0} prepared this document and may not also approve it above "
+					"threshold — a different approver is required."
+				).format(approver)
+			)
 
 	capture.decision_by = actor or frappe.session.user
 	capture.decision_at = now_datetime()
