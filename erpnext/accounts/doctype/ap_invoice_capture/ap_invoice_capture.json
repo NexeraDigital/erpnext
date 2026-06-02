@@ -213,13 +213,14 @@
   },
   {
    "default": "Unclassified",
-   "description": "Provisional Receipt-vs-Invoice stream set at intake (spec 02). Step-6 classification may revise it.",
+   "description": "Provisional Receipt-vs-Invoice stream set at intake (spec 02). Step-6 classification may revise it. System-owned: to override, use Classification Override (audited), not this field.",
    "fieldname": "stream",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Stream",
    "options": "Receipt (R)\nInvoice (I)\nUnclassified",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -1141,7 +1142,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-02 21:30:00",
+ "modified": "2026-06-02 21:45:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",

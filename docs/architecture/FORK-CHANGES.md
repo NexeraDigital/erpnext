@@ -1243,3 +1243,15 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 ```
 
 No controller/test change (field properties only). Verified in desk: hidden when empty, read-only when set — `test/testplans/screenshots/source-context-readonly-hidden/`.
+
+## 32. UI — `stream` (intake classification) is read-only
+
+> **Status (2026-06-02):** cosmetic form tweak (no logic change). Browser-verified (screenshot committed).
+
+`stream` is the *provisional* intake Receipt-vs-Invoice tag (spec 02), system-owned and superseded by Step-6 (`classified_stream`/`document_type`). It was the only classification-result field still editable (`document_type` and `classified_stream` are already `read_only`). Hand-editing it bypasses the audited override path and can desync from the authoritative classification or trip the Step-6 disagreement guard. Marked **`read_only: 1`**; the single human-override lever remains **`classification_override`** (editable, routes through `classify_document_type`, stamps `classification_source = "clerk-override"`).
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | stream += read_only:1 (+ description note pointing to Classification Override)
+```
+
+`stream` stays `reqd` with default `Unclassified` and is always set at intake, so read-only does not block saves. Verified in desk — `test/testplans/screenshots/stream-readonly/`.
