@@ -4487,6 +4487,47 @@ def _derive_payment_lifecycle_status(capture: "APInvoiceCapture") -> str:
 	return PAYMENT_LIFECYCLE_CONFIRMED
 
 
+def _resolve_mock_pay_account(company: str, paid_from: str | None = None) -> str:
+	"""Pick the disbursing account for the mock Payment Entry, scoped to the PI's company.
+
+	Payment Entry enforces that the bank/cash account belongs to the document's company
+	(``Account ... does not belong to Company ...``), so a hardcoded test-company account
+	fails for any other company. Resolution order:
+	  1. an explicit ``paid_from`` override (caller/settings),
+	  2. the legacy ``MOCK_CLEARING_ACCOUNT_DEFAULT`` — but ONLY when it actually belongs
+	     to this company (preserves the _Test Company behaviour the suite relies on),
+	  3. the company's default bank, then default cash account (native resolver),
+	  4. the company's single non-group Bank, then Cash account.
+	Raises ``CapturePaymentError`` if the company has no usable account.
+	"""
+
+	if paid_from:
+		return paid_from
+
+	if frappe.db.get_value("Account", MOCK_CLEARING_ACCOUNT_DEFAULT, "company") == company:
+		return MOCK_CLEARING_ACCOUNT_DEFAULT
+
+	from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
+
+	acc = get_default_bank_cash_account(company, "Bank", fetch_balance=False) or get_default_bank_cash_account(
+		company, "Cash", fetch_balance=False
+	)
+	if acc and acc.get("account"):
+		return acc["account"]
+
+	found = frappe.db.get_value(
+		"Account", {"company": company, "account_type": "Bank", "is_group": 0}, "name"
+	) or frappe.db.get_value(
+		"Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
+	)
+	if found:
+		return found
+
+	raise CapturePaymentError(
+		_("No bank or cash account found for company {0} to issue the mock payment.").format(company)
+	)
+
+
 def issue_mock_payment(
 	capture: "APInvoiceCapture | str",
 	actor: str | None = None,
@@ -4525,7 +4566,7 @@ def issue_mock_payment(
 			)
 		)
 
-	mock_account = paid_from or MOCK_CLEARING_ACCOUNT_DEFAULT
+	mock_account = _resolve_mock_pay_account(pi.company, paid_from)
 	pe = get_payment_entry("Purchase Invoice", pi.name, bank_account=mock_account)
 	pe.paid_from = mock_account
 	pe.reference_no = f"{MOCK_PAYMENT_PREFIX}-{capture.name}"

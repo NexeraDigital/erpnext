@@ -1214,3 +1214,20 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 223 OK
 ```
+
+## 30. Fix — mock Payment Entry account is company-scoped (multi-company)
+
+> **Status (2026-06-02):** bugfix to spec-12 mock payment. **3 new tests** (`TestAPMockPaymentAccountResolution`). Found via a live DevCompany capture: *"Payment Entry … Account `_Test Bank - _TC` does not belong to Company DevCompany."*
+
+`issue_mock_payment` hardcoded the disbursing account to `MOCK_CLEARING_ACCOUNT_DEFAULT = "_Test Bank - _TC"` when no override was given. Payment Entry enforces that the bank/cash account belongs to the document's company, so the mock payment failed for **any company other than _Test Company**.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | + _resolve_mock_pay_account(company, paid_from): explicit override → legacy default IFF it belongs to this company → company default bank then cash (native get_default_bank_cash_account) → company's single non-group Bank/Cash account → else CapturePaymentError. issue_mock_payment now calls it instead of the hardcoded constant.
+```
+
+Resolution is company-aware and preserves existing behaviour: `_Test Company` still resolves `_Test Bank - _TC` (so the suite is unchanged), while `DevCompany` (no Bank account) resolves `Cash - DC`. Not flow-visible — no new cascade hop/gate — so the sequence diagram is unchanged.
+
+### 30.1 Running the tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 226 OK
+```

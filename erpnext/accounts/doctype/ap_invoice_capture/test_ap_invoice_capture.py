@@ -160,6 +160,8 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	PAYMENT_LIFECYCLE_BANK_CLEARED,
 	build_audit_trail_for,
 	enforce_retention_policy,
+	_resolve_mock_pay_account,
+	MOCK_CLEARING_ACCOUNT_DEFAULT,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -4595,3 +4597,49 @@ class TestAPClosureAudit(IntegrationTestCase):
 			)
 		)
 		self.assertNotIn(cap.name, past_names)
+
+
+class TestAPMockPaymentAccountResolution(IntegrationTestCase):
+	"""The mock Payment Entry's disbursing account must be scoped to the PI's company.
+
+	Regression: a hardcoded ``_Test Bank - _TC`` made `issue_mock_payment` fail for any
+	other company with ``Account ... does not belong to Company ...``. The resolver must
+	pick a company-appropriate account."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _make_company(self):
+		name = "AP MockPay Co " + frappe.generate_hash(length=5)
+		co = frappe.get_doc(
+			{
+				"doctype": "Company",
+				"company_name": name,
+				"abbr": "MP" + frappe.generate_hash(length=3).upper(),
+				"default_currency": "USD",
+				"country": "United States",
+			}
+		).insert(ignore_permissions=True)
+		return co.name
+
+	# Positive: explicit override is returned verbatim.
+	def test_explicit_override_wins(self):
+		self.assertEqual(
+			_resolve_mock_pay_account("_Test Company", "Cash - _TC"), "Cash - _TC"
+		)
+
+	# Existing behaviour preserved: _Test Company keeps the legacy clearing account.
+	def test_test_company_keeps_legacy_default(self):
+		self.assertEqual(
+			_resolve_mock_pay_account("_Test Company"), MOCK_CLEARING_ACCOUNT_DEFAULT
+		)
+
+	# The fix: another company resolves its OWN account, never the _TC bank.
+	def test_other_company_resolves_own_account(self):
+		company = self._make_company()
+		acc = _resolve_mock_pay_account(company)
+		self.assertNotEqual(acc, MOCK_CLEARING_ACCOUNT_DEFAULT)
+		self.assertEqual(frappe.db.get_value("Account", acc, "company"), company)
+		self.assertIn(
+			frappe.db.get_value("Account", acc, "account_type"), ("Bank", "Cash")
+		)
