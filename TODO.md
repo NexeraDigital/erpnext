@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-023`
+- **Next ID:** `T-024`
 
 **Priority labels.**
 
@@ -46,6 +46,10 @@ The next free ID is tracked in the counter below — bump it whenever you add a 
 _Nothing in progress._
 
 ## Backlog
+
+### Test hygiene
+
+- [ ] **T-023** Isolate the AP test suite from the dev-site `AP Closed Loop Settings` singleton. `bench run-tests` runs on `erpnext.localhost`, so when a developer toggles automation flags in the browser (e.g. `ocr_provider='Anthropic Claude'` with no key, `auto_confirm_enabled=1`, `enable_coding_history_bootstrap=0`), the shared suite inherits them and fails en masse (observed 2026-06-02: 103 failures + a 13-min run, all from singleton drift; suite is `Ran 226 OK` once the three flags are reset to defaults). Each AP test class that depends on a setting should pin it in `setUp` (provider=fake, auto-confirm off, etc.) and roll back, so results don't depend on dev-site state. Same class of bug as the v16 `ignore_version` and Currency Exchange Settings cases. _(P1 · added 2026-06-02 · ref: erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py; [[reference-v16-ignore-version-in-tests]])_
 
 ### Spec 14 (Closure & Audit) — deferred ACs beyond the 2026-06-02 pilot
 
