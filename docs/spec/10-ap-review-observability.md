@@ -3,7 +3,7 @@ spec: 10-ap-review-observability
 title: AP Review (Exception Handling) — instrumented feedback gate
 plan_step: Step 9 (AP Review with the v2 observability requirement)
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency]
 related: [02-intake-stream-tagging, 04-extraction-confidence-line-items, 05-supplier-resolution, 07-classification-doctype-branching, 08-validation-gates, 09-confidence-routing, 11-approval-sod-workflow, 12-payment-execution]
 ---

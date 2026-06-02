@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-01 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 9/14 done — **specs 01–09 ✅** (149/221 ACs green; no regressions). Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-01 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (166/221 ACs green; no regressions). **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 
 ## How to use this file
 
@@ -47,7 +47,7 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 | 07 | [[07-classification-doctype-branching]] | 2 Resolve | ✅ | 14/14 | L | 01, 02, 05, 06 | #1 → Option C (PI is_paid), provisional | working tree |
 | 08 | [[08-validation-gates]] | 3 Gate | ✅ | 21/21 | L | 01, 04, 05, 06, **11※** | 3WM PO-level (pilot); bank-lift full rule → 11※ | working tree |
 | 09 | [[09-confidence-routing]] | 3 Gate | ✅ | 14/14 | S | 04, 08 | threshold single-source → 11 (D-9/T-013) | working tree |
-| 10 | [[10-ap-review-observability]] | 3 Gate | 🔲 | 0/17 | — | 01 | `AP Review Event` seam freeze | — |
+| 10 | [[10-ap-review-observability]] | 3 Gate | ✅ | 17/17 | L | 01 | `emit_review_event` seam frozen; Auditor role → T-014 | working tree |
 | 11 | [[11-approval-sod-workflow]] | 4 Approve | 🔲 | 0/12 | L | 02, 05, 08 | **#3, #7** | — |
 | 12 | [[12-payment-execution]] | 4 Approve | 🔲 | 0/14 | M | 01, 02, 07 | auto-pay gate default | — |
 | 13 | [[13-bank-feed-reconciliation]] | 5 Close | 🔲 | 0/13 | L | 01, 02, 07 | **#2, #8** | — |
@@ -55,6 +55,8 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
 
+> **Verification state (10):** ✅ all 17 ACs green this session (Fake OCR). New class `TestAPReviewGate` **14 tests** + new module `test_ap_review_event` **4 tests**, run programmatically (bench-runner summary swallowed on this WSL bench): gate class **`Ran=14 … OK`**, event module **`Ran=4 … OK`**. **Blast-radius / regression:** `emit_review_event` is wired into `confirm_extracted_fields` (called across the whole suite) + `record_manager_decision`, so the full module was re-run: **`Ran=185 failures=0 errors=0 skipped=1 → OK`** (was 171; +14, no regressions). **Cross-spec reconcile:** spec 09's route-to-review seam (a placeholder writing non-existent fields) is **reconciled onto the canonical `emit_review_event`** — AC-09-14 ("telemetry absent") was rewritten to monkeypatch the existence guard since spec 10 now ships the doctype. **Decisions adopted** = spec recommendations D-1(a) `validate()` Rejected short-circuit (AC-10-4 proves Rejected survives re-save), D-2(a) 5-value action enum (reopen=classified_other+note), D-3(a) action_required=0 on Rejected, D-4 Dashboard Chart fields **verified against the running v16 site** before writing JSON, D-5(a) Small-Text JSON fields_changed, D-6(a) ignore_permissions insert, D-7(a) header-change discriminator, D-8(a) time-to-resolve from creation, D-9(a)/D-10(a) report-on-demand Query Report. **Report/chart verified live:** the Query Report runs (`GROUP BY root_cause_tag`, % of total, distinct captures) and the Group-By chart sources AP Review Event by root_cause_tag (AC-10-16/17). **Honest deferrals:** `Auditor (Read Only)` role + accurate `review_queue_entered_at` → **TODO T-014**. §7.2 clean-room runbook **written** (`specs/10-ap-review-observability.md`); §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/10-ap-review-observability/`.
+>
 > **Verification state (09):** ✅ all 14 ACs green this session (Fake OCR). New class `TestAPInvoiceCaptureConfidenceRouting` **15 tests** run programmatically (bench-runner summary swallowed by the harness on this WSL bench): **`Ran=15 failures=0 errors=0 skipped=0 → OK`**. **Blast-radius / regression:** `request_approval` is the cascade's Step-3 hot path, so the full module was re-run the same way: **`Ran=171 failures=0 errors=0 skipped=1 → OK`** (was 156; +15 routing tests, no false reroutes — existing approval tests extract via the fake provider so their confidence rows stay above threshold). **Reconciliations (spec predates 05–08):** (1) **Stream-R no-approval is owned by spec 07** — Already-Paid posts via `promote_already_paid` (PI `is_paid`, not a JE) and the cascade *skips* approval, so it never reaches `request_approval`; this spec adds **no** JE auto-post and the evaluator is **stream-agnostic** (AC-09-2 reconciled = the cascade's Step-3 excludes Already-Paid). (2) The `auto_post_amount_threshold` field + `get_auto_post_threshold()` **already existed** (spec 01/04); AC-09-10 was already met. (3) **`AP Review Event` (spec 10) is not built** — emission is a `frappe.db.exists`-guarded seam; AC-09-4/5's "event row exists" sub-assertion **defers to spec 10**, while the routing behaviour + graceful-absent path (AC-09-14) are green now. **Decisions adopted** = spec recommendations D-1(b)/D-2/D-3(a)/D-4(a)/D-6(a)/D-7(a)/D-8(a). **Carve-out (honest):** confidence axis fails closed on a *populated* table with a missing/low mandatory row, but an **empty** table degrades to pass (graceful, matching specs 06/08). **Deferral:** D-9 (spec 11's Workflow gate must read the same `auto_post_amount_threshold`) → **TODO T-013**. §7.2 clean-room runbook **written**; §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/09-confidence-routing/`.
 >
 > **Verification state (08):** ✅ all 21 ACs green this session (Fake OCR). New class `TestAPInvoiceCaptureValidationGates` **22 tests** (21 ACs + one AC-08-16 re-check: promotion re-runs bank detection so a change *after* a clean validation still blocks) run programmatically via `unittest.TextTestRunner` (the bench-runner summary line is swallowed by the harness on this WSL bench, so the suite was loaded + run in `bench console`): **`Ran=22 failures=0 errors=0 skipped=0 → OK`**. **Blast-radius / regression (AC-08-21):** the three gates run inside `validate_for_purchase_invoice` (fires for every AP capture) and the bank gate re-runs inside `promote_to_purchase_invoice`, so the full module was re-run the same way: **`Ran=156 failures=0 errors=0 skipped=1 → OK`** (was 134; +22 gate tests, no false blocks on the existing happy paths). **Decisions adopted** = spec recommendations: D1 PO-cumulative 3WM, D2 `respect_over_billing_allowance` off (independent/stricter AP tolerance), D3 dedicated `AP Supplier Anomaly Baseline` cache, D4 daily-refresh + lazy-recompute (no per-PI `on_submit`), D5 pre-promotion custom 3WM only, D6 dedicated 3WM-override fields, D7 absent stream ⇒ Stream I, D8 soft-skip when no prior PE, D10 conservative `has_approved_bank_change` (Posted + decided-by-≠-requester). **Pilot simplification (honest):** 3WM is **PO-level** (sum of PO-item `received_qty` + ordered amount), not per-line PO-item matching — OCR emits no `po_detail` mapping yet. **Deferral (honest):** the full **non-AP / Treasury-Approver** bank-change-lift role rule is owned by **spec 11** (TODO **T-012**); the current lift is the spec-05 SoD backstop. §7.2 clean-room runbook **written** (`test/testplans/specs/08-validation-gates.md`); §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/08-validation-gates/`.
@@ -277,25 +279,25 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-09-14
 </details>
 
-<details><summary><b>10 — AP Review & Observability · 0/17</b></summary>
+<details><summary><b>10 — AP Review & Observability · 17/17</b></summary>
 
-- [ ] AC-10-1
-- [ ] AC-10-2
-- [ ] AC-10-3
-- [ ] AC-10-4
-- [ ] AC-10-5
-- [ ] AC-10-6
-- [ ] AC-10-7
-- [ ] AC-10-8
-- [ ] AC-10-9
-- [ ] AC-10-10
-- [ ] AC-10-11
-- [ ] AC-10-12
-- [ ] AC-10-13
-- [ ] AC-10-14
-- [ ] AC-10-15
-- [ ] AC-10-16
-- [ ] AC-10-17
+- [x] AC-10-1
+- [x] AC-10-2
+- [x] AC-10-3
+- [x] AC-10-4
+- [x] AC-10-5
+- [x] AC-10-6
+- [x] AC-10-7
+- [x] AC-10-8
+- [x] AC-10-9
+- [x] AC-10-10
+- [x] AC-10-11
+- [x] AC-10-12
+- [x] AC-10-13
+- [x] AC-10-14
+- [x] AC-10-15
+- [x] AC-10-16
+- [x] AC-10-17
 </details>
 
 <details><summary><b>11 — Approval & SoD (native Workflow) · 0/12</b></summary>

@@ -30,6 +30,7 @@ Clean-room runbooks for independent, external verification of this fork's featur
 | `specs/07-classification-doctype-branching.md` | 07 — Document-type classification & doctype branching | `screenshots/07-classification-doctype-branching/` |
 | `specs/08-validation-gates.md` | 08 — Validation gates: 3-way match, anomaly, vendor bank-change | `screenshots/08-validation-gates/` |
 | `specs/09-confidence-routing.md` | 09 — Confidence-based routing (auto-advance vs Needs-Review) | `screenshots/09-confidence-routing/` |
+| `specs/10-ap-review-observability.md` | 10 — AP review: reject/reopen + AP Review Event + root-cause report | `screenshots/10-ap-review-observability/` |
 
 ### `ocr/` — real-OCR build phases
 | Plan | Phase |

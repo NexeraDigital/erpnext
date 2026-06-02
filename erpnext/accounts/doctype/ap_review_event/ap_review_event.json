@@ -1,0 +1,133 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:APRE-{YYYY}-{#####}",
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Append-only step-9 instrumentation log (spec 10). One row per clerk/system review action, carrying a fixed-vocabulary root-cause tag for the weekly 'Top step-9 root causes' rollup. Written by emit_review_event; clerk-read-only.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "capture",
+  "action_taken",
+  "root_cause_tag",
+  "column_break_are",
+  "clerk",
+  "created",
+  "time_to_resolve_seconds",
+  "detail_section",
+  "exception_reason_code",
+  "fields_changed",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "capture",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Capture",
+   "options": "AP Invoice Capture",
+   "reqd": 1
+  },
+  {
+   "fieldname": "action_taken",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Action Taken",
+   "options": "field_corrected\nsupplier_created\nrejected\nclassified_other\ncoding_completed",
+   "reqd": 1
+  },
+  {
+   "description": "Fixed vocabulary (the plan's list) — drives the weekly report + auto-rate chart.",
+   "fieldname": "root_cause_tag",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Root Cause Tag",
+   "options": "\nextraction_miss\nsupplier_unmapped\nconfidence_threshold_too_tight\nstream_mistag\npolicy_violation\nvendor_error\nmissing_po\nother"
+  },
+  {
+   "fieldname": "column_break_are",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "__user",
+   "description": "Acting clerk (explicit, queryable mirror of owner).",
+   "fieldname": "clerk",
+   "fieldtype": "Link",
+   "label": "Clerk",
+   "options": "User"
+  },
+  {
+   "description": "Action timestamp (explicit, queryable mirror of creation).",
+   "fieldname": "created",
+   "fieldtype": "Datetime",
+   "label": "Created"
+  },
+  {
+   "description": "Seconds from review-queue entry (capture creation, v1) to this action.",
+   "fieldname": "time_to_resolve_seconds",
+   "fieldtype": "Int",
+   "label": "Time To Resolve (s)"
+  },
+  {
+   "fieldname": "detail_section",
+   "fieldtype": "Section Break",
+   "label": "Detail"
+  },
+  {
+   "description": "Original surfaced-exception code (e.g. the action_required_reason slug or a confidence/validation code).",
+   "fieldname": "exception_reason_code",
+   "fieldtype": "Data",
+   "label": "Exception Reason Code"
+  },
+  {
+   "description": "JSON string of {logical_field: {from, to}} (Small Text for v15/v16 portability).",
+   "fieldname": "fields_changed",
+   "fieldtype": "Small Text",
+   "label": "Fields Changed"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Review Event",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

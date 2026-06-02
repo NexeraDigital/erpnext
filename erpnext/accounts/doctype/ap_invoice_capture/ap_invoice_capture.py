@@ -32,7 +32,7 @@ from datetime import date, timedelta
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import add_to_date, flt, getdate, now_datetime, today
+from frappe.utils import add_to_date, flt, get_datetime, getdate, now_datetime, today
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({"pdf", "png", "jpg", "jpeg"})
 
@@ -124,6 +124,42 @@ APPROVAL_STATUS_NEEDS_REVIEW = "Needs Review"
 ROUTING_AXIS_CONFIDENCE = "confidence"
 ROUTING_AXIS_VALIDATION_FLAG = "validation_flag"
 
+# Spec 10 — AP Review Event instrumentation vocabularies (fixed; mirror the
+# AP Review Event Select options).
+REVIEW_ACTION_FIELD_CORRECTED = "field_corrected"
+REVIEW_ACTION_SUPPLIER_CREATED = "supplier_created"
+REVIEW_ACTION_REJECTED = "rejected"
+REVIEW_ACTION_CLASSIFIED_OTHER = "classified_other"
+REVIEW_ACTION_CODING_COMPLETED = "coding_completed"
+REVIEW_ACTION_TAKEN_VALUES = (
+	REVIEW_ACTION_FIELD_CORRECTED,
+	REVIEW_ACTION_SUPPLIER_CREATED,
+	REVIEW_ACTION_REJECTED,
+	REVIEW_ACTION_CLASSIFIED_OTHER,
+	REVIEW_ACTION_CODING_COMPLETED,
+)
+ROOT_CAUSE_EXTRACTION_MISS = "extraction_miss"
+ROOT_CAUSE_SUPPLIER_UNMAPPED = "supplier_unmapped"
+ROOT_CAUSE_CONFIDENCE_TOO_TIGHT = "confidence_threshold_too_tight"
+ROOT_CAUSE_STREAM_MISTAG = "stream_mistag"
+ROOT_CAUSE_POLICY_VIOLATION = "policy_violation"
+ROOT_CAUSE_VENDOR_ERROR = "vendor_error"
+ROOT_CAUSE_MISSING_PO = "missing_po"
+ROOT_CAUSE_OTHER = "other"
+ROOT_CAUSE_TAG_VALUES = (
+	ROOT_CAUSE_EXTRACTION_MISS,
+	ROOT_CAUSE_SUPPLIER_UNMAPPED,
+	ROOT_CAUSE_CONFIDENCE_TOO_TIGHT,
+	ROOT_CAUSE_STREAM_MISTAG,
+	ROOT_CAUSE_POLICY_VIOLATION,
+	ROOT_CAUSE_VENDOR_ERROR,
+	ROOT_CAUSE_MISSING_PO,
+	ROOT_CAUSE_OTHER,
+)
+# Reject/reopen child-table actions (AP Capture Rejection Log).
+REJECTION_ACTION_REJECTED = "Rejected"
+REJECTION_ACTION_REOPENED = "Reopened"
+
 PAYMENT_READINESS_NOT_READY = "Not Ready"
 PAYMENT_READINESS_READY = "Ready for Payment"
 PAYMENT_READINESS_BLOCKED = "Blocked"
@@ -214,6 +250,9 @@ class APInvoiceCapture(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		from erpnext.accounts.doctype.ap_capture_rejection_log.ap_capture_rejection_log import (
+			APCaptureRejectionLog,
+		)
 		from erpnext.accounts.doctype.ap_invoice_capture_confidence.ap_invoice_capture_confidence import (
 			APInvoiceCaptureConfidence,
 		)
@@ -251,6 +290,7 @@ class APInvoiceCapture(Document):
 		tax_amount: DF.Currency
 		line_items: DF.Table[APInvoiceCaptureItem]
 		field_confidences: DF.Table[APInvoiceCaptureConfidence]
+		rejection_log: DF.Table[APCaptureRejectionLog]
 		received_at: DF.Datetime
 		stream: DF.Literal["Receipt (R)", "Invoice (I)", "Unclassified"]
 		stream_provisional_source: DF.Data | None
@@ -371,6 +411,12 @@ class APInvoiceCapture(Document):
 		self._require_source_reference()
 		self._apply_stream_tag()
 
+		# A clerk-rejected capture is terminal-quiet (spec 10): never re-derive its
+		# status / action_required on a later save, or the Rejected state would be
+		# clobbered back to an in-progress value (the highest-risk integration point).
+		if self.status == STATUS_REJECTED:
+			return
+
 		extension = _normalize_extension(self.file_extension or self.source_filename or "")
 		self.file_extension = extension or None
 		supported = extension in SUPPORTED_EXTENSIONS
@@ -455,6 +501,12 @@ class APInvoiceCapture(Document):
 		would otherwise raise on, so the cascade only enqueues steps that
 		will succeed.
 		"""
+
+		# Spec 10: a clerk-rejected capture is terminal — never auto-advance it
+		# (it waits for an explicit reopen). The positive branches below would all
+		# miss anyway, but make the exclusion explicit and future-proof.
+		if self.status == STATUS_REJECTED:
+			return None
 
 		# Step 0: Fresh, supported intake → pre-extraction dedupe (BEFORE OCR).
 		# A duplicate must be caught before any billable extractor runs (spec 03).
@@ -1428,6 +1480,14 @@ def confirm_extracted_fields(
 
 	corrections = corrections or {}
 
+	# Spec 10 instrumentation: snapshot final_* before the merge so we can record
+	# which header fields the clerk actually changed (fields_changed) and pick the
+	# action class (field_corrected vs coding_completed).
+	_final_before = {
+		logical_name: capture.get(final_field)
+		for logical_name, _proposed_field, final_field in MANDATORY_HEADER_FIELDS
+	}
+
 	# Merge proposal -> corrections into final_* fields.
 	for logical_name, proposed_field, final_field in MANDATORY_HEADER_FIELDS:
 		if logical_name in corrections:
@@ -1461,6 +1521,30 @@ def confirm_extracted_fields(
 		capture.status = STATUS_CONFIRMED
 		capture.action_required = 0
 		capture.action_required_reason = None
+
+	# Spec 10 instrumentation: one AP Review Event per confirm action. Header field
+	# change → field_corrected; clerk-supplied GL coding with no header change →
+	# coding_completed (decision D-7). Telemetry never blocks the clerk action.
+	_changed = {
+		logical: {"from": _final_before.get(logical), "to": capture.get(final_field)}
+		for logical, _proposed, final_field in MANDATORY_HEADER_FIELDS
+		if _final_before.get(logical) != capture.get(final_field)
+	}
+	_coding_supplied = any(k in corrections for k in ("cost_center", "expense_account"))
+	_action = (
+		REVIEW_ACTION_CODING_COMPLETED
+		if (_coding_supplied and not _changed)
+		else REVIEW_ACTION_FIELD_CORRECTED
+	)
+	_safe_emit_review_event(
+		capture,
+		action_taken=_action,
+		root_cause_tag=ROOT_CAUSE_EXTRACTION_MISS,
+		exception_reason_code="ocr_review",
+		fields_changed=_changed or None,
+		note=notes,
+		clerk=reviewer or frappe.session.user,
+	)
 
 	if save:
 		capture.save()
@@ -3468,6 +3552,240 @@ def _resolve_approval_threshold(threshold: float | None, source: str | None) -> 
 
 
 # ---------------------------------------------------------------------------
+# AP Review instrumentation + reject/reopen (spec 10)
+# ---------------------------------------------------------------------------
+#
+# emit_review_event is the shared step-9 telemetry primitive every clerk/system
+# review action calls exactly once. reject_capture / reopen_capture are the
+# clerk-facing transition pair the capture previously lacked (status=Rejected is a
+# declared option that nothing assigned). All three write through doc.save() /
+# doc.append() so the capture's track_changes Version row captures the mutation.
+
+
+def emit_review_event(
+	capture: "APInvoiceCapture | str",
+	*,
+	action_taken: str,
+	root_cause_tag: str | None = None,
+	exception_reason_code: str | None = None,
+	fields_changed: dict | None = None,
+	time_to_resolve_seconds: int | None = None,
+	note: str | None = None,
+	clerk: str | None = None,
+) -> str:
+	"""Append one ``AP Review Event`` row (spec 10 §5.3). Returns its name.
+
+	The shared instrumentation primitive — other specs import and call it on the
+	success branch of a review action. Intentionally NOT idempotent (one event per
+	action) and NOT whitelisted (internal only). ``fields_changed`` is serialised to
+	a JSON string; ``time_to_resolve_seconds`` defaults to seconds since the capture
+	was created (v1 — conflates queue wait with active handling, decision D-8).
+	Inserted with ``ignore_permissions=True`` (D-6) so telemetry stays
+	append-only-by-controller and clerks need no create grant.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if time_to_resolve_seconds is None and capture.get("creation"):
+		try:
+			time_to_resolve_seconds = int(
+				(now_datetime() - get_datetime(capture.creation)).total_seconds()
+			)
+		except Exception:
+			time_to_resolve_seconds = None
+
+	event = frappe.new_doc("AP Review Event")
+	event.capture = capture.name
+	event.action_taken = action_taken
+	event.root_cause_tag = root_cause_tag or None
+	event.exception_reason_code = exception_reason_code
+	event.fields_changed = (
+		json.dumps(fields_changed, default=str, sort_keys=True) if fields_changed else None
+	)
+	event.time_to_resolve_seconds = time_to_resolve_seconds
+	event.note = note
+	event.clerk = clerk or frappe.session.user
+	event.created = now_datetime()
+	event.insert(ignore_permissions=True)
+	return event.name
+
+
+def _safe_emit_review_event(capture, **kwargs) -> "str | None":
+	"""Telemetry-safe wrapper for instrumenting existing flows (spec 10).
+
+	Used at secondary call sites (confirm / manager reject) where a logging hiccup
+	must never break the clerk's primary action. Guarded by the doctype's existence
+	and a try/except. The dedicated reject/reopen paths call ``emit_review_event``
+	directly (the event is integral to those actions)."""
+
+	if not frappe.db.exists("DocType", "AP Review Event"):
+		return None
+	try:
+		return emit_review_event(capture, **kwargs)
+	except Exception:
+		frappe.log_error(title="AP Review Event emission failed", message=frappe.get_traceback())
+		return None
+
+
+def reject_capture(
+	capture: "APInvoiceCapture | str",
+	reason: str,
+	actor: str | None = None,
+	root_cause_tag: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Clerk bounce of a non-promoted capture back to the vendor (spec 10 §5.3).
+
+	Sets ``status = Rejected`` (terminal-quiet: ``action_required = 0``), appends a
+	``Rejected`` row to ``rejection_log``, and emits one ``AP Review Event``. Refuses
+	a promoted capture (handed off to the PI lifecycle — that reject is spec 11's
+	Workflow) and an already-rejected one (reopen first)."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.promotion_status == PROMOTION_STATUS_PROMOTED:
+		raise CaptureValidationError(
+			_("A promoted capture cannot be rejected at the capture level — it is in the Purchase Invoice lifecycle.")
+		)
+	if capture.status == STATUS_REJECTED:
+		raise CaptureValidationError(_("Capture is already Rejected; reopen it first."))
+
+	reason = (reason or "").strip()
+	if not reason:
+		raise CaptureValidationError(_("A rejection reason is required."))
+
+	from_status = capture.status
+	actor = actor or frappe.session.user
+
+	capture.status = STATUS_REJECTED
+	capture.action_required = 0
+	capture.action_required_reason = None
+	capture.append(
+		"rejection_log",
+		{
+			"action": REJECTION_ACTION_REJECTED,
+			"reason": reason,
+			"from_status": from_status,
+			"to_status": STATUS_REJECTED,
+			"actor": actor,
+			"timestamp": now_datetime(),
+		},
+	)
+
+	emit_review_event(
+		capture,
+		action_taken=REVIEW_ACTION_REJECTED,
+		root_cause_tag=root_cause_tag,
+		exception_reason_code=from_status,
+		note=reason,
+		clerk=actor,
+	)
+
+	if save:
+		capture.save()
+	return capture
+
+
+def reopen_capture(
+	capture: "APInvoiceCapture | str",
+	reason: str,
+	actor: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Reopen a Rejected capture, restoring the stage it was rejected from (spec 10 §5.3).
+
+	Deterministic restore: reads the most-recent ``Rejected`` row's ``from_status``
+	(never hardcodes ``Pending Review``). Sets ``action_required = 1`` (a reopened
+	item needs work), appends a ``Reopened`` row, and emits an ``AP Review Event``
+	(``classified_other`` + a 'reopened' note — the Select has no ``reopened`` value
+	by decision D-2)."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.status != STATUS_REJECTED:
+		raise CaptureValidationError(
+			_("Only a Rejected capture can be reopened; current status is {0}.").format(
+				capture.status
+			)
+		)
+
+	reason = (reason or "").strip()
+	if not reason:
+		raise CaptureValidationError(_("A reopen reason is required."))
+
+	restore_to = STATUS_PENDING_REVIEW
+	for row in reversed(capture.rejection_log or []):
+		if row.action == REJECTION_ACTION_REJECTED and row.from_status:
+			restore_to = row.from_status
+			break
+
+	actor = actor or frappe.session.user
+	capture.status = restore_to
+	capture.action_required = 1
+	capture.action_required_reason = _("Reopened for correction")
+	capture.append(
+		"rejection_log",
+		{
+			"action": REJECTION_ACTION_REOPENED,
+			"reason": reason,
+			"from_status": STATUS_REJECTED,
+			"to_status": restore_to,
+			"actor": actor,
+			"timestamp": now_datetime(),
+		},
+	)
+
+	emit_review_event(
+		capture,
+		action_taken=REVIEW_ACTION_CLASSIFIED_OTHER,
+		note="reopened: {0}".format(reason),
+		clerk=actor,
+	)
+
+	if save:
+		capture.save()
+	return capture
+
+
+@frappe.whitelist()
+def reject_capture_for(capture: str, reason: str, root_cause_tag: str | None = None) -> str:
+	"""Whitelisted clerk reject (spec 10). Returns the capture name."""
+
+	doc = reject_capture(capture, reason=reason, root_cause_tag=(root_cause_tag or None))
+	return doc.name
+
+
+@frappe.whitelist()
+def reopen_capture_for(capture: str, reason: str) -> str:
+	"""Whitelisted clerk reopen (spec 10). Resumes the cascade for the restored stage."""
+
+	doc = reopen_capture(capture, reason=reason)
+	doc._kick_next_step()
+	return doc.name
+
+
+@frappe.whitelist()
+def get_rejection_log_for(capture: str) -> list[dict]:
+	"""Whitelisted read of a capture's reject/reopen trail (spec 10)."""
+
+	doc = frappe.get_doc("AP Invoice Capture", capture)
+	return [
+		{
+			"action": r.action,
+			"reason": r.reason,
+			"from_status": r.from_status,
+			"to_status": r.to_status,
+			"actor": r.actor,
+			"timestamp": r.timestamp,
+		}
+		for r in (doc.rejection_log or [])
+	]
+
+
+# ---------------------------------------------------------------------------
 # Confidence-based routing (spec 09) — combined amount + confidence + flag signal
 # ---------------------------------------------------------------------------
 #
@@ -3564,29 +3882,29 @@ def _emit_review_event(
 	amount: "float | None" = None,
 	threshold: "float | None" = None,
 ) -> "str | None":
-	"""Guarded AP Review Event emission seam (spec 09 §5.5; doctype owned by spec 10).
+	"""Route-to-review telemetry for spec 09, on the canonical spec-10 primitive.
 
-	Emits exactly one event per route-to-review. Guarded by ``frappe.db.exists`` so
-	routing never fails when the spec-10 telemetry doctype is absent (AC-09-14); the
-	concrete field contract is reconciled when spec 10 builds the doctype."""
+	A confidence/flag park IS a surfaced exception — record it as one ``AP Review
+	Event`` (``classified_other``) tagged with the mapped root cause so the spec-10
+	'Top step-9 root causes' report can quantify whether to loosen a threshold. Stays
+	guarded by ``frappe.db.exists`` so routing never fails if spec 10's doctype is
+	absent (AC-09-14)."""
 
 	if not frappe.db.exists("DocType", "AP Review Event"):
 		return None
+	root_cause = (
+		ROOT_CAUSE_CONFIDENCE_TOO_TIGHT
+		if axis == ROUTING_AXIS_CONFIDENCE
+		else ROOT_CAUSE_POLICY_VIOLATION
+	)
 	try:
-		event = frappe.new_doc("AP Review Event")
-		event.update(
-			{
-				"capture": capture.name,
-				"axis": axis,
-				"failing_field": failing_field,
-				"failing_flag": failing_flag,
-				"amount": amount,
-				"threshold": threshold,
-			}
+		return emit_review_event(
+			capture,
+			action_taken=REVIEW_ACTION_CLASSIFIED_OTHER,
+			root_cause_tag=root_cause,
+			exception_reason_code=failing_field or failing_flag,
+			note="routed to review (amount {0} vs threshold {1})".format(amount, threshold),
 		)
-		event.flags.ignore_permissions = True
-		event.insert(ignore_permissions=True)
-		return event.name
 	except Exception:
 		frappe.log_error(
 			title="AP Review Event emission failed", message=frappe.get_traceback()
@@ -3780,6 +4098,18 @@ def record_manager_decision(
 		capture.payment_readiness = PAYMENT_READINESS_BLOCKED
 		capture.action_required = 1
 		capture.action_required_reason = _("Approval rejected — capture blocked from payment")
+		# Spec 10 instrumentation: a manager payment-reject emits one AP Review Event.
+		# Stream-R gating (§5.2/AC-10-14): the already-paid receipt has no approval to
+		# reject, so an approval/rejection root cause must not appear on Stream R.
+		if capture.stream != STREAM_RECEIPT:
+			_safe_emit_review_event(
+				capture,
+				action_taken=REVIEW_ACTION_REJECTED,
+				root_cause_tag=ROOT_CAUSE_POLICY_VIOLATION,
+				exception_reason_code="manager_reject",
+				note=notes,
+				clerk=actor or frappe.session.user,
+			)
 
 	if save:
 		capture.save()

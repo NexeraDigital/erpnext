@@ -138,7 +138,9 @@
   "mock_payment_status",
   "mock_payment_amount",
   "mock_payment_issued_at",
-  "mock_payment_response"
+  "mock_payment_response",
+  "rejection_section",
+  "rejection_log"
  ],
  "fields": [
   {
@@ -1092,6 +1094,19 @@
    "fieldname": "mock_payment_response",
    "fieldtype": "Long Text",
    "label": "Mock Payment Response",
+   "read_only": 1
+  },
+  {
+   "description": "Reject / reopen audit trail (spec 10). A clerk may bounce a non-promoted capture back to the vendor with a reason; reopen restores the prior stage. Both transitions append a row here and emit an AP Review Event.",
+   "fieldname": "rejection_section",
+   "fieldtype": "Section Break",
+   "label": "Rejection / Reopen Trail"
+  },
+  {
+   "fieldname": "rejection_log",
+   "fieldtype": "Table",
+   "label": "Rejection Log",
+   "options": "AP Capture Rejection Log",
    "read_only": 1
   }
  ],

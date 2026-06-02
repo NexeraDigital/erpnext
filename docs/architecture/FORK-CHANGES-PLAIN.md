@@ -290,6 +290,24 @@ A few honest notes:
 
 ---
 
+## Update (2026-06-01): a reject button, a paper trail, and measuring *why* invoices need a human
+
+When an invoice can't be auto-processed, a person handles it — but until now there was no clean way to **bounce a bad one back to the vendor**, and no record of **why** invoices keep needing human attention. This update adds both, and turns the review step into a feedback loop that tells you what to fix upstream.
+
+What it adds:
+- **A real "reject" action.** A clerk can send a non-finalized invoice back to the vendor with a reason (bad scan, wrong amount, junk). It's marked **Rejected** and drops off the work queue — but it's **not a dead end**: a "reopen" button brings it right back to exactly the stage it was at, with the full reject/reopen history kept for audit. (A rejected invoice can never accidentally slip forward into the books.)
+- **A "why" log behind every review action.** Each time someone fixes a field, maps a vendor, or rejects something, the system quietly records one entry tagged with a **root cause** from a fixed list — *extraction miss, unmapped vendor, threshold too tight, wrong stream tag, policy violation, vendor error, missing PO, other*. This is the part that makes the whole pipeline self-improving.
+- **A weekly "Top reasons invoices needed a human" report** and a chart, grouped by those root-cause tags. If "threshold too tight" tops the list, you loosen the confidence threshold; if "missing PO" is high, that quantifies whether requiring POs is worth it. It turns gut-feel tuning into a measured decision.
+
+Honest notes:
+- **Already-paid card receipts get lighter tracking** — there's no payment to reject, so the approval/rejection reasons don't apply to them.
+- The reject here is for invoices **before** they become an official Purchase Invoice; rejecting an invoice that's already been promoted is a separate, later step.
+- It records **why** and **how long** a fix took — complementing the existing field-by-field change history (which only records *what* changed).
+
+This is the measurement backbone for "are we automating everything we can?" Ships with **18 more automated tests, all passing** (the main capture suite is now 185, plus a new 4-test module for the event log).
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

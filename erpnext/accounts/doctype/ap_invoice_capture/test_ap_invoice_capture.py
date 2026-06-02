@@ -140,6 +140,17 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	_evaluate_routing_signals,
 	_resolve_approval_threshold,
 	reroute_after_review,
+	STATUS_REJECTED,
+	reject_capture,
+	reopen_capture,
+	emit_review_event,
+	REVIEW_ACTION_REJECTED,
+	REVIEW_ACTION_FIELD_CORRECTED,
+	REVIEW_ACTION_CODING_COMPLETED,
+	REVIEW_ACTION_CLASSIFIED_OTHER,
+	ROOT_CAUSE_POLICY_VIOLATION,
+	REJECTION_ACTION_REJECTED,
+	REJECTION_ACTION_REOPENED,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3543,13 +3554,25 @@ class TestAPInvoiceCaptureConfidenceRouting(IntegrationTestCase):
 		request_approval(cap, threshold=1000, save=False)
 		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
 
-	# AC-09-14 (telemetry doctype absent → route-to-review still completes)
+	# AC-09-14 (telemetry doctype absent → route-to-review still completes).
+	# Spec 10 ships the AP Review Event doctype, so absence is simulated by
+	# monkeypatching the existence guard — the invariant is that routing never
+	# fails on the telemetry sink being unavailable.
 	def test_ac_09_14_review_event_doctype_absent_is_graceful(self):
-		self.assertFalse(frappe.db.exists("DocType", "AP Review Event"))
 		cap = self._promoted(total="250.00")
 		self._set_conf(cap, "total_amount", above=False)
-		# Must NOT raise even though AP Review Event is not installed.
-		request_approval(cap, threshold=1000)
+		real_exists = frappe.db.exists
+
+		def _fake_exists(*args, **kwargs):
+			if args and args[0] == "DocType" and len(args) > 1 and args[1] == "AP Review Event":
+				return None
+			return real_exists(*args, **kwargs)
+
+		frappe.db.exists = _fake_exists
+		try:
+			request_approval(cap, threshold=1000)  # must not raise
+		finally:
+			frappe.db.exists = real_exists
 		cap.reload()
 		self.assertEqual(cap.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
 
@@ -3597,3 +3620,219 @@ class TestAPInvoiceCaptureConfidenceRouting(IntegrationTestCase):
 		t2, s2 = _resolve_approval_threshold(2500.0, None)
 		self.assertEqual(t2, 2500.0)
 		self.assertEqual(s2, "explicit-override")
+
+
+class TestAPReviewGate(IntegrationTestCase):
+	"""Spec 10 — reject/reopen transitions + step-9 instrumentation wiring."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _proposed(self, filename="reject-me.pdf"):
+		"""A capture parked at Proposed (post-OCR, pre-confirm)."""
+		f = _make_file(filename)
+		cap = create_capture_from_file(file_doc=f, source_context="Reject test")
+		run_fake_extraction(cap)
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_PROPOSED)
+		return cap
+
+	def _events(self, capture_name):
+		return frappe.get_all(
+			"AP Review Event",
+			filters={"capture": capture_name},
+			fields=["name", "action_taken", "root_cause_tag"],
+		)
+
+	# AC-10-1 (reject positive)
+	def test_ac_10_1_reject_positive(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="bad scan")
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_REJECTED)
+		self.assertEqual(cap.action_required, 0)
+		rows = cap.rejection_log
+		self.assertEqual(len(rows), 1)
+		self.assertEqual(rows[0].action, REJECTION_ACTION_REJECTED)
+		self.assertEqual(rows[0].from_status, STATUS_PROPOSED)
+		self.assertEqual(rows[0].actor, "Administrator")
+		evs = [e for e in self._events(cap.name) if e.action_taken == REVIEW_ACTION_REJECTED]
+		self.assertEqual(len(evs), 1)
+
+	# AC-10-2 (reject blocked when promoted)
+	def test_ac_10_2_reject_blocked_when_promoted(self):
+		cap = self._proposed()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": "_Test Supplier", "total_amount": "250", "currency": "INR"}
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		self.assertEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)
+		events_before = len(self._events(cap.name))
+		with self.assertRaises(CaptureValidationError):
+			reject_capture(cap, reason="too late")
+		cap.reload()
+		self.assertNotEqual(cap.status, STATUS_REJECTED)
+		self.assertEqual(len(cap.rejection_log), 0)
+		# No rejected event added by the failed call.
+		rejected = [e for e in self._events(cap.name) if e.action_taken == REVIEW_ACTION_REJECTED]
+		self.assertEqual(len(rejected), 0)
+
+	# AC-10-3 (reject idempotency)
+	def test_ac_10_3_double_reject_raises(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="bad scan")
+		cap.reload()
+		with self.assertRaises(CaptureValidationError):
+			reject_capture(cap, reason="again")
+		cap.reload()
+		self.assertEqual(len([r for r in cap.rejection_log if r.action == REJECTION_ACTION_REJECTED]), 1)
+
+	# AC-10-4 (Rejected survives save / re-validate)
+	def test_ac_10_4_rejected_survives_save(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="bad scan")
+		# Reload from DB and save again — validate() must not clobber Rejected.
+		fresh = frappe.get_doc("AP Invoice Capture", cap.name)
+		self.assertEqual(fresh.status, STATUS_REJECTED)
+		fresh.save()
+		fresh.reload()
+		self.assertEqual(fresh.status, STATUS_REJECTED)
+
+	# AC-10-5 (reject audit — Version row written)
+	def test_ac_10_5_reject_writes_version(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="bad scan")
+		self.assertTrue(
+			frappe.db.exists("Version", {"ref_doctype": "AP Invoice Capture", "docname": cap.name})
+		)
+
+	# AC-10-6 (reopen positive — restores recorded from_status)
+	def test_ac_10_6_reopen_restores_stage(self):
+		cap = self._proposed()
+		confirm_extracted_fields(cap, corrections={"supplier": ""})  # force Needs Correction
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_NEEDS_CORRECTION)
+		reject_capture(cap, reason="bounce")
+		cap.reload()
+		reopen_capture(cap, reason="vendor resent")
+		cap.reload()
+		self.assertEqual(cap.status, STATUS_NEEDS_CORRECTION)
+		self.assertEqual(cap.action_required, 1)
+		self.assertTrue(any(r.action == REJECTION_ACTION_REOPENED for r in cap.rejection_log))
+
+	# AC-10-7 (reopen blocked when not rejected)
+	def test_ac_10_7_reopen_blocked_when_not_rejected(self):
+		cap = self._proposed()
+		with self.assertRaises(CaptureValidationError):
+			reopen_capture(cap, reason="nope")
+
+	# AC-10-8 (trail preserved across cycles)
+	def test_ac_10_8_trail_preserved(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="r1")
+		cap.reload()
+		reopen_capture(cap, reason="o1")
+		cap.reload()
+		reject_capture(cap, reason="r2")
+		cap.reload()
+		actions = [r.action for r in cap.rejection_log]
+		self.assertEqual(
+			actions,
+			[REJECTION_ACTION_REJECTED, REJECTION_ACTION_REOPENED, REJECTION_ACTION_REJECTED],
+		)
+
+	# AC-10-12 (confirm emits one event with the corrected field)
+	def test_ac_10_12_confirm_emits_event(self):
+		cap = self._proposed()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "total_amount": "999", "currency": "INR"},
+		)
+		cap.reload()
+		evs = [
+			e
+			for e in self._events(cap.name)
+			if e.action_taken in (REVIEW_ACTION_FIELD_CORRECTED, REVIEW_ACTION_CODING_COMPLETED)
+		]
+		self.assertEqual(len(evs), 1)
+		fc = frappe.db.get_value("AP Review Event", evs[0].name, "fields_changed")
+		self.assertIn("total_amount", fc or "")
+
+	# AC-10-13 (manager reject emits one event)
+	def test_ac_10_13_manager_reject_emits_event(self):
+		cap = self._proposed()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": "_Test Supplier", "total_amount": "5000", "currency": "INR"}
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		request_approval(cap, threshold=1000)  # over threshold -> Pending Manager
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+		record_manager_decision(cap, approve=False, notes="policy")
+		cap.reload()
+		rejected = [e for e in self._events(cap.name) if e.action_taken == REVIEW_ACTION_REJECTED]
+		self.assertEqual(len(rejected), 1)
+		self.assertEqual(rejected[0].root_cause_tag, ROOT_CAUSE_POLICY_VIOLATION)
+
+	# AC-10-14 (Stream R does not emit an approval/rejection-root-cause event)
+	def test_ac_10_14_stream_r_no_approval_root_cause(self):
+		cap = self._proposed()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": "_Test Supplier", "total_amount": "5000", "currency": "INR"}
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		# Flip to Stream R before the manager reject.
+		cap.stream = STREAM_RECEIPT
+		cap.save()
+		cap.reload()
+		record_manager_decision(cap, approve=False, notes="junk")
+		cap.reload()
+		rejected = [e for e in self._events(cap.name) if e.action_taken == REVIEW_ACTION_REJECTED]
+		self.assertEqual(len(rejected), 0)  # Stream R emits no approval/rejection root cause
+
+	# AC-10-15 (Rejected excluded from cascade)
+	def test_ac_10_15_rejected_excluded_from_cascade(self):
+		cap = self._proposed()
+		reject_capture(cap, reason="bad scan")
+		cap.reload()
+		self.assertIsNone(cap._determine_next_step())
+
+	# AC-10-16 (report renders grouped by root_cause_tag)
+	def test_ac_10_16_report_renders(self):
+		cap = self._proposed()
+		emit_review_event(cap, action_taken=REVIEW_ACTION_FIELD_CORRECTED, root_cause_tag="extraction_miss")
+		emit_review_event(cap, action_taken=REVIEW_ACTION_REJECTED, root_cause_tag="policy_violation")
+		report = frappe.get_doc("Report", "AP Top Step 9 Root Causes")
+		self.assertEqual(report.report_type, "Query Report")
+		self.assertEqual(report.ref_doctype, "AP Review Event")
+		self.assertEqual(report.is_standard, "Yes")
+		from frappe.desk.query_report import run
+
+		res = run("AP Top Step 9 Root Causes", filters={"from_date": None, "to_date": None})
+		# Rows may be dicts or tuples depending on the runner; assert tag presence
+		# shape-agnostically over the serialized result.
+		blob = json.dumps(res["result"], default=str)
+		self.assertIn("extraction_miss", blob)
+		self.assertIn("policy_violation", blob)
+		self.assertGreaterEqual(len(res["result"]), 2)
+
+	# AC-10-17 (chart groups by root_cause_tag)
+	def test_ac_10_17_chart_groups_by_root_cause(self):
+		chart = frappe.get_doc("Dashboard Chart", "AP Review Root Causes")
+		self.assertEqual(chart.document_type, "AP Review Event")
+		self.assertEqual(chart.chart_type, "Group By")
+		self.assertEqual(chart.group_by_based_on, "root_cause_tag")

@@ -1035,3 +1035,30 @@ Replaces the amount-only auto-approve decision in `request_approval` with a **th
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 171
 ```
+
+## 21. Spec 10 — AP Review (Exception Handling) — instrumented feedback gate
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Tenth slice of the v2 build — see `docs/spec/10-ap-review-observability.md`. All 17 acceptance criteria green this session; **18 new automated tests** across two modules (capture suite 171 → **185 OK**; new `test_ap_review_event` **4 OK**); spec-01..09 suites pass unchanged. Closes the Gate phase (08–10).
+
+Turns Step 9 from a silent exception handler into an instrumented **feedback gate**: a clerk reject/reopen transition pair the capture lacked, plus the **`AP Review Event`** telemetry sink that every review action emits into, plus a weekly root-cause report + auto-rate chart.
+
+```
+ erpnext/accounts/doctype/ap_review_event/* | NEW append-only log DocType (capture, action_taken, root_cause_tag [fixed 8-value vocab], fields_changed JSON, time_to_resolve_seconds, exception_reason_code, note, clerk, created; autoname APRE-{YYYY}-{#####}; clerk-read-only)
+ erpnext/accounts/doctype/ap_capture_rejection_log/* | NEW child table (action Rejected/Reopened, reason, from_status, to_status, actor, timestamp)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- rejection_section + rejection_log Table; status "Rejected" already existed (no enum migration)
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- emit_review_event (shared primitive) + _safe_emit_review_event; reject_capture / reopen_capture (+ _for wrappers + get_rejection_log_for); validate() Rejected short-circuit; _determine_next_step Rejected→None guard; instrumentation on confirm_extracted_fields (field_corrected/coding_completed) + record_manager_decision reject (rejected, Stream I only); spec-09 _emit_review_event reconciled onto the canonical primitive
+ erpnext/accounts/report/ap_top_step_9_root_causes/* | NEW Query Report (GROUP BY root_cause_tag, % of total, distinct captures; date filters)
+ erpnext/accounts/dashboard_chart/ap_review_root_causes/* | NEW Group-By chart over AP Review Event by root_cause_tag
+ docs/architecture/AP-CAPTURE-SEQUENCE.md | notes: reject/reopen clerk action + AP Review Event sink now built
+ test/testplans/ap-review-event-gate.md + ap-capture-reject-reopen.md | clean-room runbooks
+```
+
+**`emit_review_event` is the shared instrumentation primitive** other specs import — it stabilizes here. The spec-09 route-to-review seam (a placeholder that wrote non-existent fields) is **reconciled onto it**: a confidence/flag park now records one real `AP Review Event` (`classified_other` + the mapped root cause `confidence_threshold_too_tight` / `policy_violation`).
+
+**Reconciliations / decisions adopted** (= spec recommendations): D-1(a) `validate()` early `if status == Rejected: return` (the highest-risk integration point — `Rejected` now survives a re-save, AC-10-4); D-2(a) keep the 5-value `action_taken` enum (reopen logs as `classified_other` + note); D-3(a) `action_required = 0` on Rejected (terminal-quiet, drops off the queue); D-4 Dashboard Chart field names **verified against the running v16 site** before writing JSON; D-5(a) `fields_changed` as Small Text JSON string; D-6(a) `emit_review_event` inserts with `ignore_permissions=True` (append-only-by-controller); D-7(a) field_corrected vs coding_completed by comparing pre/post `final_*`; D-8(a) `time_to_resolve_seconds` from `creation` (v1); D-9(a)/D-10(a) report-on-demand Query Report (no scheduler). **Honest deferrals:** the `Auditor (Read Only)` role and an accurate `review_queue_entered_at` timestamp are fast-follows → TODO T-014. **Reconciliation with spec 11:** this is the **capture-level** reject (pre-PI, controller transition); spec 11 owns the **PI-level** native-Workflow reject — distinct doctypes at distinct stages, neither double-emits an event for one action.
+
+### 21.1 Running the spec-10 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 185
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_review_event.test_ap_review_event          # 4
+```
