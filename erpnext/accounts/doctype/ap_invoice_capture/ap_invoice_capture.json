@@ -290,15 +290,18 @@
    "label": "Action Required Reason"
   },
   {
+   "depends_on": "eval:doc.source_context",
    "fieldname": "context_section",
    "fieldtype": "Section Break",
    "label": "Context"
   },
   {
+   "depends_on": "eval:doc.source_context",
    "description": "Optional human-readable context about where this source came from.",
    "fieldname": "source_context",
    "fieldtype": "Small Text",
-   "label": "Source Context"
+   "label": "Source Context",
+   "read_only": 1
   },
   {
    "description": "Validation/rejection details. Populated when the file is unsupported or otherwise blocked.",
@@ -1138,7 +1141,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-13 19:00:00",
+ "modified": "2026-06-02 21:30:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",

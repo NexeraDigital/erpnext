@@ -1231,3 +1231,15 @@ Resolution is company-aware and preserves existing behaviour: `_Test Company` st
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 226 OK
 ```
+
+## 31. UI — `source_context` is read-only and shown only when populated
+
+> **Status (2026-06-02):** cosmetic form tweak (no logic change). Browser-verified (screenshots committed).
+
+`source_context` is intake-provenance metadata (set via `create_capture_from_file(..., source_context=...)`), not a user-edited field. It was rendering as an empty, editable textbox on every capture. Marked **`read_only: 1`** and gated both it and its `Context` section on **`depends_on: "eval:doc.source_context"`** so the section only appears when a value exists.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | source_context += read_only:1, depends_on; context_section += depends_on
+```
+
+No controller/test change (field properties only). Verified in desk: hidden when empty, read-only when set — `test/testplans/screenshots/source-context-readonly-hidden/`.
