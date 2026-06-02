@@ -2469,6 +2469,52 @@ class TestAPSupplierResolution3Tier(IntegrationTestCase):
 		cap.reload()
 		self.assertFalse(cap.supplier_change_request)
 
+	# --- AC-05-24/25/26: T-018 — gate defaults ON for high confidence ----
+	# AC-05-24 — default ON: a confident unknown auto-files a Draft request, no human enable.
+	def test_ac_05_24_gate_defaults_on_high_confidence(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_supplier_resolution_settings,
+		)
+
+		self._set("enable_gated_supplier_creation", "")  # unset → fresh-site default
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		self.assertTrue(get_supplier_resolution_settings()["enable_gated_supplier_creation"])
+		before = frappe.db.count("Supplier")
+		cap = self._confirmed(
+			f"Auto Default {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.95
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertTrue(cap.supplier_change_request)  # auto-filed with no explicit enable
+		self.assertEqual(frappe.db.count("Supplier"), before)  # no Supplier created
+
+	# AC-05-25 — default ON but low confidence still no auto-file (escalation preserved).
+	def test_ac_05_25_default_on_low_confidence_no_file(self):
+		self._set("enable_gated_supplier_creation", "")
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		cap = self._confirmed(
+			f"Default Low {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.50
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertFalse(cap.supplier_change_request)
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_BLOCKED)  # stays blocked
+
+	# AC-05-26 — control intact: auto-filed request is Draft; no Supplier without approval.
+	def test_ac_05_26_no_supplier_without_approval(self):
+		self._set("enable_gated_supplier_creation", "")
+		self._set("supplier_autocreate_confidence_threshold", 0.85)
+		before = frappe.db.count("Supplier")
+		cap = self._confirmed(
+			f"Default Ctrl {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE, confidence=0.95
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		req = frappe.get_doc("Supplier Master Change Request", cap.supplier_change_request)
+		self.assertEqual(req.workflow_state, "Draft")
+		self.assertEqual(req.change_type, "Create")
+		self.assertEqual(frappe.db.count("Supplier"), before)
+
 	# --- queue idempotency (Tier-3 helper) -------------------------------
 	def test_tier3_queue_is_idempotent_per_capture(self):
 		cap = self._confirmed(f"Once {frappe.generate_hash(length=6)}", stream=STREAM_INVOICE)

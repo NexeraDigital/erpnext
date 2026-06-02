@@ -3,9 +3,11 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 234 (221 original + 13 automation-first: T-015 ×7, T-016 ×4, T-017 ×2) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (179/234 ACs green; no regressions) + **automation-first: T-015 auto-confirm, T-016 coding-from-history, T-017 trust-content built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 237 (221 original + 16 automation-first: T-015 ×7, T-016 ×4, T-017 ×2, T-018 ×3) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (182/237 ACs green; no regressions) + **automation-first backlog COMPLETE: T-015 auto-confirm, T-016 coding-from-history, T-017 trust-content, T-018 gated-create-default built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 >
-> **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and added new automation-first ACs; unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Remaining automation backlog: **TODO T-016..T-018** (coding-from-history, classification trust-content, gated-create default).
+> **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and added new automation-first ACs; unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Automation backlog **COMPLETE** — T-015 (auto-confirm), T-016 (coding-from-history), T-017 (trust-content), T-018 (gated-create default) all built + green.
+>
+> **2026-06-02 — T-018 built ✅ (gated supplier auto-create defaults ON).** `enable_gated_supplier_creation` default flipped OFF→ON, scoped to high OCR confidence: a confident-but-unknown vendor auto-files a Draft `Supplier Master Change Request` (human only approves — SoD intact); low-confidence names stay blocked. The auto-file capability already existed; this is the default flip + AC-05-24..26. 3 tests; full module **`Ran=205 … OK`** (was 202; zero regressions). No new desk surface (identical to AC-05-16's already-committed screenshots). Approval policy (who approves) stays a customer decision (T-011). **Automation-first backlog COMPLETE.**
 >
 > **2026-06-02 — T-017 built ✅ (classification trusts confident content).** A Step-6 classification whose **confident** content read (a decisive paid/card marker, or mandatory-field confidence above threshold) disagrees with the Step-1 intake stream tag is now **trusted** — the correction is recorded as telemetry (an `AP Review Event`, root-cause `stream_mistag`) and the cascade continues with **no human**; only genuinely ambiguous content still escalates to Manual Review. Gated by `enable_classification_trust_content` (default OFF — a disagreement escalates as shipped until opted in). AC-07-15/16 green: `TestAPClassificationTrustContent` **`Ran=3 … OK`**; full module **`Ran=202 … OK`** (was 199; zero regressions). Behavioral screenshots under `screenshots/t-017-trust-content/`.
 >
@@ -185,7 +187,7 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-04-19 _(T-015)_
 </details>
 
-<details><summary><b>05 — Supplier Resolution · 23/23</b></summary>
+<details><summary><b>05 — Supplier Resolution · 26/26</b></summary>
 
 - [x] AC-05-1
 - [x] AC-05-2
@@ -210,6 +212,9 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-05-21
 - [x] AC-05-22
 - [x] AC-05-23
+- [x] AC-05-24 _(T-018 gated-create default ON)_
+- [x] AC-05-25 _(T-018)_
+- [x] AC-05-26 _(T-018)_
 </details>
 
 <details><summary><b>06 — GL Coding / Tax / Cost Center · 18/18</b></summary>

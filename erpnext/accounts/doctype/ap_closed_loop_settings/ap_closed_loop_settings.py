@@ -602,11 +602,15 @@ def get_supplier_resolution_settings() -> dict:
 	if min_len is None or min_len < 0:
 		min_len = DEFAULT_SUPPLIER_FUZZY_MIN_LENGTH
 
+	# T-018 (spec 05 OD-05-9 b): default ON, scoped to high OCR confidence (the
+	# confidence guard lives in _maybe_queue_supplier_create). A confident-but-unknown
+	# vendor auto-files a Draft create request (a human only approves — SoD intact)
+	# rather than dead-stopping a human who must notice AND file it.
 	raw_gate = stored.get("enable_gated_supplier_creation")
 	try:
-		gate = bool(int(float(raw_gate))) if raw_gate not in (None, "") else False
+		gate = bool(int(float(raw_gate))) if raw_gate not in (None, "") else True
 	except (TypeError, ValueError):
-		gate = False
+		gate = True
 
 	return {
 		"supplier_fuzzy_threshold": _float(

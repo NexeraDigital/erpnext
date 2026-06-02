@@ -1121,3 +1121,20 @@ Shipped classification sent **every** intake-vs-content stream disagreement to M
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 202
 ```
+
+## 25. T-018 — Gated supplier auto-create defaults ON for high-confidence names
+
+> **Status (2026-06-02):** implemented + tested. Fourth (final) automation-first slice — builds spec 05 AC-05-24..26 (OD-05-9 b). **3 new tests** (capture suite 202 → **205 OK**); zero regressions. **Completes the automation-first backlog.**
+
+The Tier-3 gated-create capability already existed but shipped `enable_gated_supplier_creation` **OFF** — a confident-but-unknown vendor dead-stopped at a human who had to notice *and* file the create request. This flips the default **ON, scoped to high OCR confidence**: a confident unknown auto-files the Draft `Supplier Master Change Request`; the human's only remaining step is approval (SoD fully intact — Draft-only, a different user approves, the Stream-I capture stays Blocked until posted). A low-confidence name still does **not** auto-file (escalation preserved).
+
+```
+ erpnext/accounts/doctype/ap_closed_loop_settings/* | enable_gated_supplier_creation default 0 → 1 (JSON + getter unset-default True). The high-confidence scope guard already lives in _maybe_queue_supplier_create.
+```
+
+One-line default flip — no new desk surface (the auto-filed-request behaviour is identical to the already-screenshotted AC-05-16 gated path under `screenshots/05-supplier-resolution-3tier/`, only reached by default now), so screenshots are **N/A**. The **approval policy** (who approves new vendors) remains a customer decision — **TODO T-011**.
+
+### 25.1 Running the T-018 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 205
+```

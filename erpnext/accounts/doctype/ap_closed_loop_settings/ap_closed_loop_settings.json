@@ -276,8 +276,8 @@
    "label": "Supplier Fuzzy Min Length"
   },
   {
-   "default": "0",
-   "description": "When on, an Unknown supplier with high enough OCR confidence queues a Draft Supplier Master Change Request (Tier 3). Off by default — never auto-creates a Supplier.",
+   "default": "1",
+   "description": "When on, an Unknown supplier with high enough OCR confidence queues a Draft Supplier Master Change Request (Tier 3). Off by default — never auto-creates a Supplier. Default ON (T-018 / OD-05-9 b): a confident-but-unknown vendor auto-files a Draft create request (human still approves — SoD intact); low-confidence names stay blocked for manual handling.",
    "fieldname": "enable_gated_supplier_creation",
    "fieldtype": "Check",
    "label": "Enable Gated Supplier Creation"
