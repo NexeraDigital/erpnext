@@ -54,6 +54,33 @@ def install_ap_defaults() -> None:
 
 	_seed_stream_rules()
 	_seed_ap_roles()
+	_seed_supplier_custom_fields()
+
+
+def _seed_supplier_custom_fields() -> None:
+	"""Add the per-supplier `auto_pay_eligible` Custom Field (spec 12) if absent.
+
+	Idempotent. Default OFF — payment moves money, so auto-pay is an explicit
+	per-vendor trust decision; the cascade only auto-pays an eligible vendor."""
+
+	if not frappe.db.exists("DocType", "Supplier"):
+		return
+	if frappe.db.exists("Custom Field", "Supplier-auto_pay_eligible"):
+		return
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_field
+
+	create_custom_field(
+		"Supplier",
+		{
+			"fieldname": "auto_pay_eligible",
+			"label": "Auto-Pay Eligible (AP)",
+			"fieldtype": "Check",
+			"insert_after": "default_bank_account",
+			"description": "Spec 12: when checked, an approved AP-capture Purchase Invoice for this "
+			"supplier is paid automatically by the cascade (hands-free). Default off — every other "
+			"vendor pauses for a human 'Pay' click.",
+		},
+	)
 
 
 # AP closed-loop roles (spec 11). Created idempotently so the SoD / approval roles

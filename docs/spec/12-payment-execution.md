@@ -3,7 +3,7 @@ spec: 12-payment-execution
 title: Payment Execution (Stream I only; automation secondary)
 plan_step: "Step 11 — Payment Execution; Stream I only; phase-1 default is human-triggered Payment Entry, full automation behind a per-supplier auto_pay_eligible flag (off by default)"
 stream: I
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 02-intake-stream-tagging, 07-classification-doctype-branching]
 related: [00-overview, 11-approval-sod-workflow, 13-bank-feed-reconciliation, 14-closure-audit-retention]
 ---

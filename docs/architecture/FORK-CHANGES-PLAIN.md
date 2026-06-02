@@ -316,6 +316,12 @@ Two honest notes: an admin account is deliberately exempt (the break-glass overr
 
 ---
 
+## Update (2026-06-02): pay trusted vendors automatically, everyone else with one click
+
+Paying a bill moves real money, so it's the one place where "stop and let a human press the button" is the *safe* default — but that doesn't mean every payment needs a human forever. This update adds a per-vendor **"Auto-Pay Eligible"** switch: flip it on for a vendor you trust (a utility, a regular SaaS bill), and once their invoice is approved it gets paid **automatically**, no clicks. Every other vendor still pauses after approval for a person to click **Pay**. The idea is to grow the trusted list over time so the routine, in-policy payments flow on their own and a human only touches the new, unusual, or large ones. (Already-paid card receipts skip this entirely — the money already moved.) Payment is still a safe **mock** in this pilot — no real bank rail yet; that's a deliberate later step. Ships with **2 more automated tests** (the main capture suite is now 213).
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

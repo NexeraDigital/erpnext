@@ -1489,6 +1489,8 @@ class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
 
 	def test_promote_resumes_cascade_through_auto_approval_and_payment(self):
 		"""Auto-approval (<= threshold) captures should reach Closed after promote."""
+		# Spec 12: only an auto-pay-eligible vendor flows approved → paid hands-free.
+		frappe.db.set_value("Supplier", "_Test Supplier", "auto_pay_eligible", 1)
 		f = _make_file("auto-cascade-small.pdf")
 		capture = create_capture_from_file(file_doc=f)
 		capture.reload()
@@ -1537,6 +1539,8 @@ class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
 
 	def test_manager_approve_resumes_cascade_to_payment(self):
 		"""Manager approve resumes the cascade through to Closed."""
+		# Spec 12: only an auto-pay-eligible vendor flows approved → paid hands-free.
+		frappe.db.set_value("Supplier", "_Test Supplier", "auto_pay_eligible", 1)
 		f = _make_file("auto-mgr-approve.pdf")
 		capture = create_capture_from_file(file_doc=f)
 		capture.reload()
@@ -4303,3 +4307,52 @@ class TestAPApprovalSoD(IntegrationTestCase):
 	def test_ac_11_9_roles_installed(self):
 		for role in ("AP Clerk", "Treasury Approver", "Auditor (Read Only)"):
 			self.assertTrue(frappe.db.exists("Role", role))
+
+
+class TestAPPaymentAutoPay(IntegrationTestCase):
+	"""Spec 12 — per-supplier auto-pay opt-in. A trusted vendor flows approved → paid
+	hands-free; every other vendor pauses for a human 'Pay' click (the safe default for
+	moving money)."""
+
+	def setUp(self):
+		frappe.flags.ap_auto_progress_enabled = True
+
+	def tearDown(self):
+		frappe.flags.ap_auto_progress_enabled = False
+		frappe.db.rollback()
+
+	def _promoted_small(self, supplier="_Test Supplier"):
+		f = _make_file("autopay-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f)
+		cap.reload()
+		confirm_extracted_fields_for(
+			cap.name, corrections={"supplier": supplier, "total_amount": "250.00", "currency": "INR"}
+		)
+		cap.reload()
+		promote_to_purchase_invoice_for(cap.name, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		return cap
+
+	# Non-eligible vendor: auto-approved + Ready but NOT auto-paid — pauses for a human.
+	def test_non_eligible_vendor_pauses_at_ready(self):
+		frappe.db.set_value("Supplier", "_Test Supplier", "auto_pay_eligible", 0)
+		cap = self._promoted_small()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(cap.payment_readiness, PAYMENT_READINESS_READY)
+		self.assertFalse(cap.payment_entry)  # NOT auto-paid
+		# The cascade stops here (no auto-pay hop) until a human pays.
+		self.assertNotEqual(
+			(cap._determine_next_step() or [None])[0], "issue_mock_payment_for"
+		)
+		# A human 'Pay' click still works.
+		issue_mock_payment(cap.name)
+		cap.reload()
+		self.assertTrue(cap.payment_entry)
+
+	# Eligible vendor: flows approved → paid hands-free (no human Pay click).
+	def test_eligible_vendor_auto_pays(self):
+		frappe.db.set_value("Supplier", "_Test Supplier", "auto_pay_eligible", 1)
+		cap = self._promoted_small()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertTrue(cap.payment_entry)  # auto-paid by the cascade
+		self.assertEqual(cap.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)

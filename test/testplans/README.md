@@ -32,6 +32,7 @@ Clean-room runbooks for independent, external verification of this fork's featur
 | `specs/09-confidence-routing.md` | 09 — Confidence-based routing (auto-advance vs Needs-Review) | `screenshots/09-confidence-routing/` |
 | `specs/10-ap-review-observability.md` | 10 — AP review: reject/reopen + AP Review Event + root-cause report | `screenshots/10-ap-review-observability/` |
 | `specs/11-approval-sod-workflow.md` | 11 — Approval & SoD (pilot: app-code SoD guard + roles + bank-change Treasury) | `screenshots/11-approval-sod-workflow/` |
+| `specs/12-payment-execution.md` | 12 — Payment execution (auto-pay opt-in per vendor) | `screenshots/12-payment-execution/` |
 
 ### `ocr/` — real-OCR build phases
 | Plan | Phase |

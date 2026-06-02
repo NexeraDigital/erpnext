@@ -1157,3 +1157,21 @@ Closes the real control gap: **the person who prepared an invoice may not also a
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 211
 ```
+
+## 27. Spec 12 — Payment Execution (auto-pay opt-in per vendor)
+
+> **Status (2026-06-02):** implemented + tested (pilot scope). 12th spec. **2 new tests** + 2 updated auto-progress tests (capture suite 211 → **213 OK**); zero regressions.
+
+Payment moves real money, so the safe default is **human-triggered**. The automation lever is the per-supplier **`auto_pay_eligible`** flag: a *trusted* vendor flows approved → paid hands-free; every other vendor pauses for a human "Pay" click. The pilot grows the trusted set over time.
+
+```
+ erpnext/accounts/ap_closed_loop/install.py | +/- _seed_supplier_custom_fields — Supplier.auto_pay_eligible Check (default OFF), on after_migrate
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _determine_next_step Step 4 now gates on _auto_pay_eligible() — only a per-supplier auto_pay_eligible vendor auto-issues the (mock) Payment Entry; everyone else pauses at payment_readiness=Ready
+```
+
+Previously the cascade auto-paid **every** approved+ready capture (gated only by test flags). Now an approved, non-eligible capture stops at `Ready` until a human calls `issue_mock_payment` — and `issue_mock_payment` itself is unchanged (still `frappe.only_for(Accounts Manager)` + the `payment_entry` idempotency guard). Stream-R already-paid captures never reach Step 4 (they skip approval/payment at spec 07). **Deferred (phase 2):** the real external rail seam `issue_real_payment_for(capture, rail)` — real money warrants extra care; the mock/dev path flows freely.
+
+### 27.1 Running the spec-12 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 213
+```

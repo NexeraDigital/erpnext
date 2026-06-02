@@ -627,10 +627,21 @@ class APInvoiceCapture(Document):
 			in (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_MANAGER_APPROVED)
 			and self.payment_readiness == PAYMENT_READINESS_READY
 			and not self.payment_entry
+			and self._auto_pay_eligible()
 		):
-			return ("issue_mock_payment_for", "auto: post-approval payment issuance")
+			return ("issue_mock_payment_for", "auto: post-approval payment issuance (auto-pay vendor)")
 
 		return None
+
+	def _auto_pay_eligible(self) -> bool:
+		"""Spec 12: only a per-supplier *trusted* (``auto_pay_eligible``) vendor auto-pays
+		hands-free; every other approved+ready capture pauses for a human 'Pay' click.
+		Default OFF (the field may not exist yet / be unchecked) — payment moves money,
+		so auto-pay is an explicit per-vendor trust decision the pilot grows over time."""
+
+		if not self.matched_supplier:
+			return False
+		return bool(frappe.db.get_value("Supplier", self.matched_supplier, "auto_pay_eligible"))
 
 	def _coding_configured(self) -> bool:
 		"""True when GL coding (spec 06) has something to do for this capture:
