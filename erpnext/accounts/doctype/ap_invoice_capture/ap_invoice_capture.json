@@ -956,7 +956,7 @@
    "fieldtype": "Select",
    "in_standard_filter": 1,
    "label": "Approval Status",
-   "options": "Not Required\nAuto Approved\nPending Manager\nManager Approved\nRejected",
+   "options": "Not Required\nAuto Approved\nPending Manager\nManager Approved\nRejected\nNeeds Review",
    "read_only": 1
   },
   {

@@ -26,6 +26,7 @@ import hashlib
 import json
 import os
 import re
+from collections import namedtuple
 from datetime import date, timedelta
 
 import frappe
@@ -114,6 +115,14 @@ APPROVAL_STATUS_AUTO_APPROVED = "Auto Approved"
 APPROVAL_STATUS_PENDING_MANAGER = "Pending Manager"
 APPROVAL_STATUS_MANAGER_APPROVED = "Manager Approved"
 APPROVAL_STATUS_REJECTED = "Rejected"
+# Spec 09: a capture that cleared validation + promotion but failed the
+# confidence or flag axis of confidence-based routing parks here (not an auto
+# state) until a clerk fixes it and a sanctioned re-route runs.
+APPROVAL_STATUS_NEEDS_REVIEW = "Needs Review"
+
+# Spec 09 — axes the combined-signal routing evaluator reports on.
+ROUTING_AXIS_CONFIDENCE = "confidence"
+ROUTING_AXIS_VALIDATION_FLAG = "validation_flag"
 
 PAYMENT_READINESS_NOT_READY = "Not Ready"
 PAYMENT_READINESS_READY = "Ready for Payment"
@@ -332,6 +341,7 @@ class APInvoiceCapture(Document):
 			"Pending Manager",
 			"Manager Approved",
 			"Rejected",
+			"Needs Review",
 		]
 		approval_threshold: DF.Float
 		approval_threshold_source: DF.Data | None
@@ -3457,6 +3467,133 @@ def _resolve_approval_threshold(threshold: float | None, source: str | None) -> 
 	return float(threshold), source or "explicit-override"
 
 
+# ---------------------------------------------------------------------------
+# Confidence-based routing (spec 09) — combined amount + confidence + flag signal
+# ---------------------------------------------------------------------------
+#
+# Replaces the amount-only auto-approve decision with a three-axis evaluator. A
+# clean+confident capture auto-advances (Auto Approved at/under threshold, Pending
+# Manager over it, exactly as before); any low-confidence field or open validation
+# flag parks it at ``Needs Review`` with the specific failing signal named and a
+# (guarded) AP Review Event emitted for spec-10 observability.
+#
+# Stream-R reconciliation: an Already-Paid (Stream R) capture posts via spec 07's
+# promote_already_paid (PI is_paid) and the cascade SKIPS approval entirely, so it
+# never reaches request_approval — the spec's "Stream R auto-post, no approval" row
+# is realised upstream, and this evaluator stays stream-agnostic (it only ever sees
+# Stream-I / unclassified captures that promoted to a standard PI).
+
+RoutingDecision = namedtuple(
+	"RoutingDecision",
+	["amount_ok", "fields_ok", "flags_ok", "resolved_threshold", "failing_field", "failing_flag"],
+)
+
+
+def _residual_gate_flag(capture: "APInvoiceCapture") -> "str | None":
+	"""First open spec-08 gate failure on a capture, or None.
+
+	Normally empty at routing time (a failed gate blocks validation upstream), but
+	read the gate fields directly so the evaluator is self-contained and catches an
+	edge state where a capture reached routing with an open flag."""
+
+	if capture.get("three_way_match_status") == THREE_WAY_MATCH_EXCEPTION:
+		return _("three-way match exception")
+	if capture.get("anomaly_status") == ANOMALY_ANOMALOUS:
+		return _("amount anomaly")
+	if capture.get("vendor_bank_change_detected") and not has_approved_bank_change(
+		capture.matched_supplier
+	):
+		return _("vendor bank change since last payment")
+	return None
+
+
+def _evaluate_routing_signals(
+	capture: "APInvoiceCapture", threshold: float | None = None, source: str | None = None
+) -> RoutingDecision:
+	"""Pure read of the three routing axes (spec 09 §5.3). No writes.
+
+	* ``amount_ok`` — ``final_total_amount <= resolved auto_post_amount_threshold``.
+	* ``fields_ok`` — every ``MANDATORY_HEADER_FIELDS`` confidence row is above
+	  threshold (spec 04's pre-computed ``is_above_threshold``; decision D-8). A
+	  *populated* confidence table with a missing or below-threshold mandatory row
+	  **fails closed** (``failing_field`` names it). An **empty** table (no
+	  extraction confidence at all — e.g. a manually built capture) degrades to
+	  pass, so non-extracted captures route on amount/flags exactly as before.
+	* ``flags_ok`` — ``validation_status == Validated`` AND no residual hard spec-08
+	  gate failure (``failing_flag`` names the first one).
+	"""
+
+	resolved_threshold, _src = _resolve_approval_threshold(threshold, source)
+	amount = float(capture.final_total_amount or 0.0)
+	amount_ok = amount <= resolved_threshold
+
+	rows = capture.get("field_confidences") or []
+	fields_ok = True
+	failing_field = None
+	if rows:
+		by_name = {row.field_name: row for row in rows}
+		for logical_name, _proposed, _final in MANDATORY_HEADER_FIELDS:
+			row = by_name.get(logical_name)
+			if row is None or not row.is_above_threshold:
+				fields_ok = False
+				failing_field = logical_name
+				break
+
+	flags_ok = capture.validation_status == VALIDATION_STATUS_VALIDATED
+	failing_flag = None
+	if not flags_ok:
+		failing_flag = _("validation not passed ({0})").format(
+			capture.validation_status or VALIDATION_STATUS_NOT_VALIDATED
+		)
+	else:
+		residual = _residual_gate_flag(capture)
+		if residual:
+			flags_ok = False
+			failing_flag = residual
+
+	return RoutingDecision(
+		amount_ok, fields_ok, flags_ok, resolved_threshold, failing_field, failing_flag
+	)
+
+
+def _emit_review_event(
+	capture: "APInvoiceCapture",
+	axis: str,
+	failing_field: "str | None" = None,
+	failing_flag: "str | None" = None,
+	amount: "float | None" = None,
+	threshold: "float | None" = None,
+) -> "str | None":
+	"""Guarded AP Review Event emission seam (spec 09 §5.5; doctype owned by spec 10).
+
+	Emits exactly one event per route-to-review. Guarded by ``frappe.db.exists`` so
+	routing never fails when the spec-10 telemetry doctype is absent (AC-09-14); the
+	concrete field contract is reconciled when spec 10 builds the doctype."""
+
+	if not frappe.db.exists("DocType", "AP Review Event"):
+		return None
+	try:
+		event = frappe.new_doc("AP Review Event")
+		event.update(
+			{
+				"capture": capture.name,
+				"axis": axis,
+				"failing_field": failing_field,
+				"failing_flag": failing_flag,
+				"amount": amount,
+				"threshold": threshold,
+			}
+		)
+		event.flags.ignore_permissions = True
+		event.insert(ignore_permissions=True)
+		return event.name
+	except Exception:
+		frappe.log_error(
+			title="AP Review Event emission failed", message=frappe.get_traceback()
+		)
+		return None
+
+
 def request_approval(
 	capture: "APInvoiceCapture | str",
 	threshold: float | None = None,
@@ -3465,11 +3602,13 @@ def request_approval(
 	approver_role: str | None = None,
 	save: bool = True,
 ) -> "APInvoiceCapture":
-	"""Route a promoted capture through Phase 1 approval controls.
+	"""Route a promoted capture through Phase 1 approval controls (spec 09).
 
-	Auto-approval is allowed when the AP-reviewed total is at or below the
-	threshold. Larger captures route to manager approval with a visible reason.
-	No payment artifact is created here.
+	Combined-signal routing: a clean+confident capture at/under threshold is
+	Auto Approved, over threshold goes to Pending Manager (unchanged amount lanes);
+	a low-confidence field or an open validation flag parks the capture at
+	``Needs Review`` with the failing signal named and a guarded AP Review Event
+	emitted. No payment artifact is created here.
 	"""
 
 	if isinstance(capture, str):
@@ -3499,6 +3638,43 @@ def request_approval(
 	capture.approval_threshold = resolved_threshold
 	capture.approval_threshold_source = resolved_source
 
+	# Spec 09 — confidence + flag axes gate WHETHER the capture can auto-advance at
+	# all; the amount axis below gates WHICH auto-advance lane. A failing
+	# confidence/flag axis parks at Needs Review (the formalised, named version of
+	# the old silent stall) and emits a guarded AP Review Event.
+	decision = _evaluate_routing_signals(capture, threshold=threshold, source=source)
+	if not (decision.fields_ok and decision.flags_ok):
+		if not decision.fields_ok:
+			axis = ROUTING_AXIS_CONFIDENCE
+			reason = _("Routed to review: low confidence on field '{0}'").format(
+				decision.failing_field
+			)
+		else:
+			axis = ROUTING_AXIS_VALIDATION_FLAG
+			reason = _("Routed to review: open validation flag '{0}'").format(
+				decision.failing_flag
+			)
+		capture.approval_status = APPROVAL_STATUS_NEEDS_REVIEW
+		capture.routing_reason = reason
+		capture.assigned_approver_role = None
+		capture.decision_by = None
+		capture.decision_at = None
+		capture.decision_notes = None
+		capture.payment_readiness = PAYMENT_READINESS_NOT_READY
+		capture.action_required = 1
+		capture.action_required_reason = reason[:140]
+		_emit_review_event(
+			capture,
+			axis,
+			failing_field=decision.failing_field,
+			failing_flag=decision.failing_flag,
+			amount=amount,
+			threshold=resolved_threshold,
+		)
+		if save:
+			capture.save()
+		return capture
+
 	if amount <= resolved_threshold:
 		capture.approval_status = APPROVAL_STATUS_AUTO_APPROVED
 		capture.routing_reason = _(
@@ -3527,6 +3703,43 @@ def request_approval(
 	if save:
 		capture.save()
 	return capture
+
+
+def reroute_after_review(
+	capture: "APInvoiceCapture | str",
+	actor: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Sanctioned re-route of a Needs-Review capture once its flags are cleared (spec 09 D-4).
+
+	The normal ``request_approval`` guard refuses a capture whose ``approval_status``
+	is already set, which would block the flagged → cleared → routed two-hop. This
+	distinct entrypoint (keeping that double-route protection intact for the normal
+	path) re-runs the evaluator, and only when the capture is now clean+confident
+	resets ``approval_status`` to ``Not Required`` and routes again. Raises
+	``CaptureApprovalError`` if the capture is not in Needs Review or is still
+	flagged/low-confidence."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.approval_status != APPROVAL_STATUS_NEEDS_REVIEW:
+		raise CaptureApprovalError(
+			_("Re-route only applies to a capture in Needs Review; current status is {0}.").format(
+				capture.approval_status or APPROVAL_STATUS_NOT_REQUIRED
+			)
+		)
+
+	decision = _evaluate_routing_signals(capture)
+	if not (decision.fields_ok and decision.flags_ok):
+		problem = decision.failing_field or decision.failing_flag or _("unresolved flags")
+		raise CaptureApprovalError(
+			_("Capture not eligible for re-route: {0}").format(problem)
+		)
+
+	capture.approval_status = APPROVAL_STATUS_NOT_REQUIRED
+	capture.routing_reason = None
+	return request_approval(capture, actor=actor, save=save)
 
 
 def record_manager_decision(
@@ -4047,6 +4260,18 @@ def request_approval_for(
 
 	parsed_threshold = float(threshold) if threshold not in (None, "") else None
 	doc = request_approval(capture, threshold=parsed_threshold, source=source)
+	doc._kick_next_step()
+	return doc.name
+
+
+@frappe.whitelist()
+def reroute_after_review_for(capture: str) -> str:
+	"""Whitelisted entrypoint for the sanctioned post-review re-route (spec 09).
+
+	Re-routes a Needs-Review capture once its flags/confidence are cleared; resumes
+	the cascade. Raises CaptureApprovalError if not eligible."""
+
+	doc = reroute_after_review(capture)
 	doc._kick_next_step()
 	return doc.name
 

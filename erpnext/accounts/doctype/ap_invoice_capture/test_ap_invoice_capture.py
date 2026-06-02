@@ -134,6 +134,12 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	ANOMALY_NORMAL,
 	ANOMALY_ANOMALOUS,
 	ANOMALY_INSUFFICIENT_HISTORY,
+	APPROVAL_STATUS_NEEDS_REVIEW,
+	ROUTING_AXIS_CONFIDENCE,
+	ROUTING_AXIS_VALIDATION_FLAG,
+	_evaluate_routing_signals,
+	_resolve_approval_threshold,
+	reroute_after_review,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3383,3 +3389,211 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_NOT_APPLICABLE)
 		self.assertEqual(cap.anomaly_status, ANOMALY_INSUFFICIENT_HISTORY)
 		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
+
+
+class TestAPInvoiceCaptureConfidenceRouting(IntegrationTestCase):
+	"""Spec 09 — confidence-based routing (auto-advance vs Needs-Review queue)."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	# ---- fixtures ---------------------------------------------------------
+
+	def _promoted(self, *, total="250.00", stream=STREAM_INVOICE):
+		"""A promoted Stream-I capture whose 5 mandatory confidence rows are all
+		above threshold (the fake extractor populates them at 0.95)."""
+		f = _make_file("route-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="Routing test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "total_amount": total, "currency": "INR"},
+			reviewer="Administrator",
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		self.assertEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)
+		if stream is not None:
+			cap.stream = stream
+			cap.save()
+			cap.reload()
+		return cap
+
+	def _set_conf(self, cap, field_name, above):
+		for row in cap.field_confidences:
+			if row.field_name == field_name:
+				row.is_above_threshold = 1 if above else 0
+		cap.save()
+		cap.reload()
+
+	def _drop_conf(self, cap, field_name):
+		cap.set(
+			"field_confidences",
+			[r for r in cap.field_confidences if r.field_name != field_name],
+		)
+		cap.save()
+		cap.reload()
+
+	# ---- evaluator (pure) -------------------------------------------------
+
+	# AC-09-1 / AC-09-11
+	def test_ac_09_1_evaluator_all_clean(self):
+		cap = self._promoted(total="250.00")
+		d = _evaluate_routing_signals(cap, threshold=1000)
+		self.assertEqual((d.amount_ok, d.fields_ok, d.flags_ok), (True, True, True))
+		self.assertIsNone(d.failing_field)
+		self.assertIsNone(d.failing_flag)
+
+	# AC-09-12 (single-field short-circuit) + AC-09-4 evaluator side
+	def test_ac_09_12_one_low_confidence_field(self):
+		cap = self._promoted(total="250.00")
+		self._set_conf(cap, "invoice_date", above=False)
+		d = _evaluate_routing_signals(cap, threshold=1000)
+		self.assertFalse(d.fields_ok)
+		self.assertEqual(d.failing_field, "invoice_date")
+
+	# AC-09-6 (missing row → fail-closed)
+	def test_ac_09_6_missing_confidence_row_fails_closed(self):
+		cap = self._promoted(total="250.00")
+		self._drop_conf(cap, "currency")
+		d = _evaluate_routing_signals(cap, threshold=1000)
+		self.assertFalse(d.fields_ok)
+		self.assertEqual(d.failing_field, "currency")
+
+	# AC-09-7 (boundary)
+	def test_ac_09_7_amount_at_threshold_is_auto_lane(self):
+		cap = self._promoted(total="1000.00")
+		d = _evaluate_routing_signals(cap, threshold=1000)
+		self.assertTrue(d.amount_ok)  # <= boundary stays auto
+
+	# AC-09-11 (axis independence): empty-table degrade does NOT gate confidence
+	def test_ac_09_11_empty_confidence_table_degrades(self):
+		cap = self._promoted(total="250.00")
+		cap.set("field_confidences", [])
+		cap.save()
+		cap.reload()
+		d = _evaluate_routing_signals(cap, threshold=1000)
+		self.assertTrue(d.fields_ok)  # no rows -> don't gate (graceful degrade)
+
+	# ---- request_approval matrix -----------------------------------------
+
+	# AC-09-1
+	def test_ac_09_1_clean_under_threshold_auto_approves(self):
+		cap = self._promoted(total="250.00")
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+		self.assertEqual(cap.action_required, 0)
+
+	# AC-09-3
+	def test_ac_09_3_clean_over_threshold_pending_manager(self):
+		cap = self._promoted(total="5000.00")
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+		self.assertEqual(cap.assigned_approver_role, MANAGER_APPROVAL_ROLE_DEFAULT)
+		self.assertEqual(cap.action_required, 1)
+
+	# AC-09-4 (low confidence → review queue, named field, not auto-posted)
+	def test_ac_09_4_low_confidence_routes_to_review(self):
+		cap = self._promoted(total="250.00")
+		self._set_conf(cap, "invoice_date", above=False)
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
+		self.assertEqual(cap.action_required, 1)
+		self.assertIn("invoice_date", cap.routing_reason)
+		# Not an auto state; payment not ready.
+		self.assertNotEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+
+	# AC-09-5 (open validation flag → review queue, named flag)
+	def test_ac_09_5_open_validation_flag_routes_to_review(self):
+		cap = self._promoted(total="250.00")
+		# Force a residual spec-08 gate exception on the promoted capture.
+		cap.three_way_match_status = THREE_WAY_MATCH_EXCEPTION
+		cap.save()
+		cap.reload()
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
+		self.assertIn("three-way match", cap.routing_reason)
+
+	# AC-09-2 (reconciled): Stream-R Already-Paid skips approval entirely (spec 07).
+	def test_ac_09_2_already_paid_skips_approval(self):
+		cap = self._promoted(total="250.00")
+		# Simulate the spec-07 already-paid posted state.
+		cap.document_type = DOCUMENT_TYPE_ALREADY_PAID
+		cap.save()
+		cap.reload()
+		# The cascade's Step-3 approval routing excludes Already-Paid captures.
+		nxt = cap._determine_next_step()
+		method = nxt[0] if nxt else None
+		self.assertNotEqual(method, "request_approval_for")
+
+	# AC-09-13 (stream unset → routes stream-agnostically; never special-cased / no JE).
+	# `stream` is a mandatory field, so unset it only in-memory (save=False) to prove
+	# the evaluator does not depend on it.
+	def test_ac_09_13_stream_unset_routes_normally(self):
+		cap = self._promoted(total="250.00")
+		cap.stream = None
+		request_approval(cap, threshold=1000, save=False)
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
+
+	# AC-09-14 (telemetry doctype absent → route-to-review still completes)
+	def test_ac_09_14_review_event_doctype_absent_is_graceful(self):
+		self.assertFalse(frappe.db.exists("DocType", "AP Review Event"))
+		cap = self._promoted(total="250.00")
+		self._set_conf(cap, "total_amount", above=False)
+		# Must NOT raise even though AP Review Event is not installed.
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
+
+	# ---- re-route + guards ------------------------------------------------
+
+	# AC-09-8 (two-hop: flagged → cleared → Pending Manager)
+	def test_ac_09_8_reroute_after_review(self):
+		cap = self._promoted(total="5000.00")  # over threshold
+		self._set_conf(cap, "invoice_date", above=False)
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
+		# Clerk clears the low-confidence field, then re-routes.
+		self._set_conf(cap, "invoice_date", above=True)
+		reroute_after_review(cap)
+		cap.reload()
+		self.assertEqual(cap.approval_status, APPROVAL_STATUS_PENDING_MANAGER)
+
+	# AC-09-9 (double-route + ineligible re-route both raise)
+	def test_ac_09_9_double_route_and_ineligible_reroute_raise(self):
+		cap = self._promoted(total="250.00")
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		# Normal entrypoint refuses an already-routed capture.
+		with self.assertRaises(CaptureApprovalError):
+			request_approval(cap, threshold=1000)
+		# Re-route refuses a capture that is not in Needs Review.
+		with self.assertRaises(CaptureApprovalError):
+			reroute_after_review(cap)
+		# Re-route refuses a still-flagged Needs-Review capture.
+		cap2 = self._promoted(total="250.00")
+		self._set_conf(cap2, "currency", above=False)
+		request_approval(cap2, threshold=1000)
+		cap2.reload()
+		self.assertEqual(cap2.approval_status, APPROVAL_STATUS_NEEDS_REVIEW)
+		with self.assertRaises(CaptureApprovalError):
+			reroute_after_review(cap2)  # still flagged
+
+	# AC-09-10 (settings fallback to the 1000.0 constant + source)
+	def test_ac_09_10_threshold_settings_fallback(self):
+		threshold, source = _resolve_approval_threshold(None, None)
+		self.assertEqual(threshold, 1000.0)
+		self.assertEqual(source, APPROVAL_SOURCE_DEFAULT)
+		# Explicit override wins.
+		t2, s2 = _resolve_approval_threshold(2500.0, None)
+		self.assertEqual(t2, 2500.0)
+		self.assertEqual(s2, "explicit-override")

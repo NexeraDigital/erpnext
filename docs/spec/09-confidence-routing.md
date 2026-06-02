@@ -3,7 +3,7 @@ spec: 09-confidence-routing
 title: Confidence-Based Routing (Auto-Post vs Review Queue)
 plan_step: Step 8 — Confidence-Based Routing on a combined signal of per-field confidence + validation flags
 stream: both
-status: Draft
+status: Done
 depends_on: [04-extraction-confidence-line-items, 08-validation-gates]
 related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-tax-costcenter, 07-classification-doctype-branching, 10-ap-review-observability, 11-approval-sod-workflow, 12-payment-execution]
 ---

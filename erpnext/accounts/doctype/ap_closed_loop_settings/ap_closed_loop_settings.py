@@ -238,6 +238,31 @@ def get_auto_post_threshold() -> float:
 	return value if value > 0 else DEFAULT_AUTO_POST_THRESHOLD
 
 
+def get_routing_config() -> dict:
+	"""Confidence-based routing configuration (spec 09 §5.1).
+
+	The single config accessor for the combined-signal routing evaluator. Composes
+	the canonical auto-post amount threshold (the one authority — reused by spec 11's
+	Workflow gate) with the per-field confidence resolution spec 04 already owns, so
+	the evaluator never re-derives a threshold::
+
+	    {"auto_post_amount_threshold": float,
+	     "confidence_threshold": float,        # canonical per-field default
+	     "field_thresholds": dict}             # per-field overrides
+
+	Kept separate from get_ocr_config (extraction-focused) per decision D-2. The
+	evaluator prefers each confidence row's pre-computed ``is_above_threshold``
+	(spec 04), so these thresholds are surfaced for transparency / re-derivation,
+	not as a second source of truth (decision D-8)."""
+
+	ocr = get_ocr_config()
+	return {
+		"auto_post_amount_threshold": get_auto_post_threshold(),
+		"confidence_threshold": ocr["confidence_threshold"],
+		"field_thresholds": ocr["field_thresholds"],
+	}
+
+
 def get_dedupe_window_days() -> int:
 	"""Cross-capture dedupe horizon in days (consumed by the dedup step).
 

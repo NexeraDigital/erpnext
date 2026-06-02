@@ -1009,3 +1009,29 @@ Adds three **stream-aware** validation gates that run inside `validate_for_purch
 # Pin Fake OCR first (run_fake_extraction is explicit, but the site provider should be Fake for the suite).
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 156
 ```
+
+## 20. Spec 09 — Confidence-Based Routing (Auto-Advance vs Needs-Review Queue)
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Ninth slice of the v2 build — see `docs/spec/09-confidence-routing.md`. All 14 acceptance criteria green this session; **15 new automated tests** (capture suite 156 → **171 OK**, skipped=1); spec-01..08 suites pass unchanged (existing approval tests extract via the fake provider, so their confidence rows stay above threshold — the new gate adds no false reroutes).
+
+Replaces the amount-only auto-approve decision in `request_approval` with a **three-axis combined-signal evaluator**: (1) amount vs the canonical `auto_post_amount_threshold`, (2) every `MANDATORY_HEADER_FIELDS` per-field confidence above threshold (spec 04's `is_above_threshold`), (3) zero open validation flags (spec 08). A clean+confident capture auto-advances exactly as before (Auto Approved at/under threshold, Pending Manager over it); **any** low-confidence field or open flag parks it at the new **`Needs Review`** approval state with the *specific* failing field/flag named in `routing_reason`, and emits a guarded `AP Review Event` (spec-10 telemetry seam). A sanctioned `reroute_after_review` re-routes once the clerk clears the flags.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- approval_status Select += "Needs Review"
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- APPROVAL_STATUS_NEEDS_REVIEW + ROUTING_AXIS_* consts; RoutingDecision namedtuple + _evaluate_routing_signals + _residual_gate_flag + _emit_review_event (guarded seam); request_approval gains the not-clean → Needs Review branch (names failing axis/field/flag); reroute_after_review (+ _for wrapper)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py | +/- get_routing_config() (composes auto_post_amount_threshold + spec-04 confidence threshold/field_thresholds)
+ docs/architecture/AP-CAPTURE-SEQUENCE.md + .png | Step 3 now shows the confidence/flag → Needs Review branch + the reroute hop
+ test/testplans/specs/09-confidence-routing.md | clean-room runbook
+```
+
+**Reconciliations (the spec predates specs 05–08; trust the code):**
+- **Stream-R "no approval" is owned by spec 07, not this spec.** An Already-Paid (Stream R) capture posts via `promote_already_paid` (PI `is_paid`, **not** a Journal Entry) and the cascade *skips* Step-3 approval — so it never reaches `request_approval`. This spec therefore does **NOT** add JE auto-posting; the evaluator is **stream-agnostic** (it only ever sees Stream-I / unclassified captures that promoted to a standard PI). The spec's "Stream R → auto-post JE, no approval" matrix row is satisfied upstream.
+- **The `auto_post_amount_threshold` settings field + `get_auto_post_threshold()` already existed** (spec 01/04) — the spec's "hard-coded 1000" current-state was already fixed. AC-09-10 was already met; this spec keeps it and adds `get_routing_config()`.
+- **`AP Review Event` (spec 10) is not built** — emission is a `frappe.db.exists`-guarded seam (forward-compatible; the concrete field contract is reconciled when spec 10 lands). The "event row exists" sub-assertions of AC-09-4/5 defer to spec 10; this slice tests the routing behaviour + the graceful-absent path (AC-09-14).
+
+**Decisions adopted** (= spec recommendations): D-1(b) `Auto Approved` + posted artifact (no `Auto Posted` enum), D-2 dedicated `get_routing_config()`, D-3(a) leave `payment_readiness=Not Ready` (moot — Stream R skips here), D-4(a) distinct `reroute_after_review` entrypoint, D-6(a) header fields only gate routing, D-7(a) no Stream-R amount ceiling, D-8(a) read `is_above_threshold` (no re-derive). **Pilot carve-out (honest):** the confidence axis fails closed on a *populated* table with a missing/low mandatory row, but an **empty** confidence table degrades to pass (graceful, matching specs 06/08) so non-extracted captures route on amount/flags as before. **Deferral:** D-9 (spec 11's native Workflow transition must read this same `auto_post_amount_threshold`, not a duplicate literal) → TODO T-013.
+
+### 20.1 Running the spec-09 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 171
+```

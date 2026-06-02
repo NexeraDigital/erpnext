@@ -269,6 +269,27 @@ It's **invisible until used** (a bill with no PO, normal amount, and unchanged b
 
 ---
 
+## Update (2026-06-01): letting the confident, routine invoices flow through — and stopping only the doubtful ones
+
+The whole point of reading invoices with AI is **throughput**: if every invoice still needs a human, you've gained nothing. This update adds the decision that makes the pipeline scale — it looks at each invoice and asks *"am I confident enough to let this move on by itself?"* If yes, it flows. If anything looks shaky, it stops **that one** invoice (and only that one) in a review queue, with a note saying exactly what was wrong.
+
+It weighs three things together:
+1. **Amount** — is it at or under the auto-approve limit you set? (Bigger bills still go to a manager, same as before.)
+2. **Confidence** — did the AI read **every** key field (vendor, invoice number, date, total, currency) clearly enough? If even one field was a blurry guess, that's a stop.
+3. **Clean checks** — did it pass all the safety checks from the previous update (PO match, amount sanity, bank details)? Any open flag is a stop.
+
+Only when **all three** are good does the invoice move on automatically. Otherwise it lands in a **"Needs Review"** queue, and — this is the useful part — the note names the *specific* problem: *"low confidence on the invoice date"* or *"open flag: three-way match exception."* The clerk fixes that one thing and clicks a button to send it back through; no guessing what was wrong.
+
+A few honest notes:
+- **Already-paid card receipts skip all of this** — they were posted and "paid" in one step by an earlier update, so there's nothing to approve; this decision only applies to unpaid bills.
+- The amount limit is a **single setting** shared across the whole system, so there's never two different "magic numbers" to keep in sync.
+- It **degrades gracefully**: an invoice that never went through AI reading (no confidence scores at all) isn't penalized — it routes on amount and the safety checks, exactly as before.
+- The "review queue" feed that records *why* things got stopped (so you can measure how often the AI's first read needs fixing) is wired in as a **hook** here; the actual reporting screen comes in the next update.
+
+**Invisible until it matters**: a clean, confident, under-limit invoice behaves exactly as it always did (auto-approved); only the doubtful ones now stop with a clear reason instead of silently stalling. Ships with **15 more automated tests, all passing** (the main capture suite is now 171).
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

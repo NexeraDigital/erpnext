@@ -3,7 +3,7 @@
 > Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-06-01.
+> Last derived from code: 2026-06-01 (spec 09).
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
@@ -114,17 +114,23 @@ sequenceDiagram
     Cap->>PI: create Purchase Invoice (one item per line / header fallback)
     Cap->>Q: _kick_next_step()
 
-    Note over Q,Set: Step 3 — approval routing (Already-Paid skips)
+    Note over Q,Set: Step 3 — confidence-based routing (spec 09 · Already-Paid skips)
     Q->>Cap: request_approval()
-    Cap->>Set: get_auto_post_threshold()
-    alt total ≤ threshold
-        Cap->>Cap: approval_status=Auto Approved → Ready for Payment
-    else total > threshold
-        Cap-->>Mgr: approval_status=Pending Manager
-        Note over Cap,Mgr: ⏸ PAUSE — manager decision
-        Mgr->>Cap: record_manager_decision(approve / reject)
-        alt rejected
-            Cap-->>Clerk: approval_status=Rejected, payment Blocked — STOPS
+    Cap->>Set: get_routing_config() (threshold + per-field confidence)
+    Cap->>Cap: evaluate axes — amount · per-field confidence (spec 04) · open flags (spec 08)
+    alt low-confidence field OR open validation flag
+        Cap-->>Clerk: approval_status=Needs Review, routing_reason names field/flag,<br/>action_required — ⏸ review queue · emit AP Review Event (spec 10) — STOPS
+        Note over Clerk,Cap: clerk clears it → reroute_after_review() re-routes
+    else clean + confident
+        alt total ≤ threshold
+            Cap->>Cap: approval_status=Auto Approved → Ready for Payment
+        else total > threshold
+            Cap-->>Mgr: approval_status=Pending Manager
+            Note over Cap,Mgr: ⏸ PAUSE — manager decision
+            Mgr->>Cap: record_manager_decision(approve / reject)
+            alt rejected
+                Cap-->>Clerk: approval_status=Rejected, payment Blocked — STOPS
+            end
         end
     end
     Cap->>Q: _kick_next_step()
@@ -150,13 +156,21 @@ sequenceDiagram
   failure (recorded-only on Stream R). The bank-change gate **re-asserts inside
   `promote_to_purchase_invoice`**, so a bank change made *after* a clean validation
   still blocks promotion until an approved Update-Bank-Details request lifts it.
+- **Confidence-based routing (spec 09).** Step 3 routes on a combined signal —
+  amount vs the canonical `auto_post_amount_threshold`, every mandatory field's
+  per-field confidence (spec 04), and zero open spec-08 flags. Clean+confident
+  auto-advances (Auto Approved / Pending Manager by amount); a low-confidence field
+  or open flag parks the capture at **Needs Review** with the failing signal named
+  and a guarded `AP Review Event` (spec 10) emitted. A clerk fix + `reroute_after_review`
+  sends it back through. Routing is **stream-agnostic** — Already-Paid (Stream R)
+  posts at Step 2a and skips Step 3 entirely.
 - **GL coding (spec 06).** Step 2b auto-codes expense/cost-center/tax when a supplier
   coding profile (or the Stream-R catch-all account) is configured; an ambiguous
   cost center or tax mismatch parks at **Coding Review**. Unconfigured sites skip
   straight to the Promote seam (graceful degrade).
 - **Pause / park seams** are deliberate (no silent posting): OCR review, Coding
-  Review (when ambiguous), manual Promote, manager approval — plus the Manual Review
-  park for classification.
+  Review (when ambiguous), manual Promote, **Needs Review** (low confidence / open
+  flag), manager approval — plus the Manual Review park for classification.
 - **Payment is mock** — `issue_mock_payment` writes a Payment Entry tagged as a
   pilot mock; there is no real banking integration.
 - **Dedupe perceptual branch** needs `poppler` on the worker; absent it, Step 0
