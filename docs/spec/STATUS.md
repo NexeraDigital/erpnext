@@ -3,7 +3,9 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-01 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (166/221 ACs green; no regressions). **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 221 shipped (+ new *planned* automation-first ACs, see below) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (166/221 ACs green; no regressions). **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+>
+> **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and **added new ACs explicitly marked "(planned — not yet built)"** for the automation each should grow into — these are **backlog, not counted in the done tally** and are tracked as **TODO T-015..T-018** (auto-confirm #1, coding-from-history, classification trust-content, gated-create default). Unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Verify-before-tick still governs: a planned AC is ticked only when its slice is built + green this session.
 
 ## How to use this file
 

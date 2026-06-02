@@ -10,6 +10,10 @@ related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-t
 
 # 09 — Confidence-Based Routing (Auto-Post vs Review Queue)
 > _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
+> _Revised 2026-06-02: re-visioned automation-first ([[00-overview]] "Guiding principle")._
+
+> [!abstract] Automation-first stance
+> This spec is the **purest expression of the north star** ([[00-overview]] "Guiding principle"): auto-advance the clean + confident + in-policy case with no human touch, and escalate **only** the low-confidence or flagged exception. Confidence routing is not one decision at one seam — it is the general **"auto-advance unless doubtful" engine** (`_evaluate_routing_signals`), and its reach should extend to **every** seam where the cascade would otherwise pause for a human. There are two such seams: the **approval seam** (already shipped — over/under threshold, clean vs flagged → auto-approve vs manager vs review) and, newly, the **OCR-confirm seam** (planned — auto-confirm the OCR proposal instead of pausing at `Proposed`, owned jointly with [[04-extraction-confidence-line-items]]). Applying the same evaluator one step earlier, at the OCR-confirm seam, is the **single highest-leverage automation gap in the whole spec set** ([[00-overview]] "Automation-first doctrine", #9/#4): today every capture needs a human once just to confirm a clean OCR read; with auto-confirm, only the doubtful ones do. **The shipped approval-routing behavior below is unchanged** — this extension reuses the same logic earlier in the cascade; it does not alter the approval seam.
 
 ## 1. Summary
 
@@ -209,6 +213,26 @@ def reroute_after_review_for(capture: str) -> str: ...
 - **Async / enqueue.** No new enqueue — routing runs inside the already-enqueued `request_approval_for` cascade job (`:395-404`, `enqueue_after_commit=not in_test`, `deduplicate=True`, `job_id=ap-progress-<name>-request_approval_for`). Under `frappe.flags.in_test` it runs synchronously inside the rollback boundary.
 - **Observability** (via [[10-ap-review-observability]]). On **every** route-to-review (the matrix's "Review Queue" rows), emit exactly one `AP Review Event` at the point `routing_reason` is set, carrying the triggering signal: which axis failed (`confidence` / `validation_flag` / both), the `failing_field` / `failing_flag` name, and `amount` vs `resolved_threshold`. This is the measurement hook for avoidable exceptions (spec 10's "what fraction had a fixable upstream root cause"). Emission is guarded by `frappe.db.exists("DocType", "AP Review Event")` (§5.3 step 9). Do NOT emit a Review Event on the clean auto-advance or the clean `Pending Manager` paths — only on route-to-review.
 
+### 5.6 The evaluator at TWO seams — extending auto-advance to OCR-confirm (planned — automation-first target)
+
+> **Status:** the **approval seam** below (§5.3 decision matrix) is **shipped and unchanged by this subsection**. The **OCR-confirm seam** described here is **planned, not yet built**, and is owned jointly with [[04-extraction-confidence-line-items]]. This subsection reframes confidence routing as the general "auto-advance unless doubtful" engine and extends its reach one step earlier; it does not modify shipped approval routing.
+
+`_evaluate_routing_signals` is not a single-seam decision — it is the reusable test for **"is this capture clean and confident enough to auto-advance past a human pause?"** The cascade pauses for a human at two seams, and the same engine should govern both:
+
+| Seam | When it fires | Axes that apply | Shipped? |
+|---|---|---|---|
+| **Approval seam** | post-promotion, inside `request_approval` (§5.3) | `amount_ok` + `fields_ok` + `flags_ok` | **shipped** (this spec's §5.3 matrix) |
+| **OCR-confirm seam** | post-extraction, before the capture pauses at `Proposed` | `fields_ok` + `flags_ok` (no amount axis at this seam) | **planned** (this subsection + [[04-extraction-confidence-line-items]] §5.6) |
+
+**The OCR-confirm application.** Today, immediately after `run_extraction` writes `field_confidences`, every capture pauses at `status = Proposed` / `action_required = 1` for a human to confirm the OCR proposal — **regardless of confidence**. The signal needed to skip that pause on a clean read already exists (this spec's confidence axis: all mandatory header fields `is_above_threshold = 1`) and is only consumed later at the approval seam. The planned extension applies the **same `fields_ok` + `flags_ok` evaluation** at the OCR-confirm seam:
+
+1. Reuse `_evaluate_routing_signals` (or a thin `_evaluate_confirm_signals` that calls the same `fields_ok` / `flags_ok` logic without the amount axis). **No second copy of the gate.**
+2. **Gate:** all five `MANDATORY_HEADER_FIELDS` confidence rows present and `is_above_threshold = 1` (fail-closed on a missing row) **AND** zero open validation flags **AND** the new `AP Closed Loop Settings.auto_confirm_enabled` Check is ON (**default `0` / OFF**, so shipped behavior is unchanged until a site opts in; the pilot turns it ON — field owned/added jointly with [[04-extraction-confidence-line-items]] §5.6).
+3. **On pass:** the cascade auto-calls the existing `confirm_extracted_fields` (the same path the clerk's "Confirm Fields" click takes) — capture advances to `Confirmed`, `action_required = 0`, no human pause.
+4. **On fail (fail-safe):** any missing/low confidence row OR any open flag OR `auto_confirm_enabled = 0` → fall back to the **existing** human review pause at `status = Proposed` / `action_required = 1`. Escalate only the doubtful.
+
+**Consistency with [[04-extraction-confidence-line-items]] §5.6.** The setting name (`auto_confirm_enabled`), the gate (all mandatory header fields `is_above_threshold = 1` + zero open flags), and the fail-safe (fall back to the `Proposed` human pause) are **identical** in both specs. Spec 04 owns the confidence **signal** and the `auto_confirm_enabled` flag; **this spec owns the shared evaluator** so the OCR-confirm gate and the approval gate never diverge. The amount axis (`amount_ok`) does **not** apply at the OCR-confirm seam — there is no posting/authorization decision at confirm time, only "is the read trustworthy enough to skip the human eyeball."
+
 ## 6. Acceptance criteria
 
 - **AC-09-1 (positive, clean auto-approve, Stream I):** Given `final_total_amount <= auto_post_amount_threshold`, all five `MANDATORY_HEADER_FIELDS` confidence rows with `is_above_threshold = 1`, zero open validation flags, and `stream = Stream I` → `approval_status = Auto Approved`, `payment_readiness` per D-3, `action_required = 0`, `routing_reason` mentions auto-post, AND the capture is entered into the [[11-approval-sod-workflow]] workflow (not unconditionally submitted).
@@ -225,6 +249,9 @@ def reroute_after_review_for(capture: str) -> str: ...
 - **AC-09-12 (positive, single-field short-circuit):** Exactly one of the five mandatory confidences failing (the other four pass) routes to review and names *that* field — confirms all five must pass.
 - **AC-09-13 (edge, stream unset fail-safe):** With `stream` unset, a clean+confident capture is treated as Stream I (enters the approval workflow), never auto-posts a JE.
 - **AC-09-14 (edge, telemetry-doctype absent):** With the `AP Review Event` doctype not installed, a route-to-review still completes (routing_reason set, capture parked) and does not raise — only the Review Event emission is skipped.
+- **AC-09-15 (planned — not yet built; positive, auto-confirm at OCR seam):** With `auto_post_amount_threshold` irrelevant at this seam and `AP Closed Loop Settings.auto_confirm_enabled = 1`, a freshly-extracted capture whose five `MANDATORY_HEADER_FIELDS` confidence rows are all `is_above_threshold = 1` with zero open flags is auto-confirmed: the shared `fields_ok` + `flags_ok` evaluation passes, `confirm_extracted_fields` runs without a human click, `status = Confirmed`, `action_required = 0` — no pause at `Proposed`. (Joint with [[04-extraction-confidence-line-items]] AC-04-16.)
+- **AC-09-16 (planned — not yet built; negative, fail-safe at OCR seam):** With `auto_confirm_enabled = 1`, a capture with any mandatory confidence row missing or `is_above_threshold = 0`, OR any open validation flag, falls back to the existing `Proposed` human review pause (`action_required = 1`); no auto-confirm — the same `fields_ok`/`flags_ok` fail paths used at the approval seam gate the OCR-confirm seam identically.
+- **AC-09-17 (planned — not yet built; regression, default-OFF and shipped approval seam unchanged):** With `auto_confirm_enabled = 0` (default), the OCR-confirm seam never auto-confirms (capture pauses at `Proposed` as shipped), AND the shipped approval-seam matrix (AC-09-1 … AC-09-14) is unaffected — extending the evaluator earlier does not change approval routing.
 
 ## 7. Tests
 

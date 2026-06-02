@@ -10,6 +10,10 @@ related: [00-overview, 02-intake-stream-tagging, 03-deduplication, 06-gl-coding-
 
 # 04 — Extraction — Numeric Per-Field Confidence + Line Items
 > _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
+> _Revised 2026-06-02: re-visioned automation-first ([[00-overview]] "Guiding principle")._
+
+> [!abstract] Automation-first stance
+> This spec **produces the decision signal** that lets the workflow skip humans — per-field numeric confidence plus the derived `is_above_threshold` Check. Today that signal is consumed only *late*, at the approval seam ([[09-confidence-routing]]). **Spec 04's automation growth target is to feed the same signal one step earlier: confidence-gated auto-confirm** (§5.6) — when every mandatory header field clears threshold and no validation flag is open, the cascade auto-confirms the OCR proposal instead of pausing at `Proposed` for a human click. This is the single highest-leverage automation gap in the whole spec set ([[00-overview]] "Automation-first doctrine", #9/#4): it turns "every document needs a human once" into "only the doubtful ones do." The shared evaluator lives in [[09-confidence-routing]]; spec 04 owns the signal and the new settings flag that gates the behavior. Shipped extraction behavior is unchanged — the auto-confirm hook is **planned, OFF by default**, and falls back to the existing human review pause for any low/missing score or open flag.
 
 ## 1. Summary
 This spec EXTENDS the already-shipped real-OCR provider stack (Anthropic Claude via forced tool use, with retry / circuit breaker / file-size guard / Integration-Request audit / Haiku→Sonnet fallback) to (a) persist a **numeric per-field confidence score** for every extracted field and (b) extract and persist **line items**, subtotal, tax, and any visible PO reference. It implements **Step 3** of `docs/planning/workflow-v2-plan.md`. It is stream-agnostic at the *extraction* surface (both Stream R receipts and Stream I invoices get scored line-level extraction) but the line-item write-back on promote diverges by stream (Stream I → Purchase Invoice item rows; Stream R → handled by [[07-classification-doctype-branching]]'s Journal Entry path, out of scope here). **Current-state delta:** the Anthropic model already *returns* `confidence_per_field` but the extractor **discards the numbers** (only deriving missing/ambiguous SETS), and there is **no line-item extraction at all** — this spec stops discarding the scores, adds two new child tables, and makes promote line-aware.
@@ -211,6 +215,28 @@ lines: list[dict] = field(default_factory=list) # each: description/qty/rate/amo
 - **Async / enqueue:** unchanged — reuse the shipped `frappe.enqueue(..., enqueue_after_commit=not in_test, now=in_test, deduplicate=True)` pattern (`ap_invoice_capture.py:395-404`), grounded on the `frappe.enqueue` GitHub signature (§4).
 - **Observability:** when extraction yields a below-threshold field or a reconciliation mismatch at promote, the resulting `action_required` review is where [[10-ap-review-observability]] emits its `AP Review Event` with a root-cause tag (`extraction_miss` is the natural code for a misread line). This spec does not emit the event itself; it produces the signals (`is_above_threshold=0` rows, the mismatch `action_required`) the observability spec routes on. It also feeds [[09-confidence-routing]] (the numeric rows are the routing input) and [[08-validation-gates]] (per-line `po_reference`).
 
+### 5.6 Confidence-gated auto-confirm (planned — automation-first target)
+
+> **Status:** planned, not yet built. This subsection is the automation-first growth target named in the stance callout; it does not change shipped behavior. Shipped today, extraction always lands at `status = Proposed` / `action_required = 1` for a human to click "confirm" on the OCR proposal **regardless of how confident the extraction was** (§5.4 — "the post-extraction pause is unchanged"). The per-field signal that would let the system skip that pause on a clean extraction already exists in this spec (`field_confidences` rows with `is_above_threshold`) but is consumed only later, at the approval seam ([[09-confidence-routing]]'s `_evaluate_routing_signals`). This subsection applies that same all-fields-confident + no-open-flags test **one step earlier**, to auto-confirm the proposal.
+
+**The gate (the same test [[09-confidence-routing]] already uses, applied at the OCR-confirm seam).** After `run_extraction` has written `field_confidences` (§5.3 step 4), the cascade evaluates whether to auto-confirm instead of pausing:
+
+1. **All mandatory header fields clear threshold.** Every logical field in `MANDATORY_HEADER_FIELDS` (`supplier` / `supplier_invoice_no` / `invoice_date` / `total_amount` / `currency`) has a `field_confidences` row present **and** `is_above_threshold = 1`. A missing row or any `is_above_threshold = 0` **fails the gate** (fail-closed — never auto-confirm an unscored or low-confidence field).
+2. **No open validation flags.** No open flag is raised at this point in the cascade (the early extraction-time signals; the full [[08-validation-gates]] flag set where available). Any open flag fails the gate.
+3. **The new settings flag is ON.** A NEW Boolean on `AP Closed Loop Settings` — `auto_confirm_enabled` (Check, **default `0` / OFF**) — must be enabled. Default-OFF guarantees current behavior is unchanged until a site opts in; the pilot turns it ON.
+
+**On pass:** the cascade auto-calls the existing `confirm_extracted_fields` (the same whitelisted confirm path a clerk's "Confirm Fields" click invokes) instead of leaving the capture at `Proposed` / `action_required = 1`. The capture advances to `Confirmed` with `action_required = 0` and the cascade continues unattended.
+
+**On fail (fail-safe — escalate only the doubtful):** any missing/low confidence row OR any open flag OR `auto_confirm_enabled = 0` → fall back to the **existing** human review pause at `status = Proposed` / `action_required = 1`, exactly as shipped. The escalation is the safety valve, never the default ([[00-overview]] "Guiding principle").
+
+**Ownership of the shared evaluator.** The all-fields-confident + no-open-flags test is the **same** logic [[09-confidence-routing]]'s `_evaluate_routing_signals` performs (its `fields_ok` + `flags_ok` axes — minus the amount axis, which does not apply at the OCR-confirm seam). To avoid two divergent copies of the gate, **[[09-confidence-routing]] owns the shared evaluator** and this spec calls it; spec 09's §5 is extended to apply `_evaluate_routing_signals` at this earlier OCR-confirm seam (its "auto-advance unless doubtful" engine reused, not duplicated). Spec 04 owns the **signal** (`field_confidences` / `is_above_threshold`, §5.1) and the new `auto_confirm_enabled` settings flag; spec 09 owns the **gate logic**. The setting name (`auto_confirm_enabled`), the gate (all mandatory header fields `is_above_threshold = 1` + zero open flags), and the fail-safe (fall back to the `Proposed` human pause) are identical in both specs.
+
+**Settings addition** (extends the §5.1 settings block — the canonical `AP Closed Loop Settings`, never a competing doctype):
+
+| fieldname | fieldtype | options / default | purpose |
+|---|---|---|---|
+| `auto_confirm_enabled` | Check | default `0` (OFF) | Master switch for confidence-gated auto-confirm at the OCR-confirm seam. OFF ⇒ shipped behavior (always pause at `Proposed`). ON ⇒ auto-confirm when the §5.6 gate passes; fail-safe pause otherwise. The pilot turns this ON. |
+
 ## 6. Acceptance criteria
 
 - **AC-04-1 (positive, dataclass):** Constructing `ExtractionResult(proposal={...})` with no `confidence`/`lines` args yields `confidence == {}` and `lines == []`; all existing extractor tests pass unchanged.
@@ -228,6 +254,10 @@ lines: list[dict] = field(default_factory=list) # each: description/qty/rate/amo
 - **AC-04-13 (regression, header-line fallback):** A capture with empty `line_items` promotes to a PI with exactly one item row (`item_code=="_Test Item"`, `qty==1`, `rate≈final_total_amount`) — `test_promote_creates_native_purchase_invoice` passes unchanged.
 - **AC-04-14 (regression, settings):** `get_ocr_config()` still returns all existing keys (`provider`/`model`/`fallback_model`/`confidence_threshold`/`max_file_mb`/`force_reextract`) plus the two new keys.
 - **AC-04-15 (negative, unknown provider):** `get_extractor("nope")` still raises `ValueError` (registry contract unchanged).
+- **AC-04-16 (planned — not yet built; positive, auto-confirm on clean extraction):** With `auto_confirm_enabled = 1`, a capture whose five `MANDATORY_HEADER_FIELDS` confidence rows are all present with `is_above_threshold = 1` and which has zero open validation flags is **auto-confirmed** by the cascade after extraction — `confirm_extracted_fields` runs without a human click, `status` advances to `Confirmed`, and `action_required = 0` (no pause at `Proposed`). The shared gate is evaluated by [[09-confidence-routing]]'s `_evaluate_routing_signals` (fields + flags axes).
+- **AC-04-17 (planned — not yet built; negative, fail-safe on low/missing confidence):** With `auto_confirm_enabled = 1`, a capture with any mandatory confidence row missing OR `is_above_threshold = 0` falls back to the human review pause — `status = Proposed`, `action_required = 1`, no auto-confirm — escalating only the doubtful field.
+- **AC-04-18 (planned — not yet built; negative, fail-safe on open flag):** With `auto_confirm_enabled = 1`, a capture whose header confidences all pass but which has an open validation flag falls back to the `Proposed` human review pause; no auto-confirm occurs.
+- **AC-04-19 (planned — not yet built; regression, default-OFF unchanged behavior):** With `auto_confirm_enabled = 0` (the default), a capture with all confidences high and zero flags still pauses at `status = Proposed` / `action_required = 1` exactly as shipped today — auto-confirm is opt-in and changes nothing until enabled.
 
 ## 7. Tests
 

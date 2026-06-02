@@ -10,10 +10,18 @@ related: [00-overview, 01-foundations-settings-async-idempotency, 06-gl-coding-t
 
 # 11 — Approval Routing with Segregation of Duties (native Workflow)
 > _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
+> _Revised 2026-06-01: re-anchored to the automation north star ([[00-overview]] "Guiding principle") — the pilot keeps the existing approval engine (which already auto-approves in-policy invoices) and adds the SoD escalation control; the company-wide native Workflow swap is the deferred, opt-in upgrade._
+> _Revised 2026-06-02: re-visioned automation-first ([[00-overview]] "Guiding principle"). §1 now leads with the auto-approve pilot; the native company-wide `Workflow` on Purchase Invoice is demoted to a "Deferred / opt-in upgrade" subsection (§5.6); ACs renumbered so the pilot SoD guard / roles / bank-change Treasury / stream gate / matrix-resolver are primary and the native-Workflow ACs are marked deferred._
+
+> **North-star alignment ([[00-overview]]).** The point of this spec is to **let in-policy invoices keep flowing automatically while escalating only what a human must own** — above-threshold sign-off and the "enterer ≠ approver" control. The genuine gap to close is **identity SoD** (today only a *role* is checked, not the *person*). The **recommended pilot** therefore: (1) keeps the existing engine's auto-approve-under-threshold behavior untouched (automation-first), (2) adds an **app-code SoD guard** (the approver may not be the recorded coder/promoter above threshold) as the escalation control, (3) adds the approver **roles** + the **bank-change → Treasury Approver** escalation. The full **native `Workflow` on `Purchase Invoice`** described below is the *complete-reference* design and a **deferred, opt-in upgrade** (it governs every PI company-wide — see §8 D-2/D-8, gated on pilot-scope sign-off), **not** the pilot default. Build the lighter escalation control now; adopt the heavier engine only on an explicit sign-off.
 
 ## 1. Summary
 
-This spec replaces the fork's hand-rolled approval engine (`request_approval` / `record_manager_decision` in `ap_invoice_capture.py`) with ERPNext's **native `Workflow` doctype** as the single source of truth, layered with a **defense-in-depth Segregation-of-Duties (SoD) control**: the native `allow_self_approval=0` Workflow lever PLUS an app-code `Before Save` backstop that throws if the approving user is the same person who extracted/coded/promoted the document. It serves **Stream I only** (unpaid Purchase Invoices, plus Expense Claims once `hrms` is installed) — implementing **plan Step 10**. A second Workflow, `Supplier Bank Change Approval`, routes vendor bank-field changes to a separate `Treasury Approver` role. Current-state delta: today there is **no `Workflow` record, no `workflow_state` field, and no `submitter != approver` identity guard anywhere** — the only control is a *role* check (`frappe.only_for`) that cannot stop a manager-role holder from approving a document they themselves promoted.
+**Automation-first framing.** The pilot's primary job is to **keep in-policy invoices flowing automatically and pull a human in only when one must own the decision.** The existing approval engine already auto-approves any Stream-I capture **under** the `auto_post_amount_threshold` once its checks have passed — **the pilot keeps that hands-free auto-approval untouched.** The only escalations are (1) **above-threshold sign-off** (a human Approve/Reject) and (2) the real internal control — **"enterer ≠ approver"**, enforced by an **app-code SoD guard** (the approver may not be the recorded coder/promoter of an above-threshold document), plus (3) **bank-detail changes → a separate `Treasury Approver`**. The pilot ships **three Roles** (`AP Clerk`, `Treasury Approver`, `Auditor (Read Only)`), the SoD guard, the bank-change escalation, and a **Stream gate** so a Stream R receipt never enters approval at all. The matrix-resolver defaults are part of the pilot (it returns the threshold-driven default on an empty matrix and never raises). It serves **Stream I only** (unpaid Purchase Invoices; Expense Claims once `hrms` is installed) — implementing **plan Step 10**.
+
+**Deferred / opt-in upgrade.** Swapping the engine for ERPNext's **company-wide native `Workflow` on `Purchase Invoice`** (the complete-reference design in §5.6) is **not** the pilot default — it governs *every* PI in the company, not just AP-capture ones, so it is gated on explicit pilot-scope sign-off (§8 D-2 / D-8). The native `allow_self_approval=0` lever is a *second* SoD layer there, but the **app-code SoD guard remains the authority regardless** of whether the native Workflow is ever adopted.
+
+Current-state delta: today there is **no `submitter != approver` identity guard anywhere** — the only control is a *role* check (`frappe.only_for`) that cannot stop a manager-role holder from approving a document they themselves promoted. The pilot closes exactly that gap; it does **not** require a `Workflow` record or a `workflow_state` field (those belong to the deferred upgrade).
 
 ## 2. Plan alignment
 
@@ -71,11 +79,28 @@ All approval logic lives in `erpnext/accounts/doctype/ap_invoice_capture/ap_invo
 
 ## 5. Design
 
+### 5.0 Pilot design (PRIMARY — automation-first)
+
+The **pilot** is the automation-first path and the default build. It does **not** introduce a native `Workflow` engine; it keeps the existing approval engine (which already auto-approves under-threshold) and adds only the escalation controls a human must own. The pilot deliverables are:
+
+1. **Auto-approve in-policy (unchanged).** `request_approval` already routes any `final_total_amount <= threshold` capture to `Auto Approved` + `Ready for Payment` with no human (`ap_invoice_capture.py:1291-1302`). **The pilot leaves this hands-free path intact** — it is the throughput case and the whole point of the spec.
+2. **App-code SoD guard ("enterer ≠ approver").** The one real control gap. A `Before Save` / `validate` doc_event on `Purchase Invoice` (wired via `hooks.py doc_events`, §5.3) throws if `frappe.session.user` equals the **recorded coder/promoter** of the linked capture **and** the document is **above** threshold. This is **identity** SoD (stronger than the current role-only `frappe.only_for`), and it does **not** depend on any native engine. *(See §5.3 — this is the pilot's headline.)*
+3. **Three Role fixtures** — `AP Clerk` (the submitter/coder), `Treasury Approver` (bank-change approver only), `Auditor (Read Only)` (§5.1 C).
+4. **Bank-change → Treasury Approver escalation.** A vendor bank-detail change request is gated to the `Treasury Approver` role (separate from invoice approvers), keyed on the `change_category` set by the [[08-validation-gates]] detector (§5.1 "Bank-change escalation" + §5.3).
+5. **Stream gate.** A new precondition on the cascade so a **Stream R** capture is never routed into approval and is never auto-approved by the legacy cascade (§5.4).
+6. **Matrix-resolver defaults.** `resolve_approver_role` (§5.2) returns the threshold-driven default (`Accounts Manager`) on an empty/absent matrix and **never raises** — so the pilot routes correctly even before any matrix rows exist. (The `AP Approval Matrix` doctype itself is schema-stubbed for the pilot per D-2.)
+
+For the pilot the **above-threshold sign-off** is recorded via the existing `record_manager_decision` path (kept), now backed by the app-code SoD guard rather than the role-only check. The deferred native-Workflow upgrade (§5.6) is the *alternative* engine — read §5.6 only when adopting it.
+
 ### 5.1 Data model
 
-Three deliverables: **(A)** two native `Workflow` records as fixtures, **(B)** a `workflow_state` field on each target doctype + a mirror on the capture, **(C)** an optional `AP Approval Matrix` doctype + new Role fixtures. All fork-only artifacts live under `erpnext/accounts/` and are exported via a new `fixtures` key in `hooks.py`.
+> **Read order:** for the **pilot**, the live data-model deltas are **(C)** the three Role fixtures + the schema-stubbed `AP Approval Matrix`, and the **bank-change escalation** below. Parts **(A)** the native `Workflow` fixtures and **(B)** the `workflow_state` fields belong to the **deferred upgrade (§5.6)** — they are not built for the pilot. They are retained here as the complete-reference design.
 
-#### (A) Workflow `AP Document Approval` (fixture, Stream I PI approval)
+Deliverables: **(C, pilot)** new Role fixtures + an optional schema-stubbed `AP Approval Matrix` doctype + the bank-change escalation; **(A, deferred)** two native `Workflow` records as fixtures; **(B, deferred)** a `workflow_state` field on each target doctype + a mirror on the capture. All fork-only artifacts live under `erpnext/accounts/` and are exported via a new `fixtures` key in `hooks.py`.
+
+#### (A) Workflow `AP Document Approval` (fixture, Stream I PI approval) — **DEFERRED / opt-in upgrade (§5.6)**
+
+> **Deferred.** This native `Workflow` is **not** part of the pilot — it governs every Purchase Invoice company-wide and is gated on pilot-scope sign-off (§8 D-2/D-8). The pilot's escalation control is the app-code SoD guard + the `record_manager_decision` above-threshold sign-off (§5.0, §5.3). Build the rest of this subsection only when adopting the upgrade.
 
 `Workflow` parent record:
 
@@ -112,7 +137,9 @@ Three deliverables: **(A)** two native `Workflow` records as fixtures, **(B)** a
 
 Condition strings use only the verified `safe_eval` whitelist. **Threshold single source (do not hard-code the number):** the `1000` literal in the table above is shown for readability only. The shipped Conditions MUST read the canonical policy number via `frappe.db.get_single_value("AP Closed Loop Settings", "auto_post_amount_threshold")` — this call **is** in the verified Workflow `safe_eval` whitelist (`get_workflow_safe_globals`, §4 row 2) — e.g. the above-threshold approve Condition is `doc.grand_total > frappe.db.get_single_value("AP Closed Loop Settings", "auto_post_amount_threshold")` and the under-threshold hop is `<=` the same call. One policy number, one source: the setting is **owned by [[09-confidence-routing]]** (`auto_post_amount_threshold` on `AP Closed Loop Settings`); this spec reads it, never redefines it. Department / cost-center / supplier-risk routing extends the Condition, e.g. `doc.grand_total > frappe.db.get_single_value("AP Closed Loop Settings", "auto_post_amount_threshold") and doc.cost_center == 'OPS-01'` or supplier-risk via `frappe.db.get_value('Supplier', doc.supplier, 'custom_risk') == 'High'` (the `custom_risk` field is owned by [[08-validation-gates]] / [[05-supplier-resolution]]).
 
-#### (B) `workflow_state` fields (fixtures / Custom Field)
+#### (B) `workflow_state` fields (fixtures / Custom Field) — **DEFERRED / opt-in upgrade (§5.6)**
+
+> **Deferred.** Needed only by the native `Workflow` engine (§5.6). The pilot branches on the existing `approval_status` / `payment_readiness` + the new `stream` gate, so no `workflow_state` field is added for the pilot.
 
 | doctype | fieldname | fieldtype | options | purpose |
 |---|---|---|---|---|
@@ -121,7 +148,7 @@ Condition strings use only the verified `safe_eval` whitelist. **Threshold singl
 
 > **D-1 recommendation:** add a read-only `workflow_state` mirror on the capture, synced from the PI on each cascade tick, rather than reusing `approval_status` directly. Keeps the legacy `approval_status` Literal intact for the downstream adapter (§5.3) while giving the cascade a single field to branch on.
 
-#### (C) `AP Approval Matrix` (new doctype, optional — D-2) + Roles
+#### (C) `AP Approval Matrix` (new doctype, optional — D-2) + Roles — **PILOT (Roles + bank-change escalation are pilot; the matrix doctype is schema-stubbed)**
 
 `AP Approval Matrix` (fork-only, module = Accounts, `is_submittable=0`):
 
@@ -147,7 +174,11 @@ Permissions: read for `Accounts User`, `Accounts Manager`, `Auditor (Read Only)`
 
 Existing `Accounts Manager` remains the invoice approver. `assigned_approver_role` stays `Data` for back-compat but **D-4** recommends validating it against existing Roles (or upgrading to `Link → Role`) so a typo cannot route to a nonexistent role.
 
-#### Second Workflow `Supplier Bank Change Approval` (fixture)
+#### Bank-change escalation → `Treasury Approver` — **PILOT**
+
+A vendor bank-detail change is the one master-data change that must always reach a human, on a path **separate** from invoice approval. The **pilot** delivers this as an app-code escalation: a `Supplier Master Change Request` ([[05-supplier-resolution]]) whose `change_category == 'bank_detail'` (set by the [[08-validation-gates]] bank-change detector) is gated to the **`Treasury Approver`** role — distinct from `Accounts Manager` invoice approvers. Non-bank field changes route on the lighter `Accounts Manager` path. This is a role-gated approval, not a native-Workflow dependency.
+
+**Deferred upgrade.** When the native engine is adopted (§5.6), this same routing is expressed as a second `Workflow` record:
 
 | field | value |
 |---|---|
@@ -155,7 +186,7 @@ Existing `Accounts Manager` remains the invoice approver. `assigned_approver_rol
 | `is_active` | `1` |
 | `workflow_state_field` | `workflow_state` |
 
-Transitions route bank-field change requests to `allowed = "Treasury Approver"` with `allow_self_approval=0`. The Condition gates on the change **category/flag** set by the [[08-validation-gates]] bank-change detector (e.g. `doc.change_category == 'bank_detail'`), so only bank-detail changes require Treasury sign-off; non-bank field changes route on the lighter `Accounts Manager` path.
+Its transitions route bank-field change requests to `allowed = "Treasury Approver"` with `allow_self_approval=0`, Condition `doc.change_category == 'bank_detail'`. The pilot and the deferred upgrade enforce the **same** control (Treasury approves bank changes); only the mechanism (app-code role gate vs native Workflow transition) differs.
 
 ### 5.2 Endpoints
 
@@ -205,11 +236,9 @@ def resolve_approver_role(capture) -> str:
 
 ### 5.3 Logic
 
-**SoD enforcement — two layers (defense-in-depth):**
+**SoD enforcement — the pilot control + a deferred second layer:**
 
-1. **Native Workflow lever.** `allow_self_approval=0` on every above-threshold approve transition. Verified rule (`frappe/model/workflow.py`): `apply_workflow` throws `Self approval is not allowed` when `user != "Administrator"` AND `allow_self_approval` falsy AND `user == doc.owner`. **Caveats the build MUST respect:** (a) the check is keyed on `doc.owner` = the PI's **creator**, not the prior transition actor — if the `AP Clerk` creates the PI and the owner is later reassigned, the guard weakens; (b) **Administrator bypasses entirely.** The plan's "verification task" is **resolved by source** (`allow_self_approval=0` *does* block `owner == approver`); the only live verification left is the `doc.owner`-vs-actor nuance on our v16 (test case in §7.1).
-
-2. **App-code backstop (`Before Save`, stronger than native).** Wired via `hooks.py` `doc_events` on `Purchase Invoice` (the `"validate"` doc_events surface already exists at `hooks.py:352`; recommend a dedicated `"Purchase Invoice": {"validate": "...sod_backstop"}` entry — `"validate"` runs on every save before submit). Pseudocode:
+1. **App-code SoD guard (PILOT — the authority).** Wired via `hooks.py` `doc_events` on `Purchase Invoice` (the `"validate"` doc_events surface already exists at `hooks.py:352`; recommend a dedicated `"Purchase Invoice": {"validate": "...sod_backstop"}` entry — `"validate"` runs on every save before submit). This is the pilot's real "enterer ≠ approver" control and is **independent of any native engine.** Pseudocode:
 
    ```
    def sod_backstop(doc, method):
@@ -220,9 +249,13 @@ def resolve_approver_role(capture) -> str:
            frappe.throw(_("SoD: the user who coded/promoted this document may not approve it above threshold."))
    ```
 
-   This compares `frappe.session.user` against the **recorded extractor/coder** (`decision_by` / `validated_by` on the linked capture), which is **stronger than the native `doc.owner` check** — it survives owner reassignment and is not defeated by an Administrator who is also the coder. Ship as **app code** (D-3) for testability and because Server Scripts may be disabled by `server_script_enabled` site config.
+   This compares `frappe.session.user` against the **recorded extractor/coder** (`decision_by` / `validated_by` on the linked capture), which is **stronger than the native `doc.owner` check** — it survives owner reassignment and is not defeated by an Administrator who is also the coder. Ship as **app code** (D-3) for testability and because Server Scripts may be disabled by `server_script_enabled` site config. **For the pilot this guard is wired to the existing `record_manager_decision` above-threshold sign-off** (it fires on the PI save that records the decision); it does **not** require a native `Workflow`.
 
-**Adapter (`_sync_approval_from_workflow`) — the migration glue:**
+2. **Native Workflow lever (DEFERRED — second layer, only under §5.6).** `allow_self_approval=0` on every above-threshold approve transition. Verified rule (`frappe/model/workflow.py`): `apply_workflow` throws `Self approval is not allowed` when `user != "Administrator"` AND `allow_self_approval` falsy AND `user == doc.owner`. **Caveats the build MUST respect:** (a) the check is keyed on `doc.owner` = the PI's **creator**, not the prior transition actor — if the `AP Clerk` creates the PI and the owner is later reassigned, the guard weakens; (b) **Administrator bypasses entirely.** Because of (a)/(b) the native lever is a *defense-in-depth supplement*, never the authority — the **app-code guard (1) remains the authority** whether or not the native Workflow is adopted. This layer exists only when the deferred native engine (§5.6) is in place; the only live verification then is the `doc.owner`-vs-actor nuance on our v16 (test case in §7.1).
+
+> **Pilot vs deferred — the rest of §5.3.** The **adapter**, **migration steps**, and **`apply_workflow` idempotency** below describe the **deferred** native-Workflow swap (§5.6) — they are NOT pilot work. The pilot keeps `request_approval` / `record_manager_decision` as-is (auto-approve under threshold, human sign-off above), adds the app-code SoD guard + the stream gate (§5.4), and removes nothing from the working engine. Read the rest of §5.3 only when adopting §5.6.
+
+**Adapter (`_sync_approval_from_workflow`) — the migration glue (DEFERRED / §5.6):**
 
 | `workflow_state` | → `approval_status` | → `payment_readiness` |
 |---|---|---|
@@ -235,7 +268,7 @@ def resolve_approver_role(capture) -> str:
 
 This keeps `is_ready_for_payment` (`:1365`) and `is_payment_blocked` (`:1378`) — and therefore the downstream mock-payment guard — working **unchanged**. **No two parallel engines:** the native Workflow is the source of truth; `approval_status` becomes a *derived* mirror, never hand-set in two places (risk R-7).
 
-**Migration steps (reconcile custom engine → native Workflow):**
+**Migration steps (reconcile custom engine → native Workflow) — DEFERRED / §5.6:**
 
 1. Keep `request_approval_for` / `record_manager_decision_for` signatures; re-point bodies to `apply_workflow` + adapter (§5.2).
 2. **Remove** the role-only `frappe.only_for(...)` gate at `:1336`; rely on the Workflow Transition `allowed` role **plus** the two SoD layers (the `only_for` is a role check, the current weak point).
@@ -249,65 +282,79 @@ This keeps `is_ready_for_payment` (`:1365`) and `is_payment_blocked` (`:1378`) �
 
 **Stream gate (new, at the top of the approval branches):** add a stream discriminator to the capture (consumed from [[02-intake-stream-tagging]] — this spec does **not** define `stream`; flag if undefined upstream). `_determine_next_step`:
 
-- **Step 3** (`:350`) gains a precondition `self.stream == "I"`. A **Stream R** capture returns `None` here → never routed into `AP Document Approval`.
+- **Step 3** (`:350`) gains a precondition `self.stream == "I"`. A **Stream R** capture returns `None` here → never routed into approval (and is never auto-approved by the legacy cascade).
 - **Step 4** (`:358`) likewise short-circuits for Stream R (its payment path is [[12-payment-execution]]'s Stream R no-op; closure flows to [[13-bank-feed-reconciliation]]).
 
-So:
+So (pilot, legacy engine):
 
 | Stream | Step 3 (approval) | Step 4 (payment) |
 |---|---|---|
-| **I** (invoice) | enqueue `request_approval_for` → Workflow | gated on `workflow_state == Submitted/Approved` |
+| **I** (invoice) | enqueue `request_approval_for` (auto-approve under threshold; pause for human above) | gated on `Auto Approved`/`Manager Approved` + `Ready for Payment` |
 | **R** (receipt) | **skipped** (returns None) | **skipped** here (handled by [[12]]/[[13]]) |
 
-**Pause vs auto-advance:** under-threshold Stream I (`grand_total <= 1000`) auto-advances through the Workflow (under-threshold hop, no human) — but **only** if the SoD layers permit (an under-threshold self-advance is allowed by design; the SoD bar is the *above-threshold* approve hop). Above-threshold Stream I **pauses** at `Pending Approval` for a human Approve/Reject. This preserves the current pause semantics while moving the engine to native Workflow.
+**Pause vs auto-advance (the automation-first heart of the cascade):** under-threshold Stream I (`final_total_amount <= auto_post_amount_threshold`) **auto-advances with no human** — this is the hands-free in-policy path the pilot preserves. Above-threshold Stream I **pauses** for a human Approve/Reject, and that human decision is where the **app-code SoD guard** fires ("enterer ≠ approver"). The stream gate guarantees a receipt never reaches either branch.
+
+> **Deferred-upgrade mapping (§5.6).** Under the native Workflow, Step 3 enqueues `request_approval_for` → `apply_workflow` and Step 4 gates on `workflow_state == Submitted/Approved`; the under-threshold auto-hop and the `Pending Approval` pause are the Workflow expressions of the same two pilot behaviors. The pilot does not build this mapping.
 
 ### 5.5 Cross-cutting
 
-- **Permissions / SoD:** new Roles (§5.1 C); Workflow Transition `allowed` roles; `allow_self_approval=0`; app-code backstop. Capture DocType permissions extended to grant `AP Clerk` (write through Pending) and `Auditor (Read Only)` (read).
-- **Idempotency:** via [[01-foundations-settings-async-idempotency]] — `apply_workflow` calls are dedupe-guarded by the existing `_enqueue_next` `job_name`.
+- **Permissions / SoD (pilot):** new Roles (§5.1 C); the app-code SoD guard ("enterer ≠ approver"); the `Treasury Approver` gate on bank-detail changes. Capture DocType permissions extended to grant `AP Clerk` (write through coding) and `Auditor (Read Only)` (read). *(Deferred §5.6 adds Workflow Transition `allowed` roles + `allow_self_approval=0` as a supplementary layer.)*
+- **Idempotency:** via [[01-foundations-settings-async-idempotency]] — cascade hops are dedupe-guarded by the existing `_enqueue_next` `job_name`.
 - **Async / enqueue:** reuses `_kick_next_step` / `_enqueue_next` (`:292`/`:368`) with `enqueue_after_commit=True`, `deduplicate=True`; under `in_test` runs `now=True`.
 - **Observability:** Approve/Reject emit `AP Review Event` (via [[10-ap-review-observability]]).
-- **Foundations dependency:** the `workflow_state` mirror sync and the adapter live alongside the foundations idempotency ledger.
+
+### 5.6 Deferred / opt-in upgrade — company-wide native `Workflow` on Purchase Invoice
+
+This is the **complete-reference** engine, **not** the pilot. It replaces the fork's `request_approval` / `record_manager_decision` with ERPNext's native `Workflow` doctype as the single source of truth and adds `allow_self_approval=0` as a *second* SoD layer on top of the app-code guard. **Adopt it only on explicit pilot-scope sign-off** (§8 D-2/D-8) because the `AP Document Approval` Workflow governs **every** Purchase Invoice in the company, not just AP-capture ones. The artifacts it needs are: the two `Workflow` fixtures (§5.1 A + the bank-change Workflow), the `workflow_state` fields (§5.1 B), the `apply_workflow`-driven wrapper bodies (§5.2), the `_sync_approval_from_workflow` adapter + migration steps (§5.3), and the Workflow-pause cascade mapping (§5.4). Each is labelled **DEFERRED** at its definition above. The app-code SoD guard remains the authority even after this lands; the native lever is defense-in-depth, weakened by the `doc.owner`-reassignment and Administrator-bypass caveats (§5.3).
 
 ## 6. Acceptance criteria
 
-- **AC-11-1** (native SoD, positive): an above-threshold (`grand_total > 1000`) Approve transition applied by a user **other than** `doc.owner`, with `allow_self_approval=0`, **succeeds** and `workflow_state` advances to `Approved`.
-- **AC-11-2** (native SoD, negative): the same transition applied **by `doc.owner`** (the creator) with `allow_self_approval=0` **raises** `frappe.throw("Self approval is not allowed")`.
-- **AC-11-3** (native SoD, edge / default risk): the same transition by `doc.owner` with `allow_self_approval=1` **succeeds** — proving the flag is the lever and documenting the upstream Default=1 hazard.
-- **AC-11-4** (backstop, negative — stronger than native): with the backstop installed, the **recorded coder** (`decision_by`/`validated_by`) attempts an above-threshold approve **even though they are NOT `doc.owner`** → `frappe.throw` with the SoD message.
-- **AC-11-5** (backstop, positive): a clean approver (not the coder, not the owner) above threshold → passes the backstop and the transition applies.
-- **AC-11-6** (threshold routing): `grand_total <= 1000` → under-threshold/auto hop, no `Pending Approval`; `grand_total > 1000` → lands in `Pending Approval`, and the adapter sets `approval_status == "Pending Manager"` with `assigned_approver_role` + `routing_reason` populated.
-- **AC-11-7** (Stream gate): a **Stream R** capture → `_determine_next_step` returns `None` at Step 3 (no approval enqueued) and Step 4 mock-payment is **not** enqueued for the approval reason; a **Stream I** capture → Step 3 enqueues `request_approval_for`.
-- **AC-11-8** (matrix resolver): a matched `AP Approval Matrix` row returns its `approver_role`; an unmatched amount falls back to `Accounts Manager`; an **empty/absent** matrix returns the default and **does not raise**.
-- **AC-11-9** (Condition safe_eval): a transition Condition using `frappe.db.get_value` for supplier risk evaluates with **no** `SecurityException`; a Condition calling a non-whitelisted function is rejected by `safe_eval`.
-- **AC-11-10** (bank-change separation): a bank-field change request routes to `Treasury Approver`; an invoice-approver (`Accounts Manager`, no Treasury role) attempting the Treasury transition is **blocked** by the `allowed` role.
-- **AC-11-11** (regression / no split-brain): after migration, `is_ready_for_payment` / `is_payment_blocked` return the same values for equivalent states as before, driven solely by the adapter — never by a second hand-set `approval_status` path.
-- **AC-11-12** (Expense Claim deferred): the build asserts the Workflow `document_type` is `Purchase Invoice` only on a no-`hrms` bench; an attempt to add `Expense Claim` is documented as deferred (D-5), not shipped.
+**Pilot ACs (automation-first — primary):**
+
+- **AC-11-1** (auto-approve in-policy, positive — the automation case): a Stream-I capture with `final_total_amount <= auto_post_amount_threshold` and checks passed → `request_approval` sets `Auto Approved` + `Ready for Payment` + `decision_by` **with no human**, and the cascade advances without pausing. *(The hands-free path the pilot preserves.)*
+- **AC-11-2** (SoD guard, negative — the real control): with the app-code guard installed, the **recorded coder** (`decision_by`/`validated_by` on the linked capture) attempts an above-threshold approve → `frappe.throw` with the "enterer ≠ approver" SoD message; the decision is NOT recorded. Holds **even when the coder is `doc.owner` and even for Administrator-as-coder** (D-7).
+- **AC-11-3** (SoD guard, positive): a clean approver (not the coder) records an above-threshold approve → passes the guard and `record_manager_decision` sets `Manager Approved` + `Ready for Payment`.
+- **AC-11-4** (threshold routing): `final_total_amount <= threshold` → `Auto Approved`, no human; `> threshold` → `Pending Manager` with `assigned_approver_role` + `routing_reason` populated, awaiting a human Approve/Reject.
+- **AC-11-5** (Stream gate): a **Stream R** capture → `_determine_next_step` returns `None` at Step 3 (no approval enqueued, no auto-approve) and Step 4 mock-payment is **not** enqueued for the approval reason; a **Stream I** capture → Step 3 enqueues `request_approval_for`.
+- **AC-11-6** (matrix resolver defaults): a matched `AP Approval Matrix` row returns its `approver_role`; an unmatched amount falls back to `Accounts Manager`; an **empty/absent** matrix returns the default and **does not raise** (so the pilot routes correctly before any matrix rows exist).
+- **AC-11-7** (bank-change → Treasury): a bank-detail change request (`change_category == 'bank_detail'`) routes to `Treasury Approver`; an invoice-approver (`Accounts Manager`, no Treasury role) is **blocked** from approving it; a non-bank field change routes on the lighter `Accounts Manager` path.
+- **AC-11-8** (Roles installed): the three Role fixtures `AP Clerk`, `Treasury Approver`, `Auditor (Read Only)` exist after fixture import; capture permissions grant `AP Clerk` write-through-coding and `Auditor (Read Only)` read.
+- **AC-11-9** (Expense Claim deferred): the build asserts the in-scope `document_type` is `Purchase Invoice` only on a no-`hrms` bench; adding `Expense Claim` is documented as deferred (D-5), not shipped.
+
+**Deferred-upgrade ACs (native Workflow — verified only if §5.6 is adopted):**
+
+- **AC-11-D1** (native SoD, positive): an above-threshold Approve transition applied by a user **other than** `doc.owner`, with `allow_self_approval=0`, **succeeds** and `workflow_state` advances to `Approved`.
+- **AC-11-D2** (native SoD, negative): the same transition applied **by `doc.owner`** with `allow_self_approval=0` **raises** `frappe.throw("Self approval is not allowed")`.
+- **AC-11-D3** (native SoD, edge / default risk): the same transition by `doc.owner` with `allow_self_approval=1` **succeeds** — proving the flag is the lever and documenting the upstream Default=1 hazard.
+- **AC-11-D4** (Condition safe_eval): a transition Condition using `frappe.db.get_value` for supplier risk evaluates with **no** `SecurityException`; a Condition calling a non-whitelisted function is rejected by `safe_eval`.
+- **AC-11-D5** (adapter / no split-brain): after the migration, `is_ready_for_payment` / `is_payment_blocked` return the same values for equivalent states as before, driven solely by `_sync_approval_from_workflow` — never by a second hand-set `approval_status` path.
 
 ## 7. Tests
 
 ### 7.1 Automated
 
-- **Module (existing, extend):** `erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture` — add the stream-gate, adapter, and threshold-routing regression cases (AC-11-6, -7, -11).
-- **Module (new):** `erpnext.accounts.tests.test_ap_approval_workflow` (new `erpnext/accounts/tests/test_ap_approval_workflow.py`) — the Workflow + SoD + matrix cases. Use `from frappe.tests import IntegrationTestCase`; roll back all DB writes (PIs, requests, role assignments) in `tearDown`.
+- **Module (existing, extend):** `erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture` — the pilot cases: auto-approve in-policy, the app-code SoD guard, threshold routing, and the stream gate (AC-11-1..5).
+- **Module (new):** `erpnext.accounts.tests.test_ap_approval_workflow` (new `erpnext/accounts/tests/test_ap_approval_workflow.py`) — the matrix-resolver + bank-change + Roles pilot cases, and (when §5.6 is adopted) the deferred native-Workflow cases. Use `from frappe.tests import IntegrationTestCase`; roll back all DB writes (PIs, requests, role assignments) in `tearDown`.
 
 Cases (positive / negative / edge per public function):
 
 | Case | AC | Type |
 |---|---|---|
-| Native SoD: approve as non-owner, `allow_self_approval=0` → advances | AC-11-1 | positive |
-| Native SoD: approve as `doc.owner`, flag=0 → throws "Self approval is not allowed" | AC-11-2 | negative |
-| Native SoD: approve as owner, flag=1 → advances (documents Default=1 risk) | AC-11-3 | edge |
-| Backstop: recorded coder (not owner) approves above threshold → throws SoD | AC-11-4 | negative |
-| Backstop: clean approver above threshold → passes | AC-11-5 | positive |
-| Threshold: `<= 1000` auto-hop (no manager) vs `> 1000` Pending Approval | AC-11-6 | positive/edge |
-| Stream gate: Stream R → None at Step 3; Stream I → enqueues approval | AC-11-7 | positive/negative |
-| `resolve_approver_role`: matched row → its role | AC-11-8 | positive |
-| `resolve_approver_role`: unmatched amount → `Accounts Manager` default | AC-11-8 | negative |
-| `resolve_approver_role`: empty/absent matrix → default, no raise | AC-11-8 | edge (registry-style unknown-key) |
-| Condition: supplier-risk via `frappe.db.get_value` evaluates, no `SecurityException` | AC-11-9 | edge |
-| Bank-change: routes to `Treasury Approver`; invoice approver blocked | AC-11-10 | positive/negative |
-| Regression: `is_ready_for_payment`/`is_payment_blocked` unchanged post-migration | AC-11-11 | regression |
+| **PILOT** Auto-approve: in-policy under-threshold → `Auto Approved`, no human | AC-11-1 | positive |
+| **PILOT** SoD guard: recorded coder approves above threshold → throws "enterer ≠ approver" | AC-11-2 | negative |
+| **PILOT** SoD guard: clean approver above threshold → records decision | AC-11-3 | positive |
+| **PILOT** Threshold: `<= threshold` auto-approve vs `> threshold` `Pending Manager` | AC-11-4 | positive/edge |
+| **PILOT** Stream gate: Stream R → None at Step 3; Stream I → enqueues approval | AC-11-5 | positive/negative |
+| **PILOT** `resolve_approver_role`: matched row → its role | AC-11-6 | positive |
+| **PILOT** `resolve_approver_role`: unmatched amount → `Accounts Manager` default | AC-11-6 | negative |
+| **PILOT** `resolve_approver_role`: empty/absent matrix → default, no raise | AC-11-6 | edge (unknown-key) |
+| **PILOT** Bank-change: routes to `Treasury Approver`; invoice approver blocked | AC-11-7 | positive/negative |
+| **PILOT** Roles installed + capture perms granted | AC-11-8 | positive |
+| *Deferred* Native SoD: approve as non-owner, `allow_self_approval=0` → advances | AC-11-D1 | positive |
+| *Deferred* Native SoD: approve as `doc.owner`, flag=0 → throws "Self approval is not allowed" | AC-11-D2 | negative |
+| *Deferred* Native SoD: approve as owner, flag=1 → advances (documents Default=1 risk) | AC-11-D3 | edge |
+| *Deferred* Condition: supplier-risk via `frappe.db.get_value` evaluates, no `SecurityException` | AC-11-D4 | edge |
+| *Deferred* Regression: `is_ready_for_payment`/`is_payment_blocked` unchanged post-migration | AC-11-D5 | regression |
 
 Run: `bench --site <site> run-tests --module erpnext.accounts.tests.test_ap_approval_workflow` and `… --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`. Confirm green before declaring done.
 
@@ -332,7 +379,7 @@ Browser-driven verification of the desk UI this slice adds, via the **Playwright
 ## 8. Open decisions
 
 - **D-1 — Capture `workflow_state` mirror vs reuse `approval_status`.** Options: (a) add a read-only `workflow_state` Data mirror synced from the PI; (b) reuse the existing `approval_status` Literal for cascade branching. **Recommend (a)** — keeps `approval_status` as the stable downstream contract for the adapter while giving the cascade one field to branch on. Owner: AP eng lead. Lock: before the migration PR (blocks §5.3).
-- **D-2 — `AP Approval Matrix` ship-now vs threshold-only for pilot.** Options: (a) ship the matrix doctype now; (b) defer, route on the `1000.0` threshold only. **Recommend (b) for pilot** (threshold-only), schema-stub the matrix so Conditions can grow into it. Owner: AP product. Lock: at pilot scope sign-off.
+- **D-2 — `AP Approval Matrix` ship-now vs threshold-only for pilot (and the native-Workflow scope).** The automation-first pilot routes on the `auto_post_amount_threshold` only (auto-approve under it, human sign-off above it) and does **not** adopt the company-wide native `Workflow` (§5.6). Options: (a) ship the matrix doctype + the native Workflow now; (b) defer both, route on the threshold only, schema-stub the matrix so the design can grow into it. **Recommend (b) for the pilot** — it is the automation-first default; the native company-wide `Workflow` on Purchase Invoice is the deferred, opt-in upgrade gated on explicit pilot-scope sign-off (it governs every PI in the company). Owner: AP product. Lock: at pilot scope sign-off.
 - **D-3 — SoD backstop as app code vs Server Script record.** Options: (a) app code via `hooks.py doc_events` (`"validate"` surface already exists); (b) a Server Script record (no-deploy editing, but may be disabled by `server_script_enabled` and has no bare "Validate" event → must use "Before Save"). **Recommend (a)** — testable, deploy-controlled, not gated by site config. Owner: AP eng lead. Lock: before the backstop PR.
 - **D-4 — `assigned_approver_role` Data vs Link→Role.** Options: (a) keep Data (back-compat), add a validate-against-Roles check; (b) upgrade to `Link → Role`. **Recommend (a) now, (b) when the matrix lands** — avoids a migration on a field other code reads. Owner: AP eng lead. Lock: with D-2.
 - **D-5 — Expense Claim coverage.** Options: (a) PI-only Workflow now; (b) add `Expense Claim` to `document_type` once `hrms` is installed. **Recommend (a)** — `hrms` is not installed; do not assert Expense Claim as shipped. Owner: AP product. Lock: now (PI-only), revisit when hrms lands.
@@ -350,7 +397,7 @@ Browser-driven verification of the desk UI this slice adds, via the **Playwright
 - [[01-foundations-settings-async-idempotency]] — idempotency keys / async runner the cascade reuses.
 
 **Unblocks / feeds:**
-- [[12-payment-execution]] — must consume `workflow_state == Submitted/Approved` (via the adapter) as its precondition instead of legacy `approval_status` alone (the Step 4 gate at `:358`).
+- [[12-payment-execution]] — consumes the approval outcome as its payment precondition. **Pilot:** the existing `approval_status in {Auto Approved, Manager Approved}` + `payment_readiness == Ready for Payment` (the Step 4 gate at `:358`) is unchanged. *(Deferred §5.6: payment gates on `workflow_state == Submitted/Approved` via the adapter instead.)*
 - [[10-ap-review-observability]] — Approve/Reject events feed `AP Review Event`.
 - [[14-closure-audit-retention]] — `Auditor (Read Only)` role + `decision_by`/`decision_at` already captured feed the audit trail.
 

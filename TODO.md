@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-015`
+- **Next ID:** `T-019`
 
 **Priority labels.**
 
@@ -46,6 +46,13 @@ The next free ID is tracked in the counter below — bump it whenever you add a 
 _Nothing in progress._
 
 ## Backlog
+
+### Automation-first backlog (from the 2026-06-02 spec re-vision)
+
+- [ ] **T-015** **Confidence-gated auto-confirm (the #1 automation lever).** Today every capture pauses at `Proposed` for a human to confirm the OCR proposal *regardless of confidence*. Build the planned slice: a `_determine_next_step` hop that, when all mandatory `field_confidences` rows clear threshold AND no open validation flags AND a new `AP Closed Loop Settings.auto_confirm_enabled` (default OFF) is on, auto-calls `confirm_extracted_fields` instead of pausing — fail-safe to the human pause on any low/missing confidence or open flag. Turns "every document needs a human once" into "only the doubtful ones do." _(P1 · added 2026-06-02 · ref: docs/spec/04 §5.6 + docs/spec/09 §5.6 planned ACs AC-04-16..19 / AC-09-15..17)_
+- [ ] **T-016** **Coding bootstrap from history (spec 06).** Auto-derive expense/cost-center/tax from a vendor's prior posted PIs and apply automatically when the history is consistent/confident, so no human pre-builds a coding profile; escalate to Coding Review only on inconsistent/no history. _(P2 · added 2026-06-02 · ref: docs/spec/06 §5.3.1 planned ACs AC-06-15..18)_
+- [ ] **T-017** **Classification: trust confident content over the intake stream guess (spec 07).** Stop sending *every* intake-vs-content stream disagreement to Manual Review; when the content read is confident, trust it, record the correction as telemetry (`stream_mistag` AP Review Event), and continue with no human — escalate only when the content itself is ambiguous. _(P2 · added 2026-06-02 · ref: docs/spec/07 §5.3 planned ACs AC-07-15..16)_
+- [ ] **T-018** **Default the gated supplier auto-create ON for high-confidence names (spec 05).** Flip `enable_gated_supplier_creation` to auto-file the creation request when OCR vendor-name confidence is high (human still approves — SoD intact), so a confident unknown auto-queues a request instead of dead-stopping a human. _(P3 · added 2026-06-02 · ref: docs/spec/05 §8 OD-05-9 planned ACs AC-05-24..26)_
 
 - [ ] **T-001** Install `poppler-utils` on every worker host — unblocks spec-03 PDF perceptual dedupe (currently degrades to exact-hash-only for PDF inputs; `test_real_phash_pdf_branch` skips). Confirm `imagehash` + `pdf2image` in each worker venv too.
       _(P1 · added 2026-05-31 · ref: docs/spec/STATUS.md decision #5; deploy task, not a code blocker)_

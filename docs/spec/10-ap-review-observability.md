@@ -10,6 +10,12 @@ related: [02-intake-stream-tagging, 04-extraction-confidence-line-items, 05-supp
 
 # 10 — AP Review (Exception Handling) — instrumented feedback gate
 > _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
+> _Revised 2026-06-02: re-visioned automation-first ([[00-overview]] "Guiding principle")._
+
+> [!info] Automation-first stance
+> **What flows with no human:** the instrumentation itself — every clerk action auto-emits exactly one tagged `AP Review Event` (root-cause + action + time-to-resolve), and the weekly "Top step-9 root causes" report + auto-rate chart roll those up with no human curation. This spec is the **scorecard that makes "how little reaches a human" measurable and improvable**: it quantifies the *avoidable* human work so the other specs can drive it down (loosen a too-tight threshold → fewer `confidence_threshold_too_tight`; add an alias → fewer `supplier_unmapped`; fix an intake miss → fewer `stream_mistag`; adopt the PO control → fewer `missing_po`).
+> **The single escalation seam:** a human acts here **by definition** — this is Step 9, the exception desk. The automation-first contribution is not to remove the human but to **instrument every touch so the tail shrinks over time**, and to guarantee escalations **loop, never dead-end**: reject→reopen restores the prior stage and re-enters the cascade (the rejection trail preserved for audit), so no exception falls out of the system.
+> **Automation to grow into:** none of its own — it is the **instrument** that drives every *other* spec's automation gap down (overview "Automation-first doctrine" row 10: *the scorecard that shrinks the rest*). A rising auto-rate and a shrinking root-cause tail are the success metric for the whole workflow.
 
 ## 1. Summary
 

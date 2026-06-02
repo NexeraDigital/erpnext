@@ -10,6 +10,9 @@ related: [00-overview, 03-deduplication, 04-extraction-confidence-line-items, 07
 
 # 02 — Intake & Stream Tagging (Receipt vs Invoice)
 > _Revised 2026-05-31: applied native-vs-custom review findings; added Playwright UI test plan (§7.3)._
+> _Revised 2026-06-02: re-visioned automation-first ([[00-overview]] "Guiding principle")._
+
+> **Automation-first stance.** This is the hands-free front door: documents arrive by email-in, mobile photo, manual upload, or portal pull and are logged, attached, and **auto-tagged Stream R (Receipt) or Stream I (Invoice)** from the cheapest signals (filename, sender domain, channel, card-receipt body patterns) with **no human touch** — the tag drives queue priority and starts the Stream-R 72h SimpleFIN clock automatically. The provisional tag is *provisional by design*: it must **never pause a human** at intake, because a wrong guess is cheaply corrected downstream at classification (spec 07), and the disagreement is logged as a tuning signal (spec 10) rather than surfaced as a blocker. The only genuine escalation seam is a **truly unclassifiable arrival** — no rule matches, so it falls through to `Unclassified` and proceeds, with the actual stream decision deferred to extraction/classification downstream (never a stop here). The doctrine table lists **no automation gap** for this spec; the lever is already the default and the seam is downstream.
 
 ## 1. Summary
 
