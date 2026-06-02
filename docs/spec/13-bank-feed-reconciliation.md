@@ -3,7 +3,7 @@ spec: 13-bank-feed-reconciliation
 title: Bank-Feed Match & Reconciliation (SimpleFIN, mocked in dev)
 plan_step: Step 12 — Bank-Feed Match & Reconciliation (closes the loop; retires the Phase-1 "no Bank Transaction" guardrail; dual closure)
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 02-intake-stream-tagging, 07-classification-doctype-branching]
 related: [10-ap-review-observability, 14-closure-audit-retention, 12-payment-execution, 00-overview]
 ---

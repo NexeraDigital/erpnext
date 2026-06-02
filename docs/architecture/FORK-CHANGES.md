@@ -1175,3 +1175,21 @@ Previously the cascade auto-paid **every** approved+ready capture (gated only by
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 213
 ```
+
+## 28. Spec 13 — Bank-Feed Match & dual-signal closure (the external close signal)
+
+> **Status (2026-06-02):** implemented + tested (pilot scope; live feed deferred to cutover). 13th spec. **4 new tests** + 2 updated closure tests (capture suite 213 → **217 OK**); zero regressions.
+
+"Closure comes from outside." A document isn't truly closed until the **bank feed confirms the money moved**. This reuses ERPNext's **native** Bank Reconciliation (no matching rebuilt), reads the result, and splits closure into `settled` (internal) + `bank_cleared` (external).
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- bank_reconciliation_section + bank_cleared (Check) + bank_transaction (Link → Bank Transaction); payment_lifecycle_status += "Bank Cleared"
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _matched_bank_transaction (reads native Bank Transaction Payments) + reconcile_bank_for (stamps bank_cleared + the BT + lifecycle); build_closure_evidence now derives settled + bank_cleared and closed = settled AND bank_cleared; "no Bank Transaction" guardrail retired
+```
+
+**Dual-signal closure.** `closed = settled AND bank_cleared`. `settled` = submitted PI (Paid, outstanding 0) + submitted PE; `bank_cleared` = the native bank feed matched a `Bank Transaction` to the disbursing voucher. The Phase-1 guardrail ("Bank Transaction count must remain 0") is **retired** — a Bank Transaction now *enables* closure. **Deferred to cutover:** the live feed connection (native **Plaid** default, decision #8); dev uses fixture Bank Transactions. Verified with a real `Bank Transaction` matched to the PE (`TestAPBankReconciliation`).
+
+### 28.1 Running the spec-13 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 217
+```

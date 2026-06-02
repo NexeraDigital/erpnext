@@ -139,6 +139,9 @@
   "mock_payment_amount",
   "mock_payment_issued_at",
   "mock_payment_response",
+  "bank_reconciliation_section",
+  "bank_cleared",
+  "bank_transaction",
   "rejection_section",
   "rejection_log"
  ],
@@ -1046,7 +1049,7 @@
    "fieldtype": "Select",
    "in_standard_filter": 1,
    "label": "Payment Lifecycle Status",
-   "options": "Not Requested\nConfirmed\nClosed\nBlocked",
+   "options": "Not Requested\nConfirmed\nClosed\nBlocked\nBank Cleared",
    "read_only": 1
   },
   {
@@ -1094,6 +1097,29 @@
    "fieldname": "mock_payment_response",
    "fieldtype": "Long Text",
    "label": "Mock Payment Response",
+   "read_only": 1
+  },
+  {
+   "description": "Bank-feed reconciliation (spec 13): the EXTERNAL close signal. The native Bank Reconciliation engine matches the bank line to this capture's Payment Entry (Stream I) or Journal Entry (Stream R); a match sets bank_cleared. Closure (spec 14) requires BOTH settled (internal) AND bank_cleared (external).",
+   "fieldname": "bank_reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Bank-Feed Reconciliation"
+  },
+  {
+   "default": "0",
+   "description": "The external half of closure: 1 = the bank feed has matched a Bank Transaction to this capture's disbursing voucher (the money actually moved). Set by reconcile_bank_for; read-only.",
+   "fieldname": "bank_cleared",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Bank Cleared",
+   "read_only": 1
+  },
+  {
+   "description": "The native Bank Transaction matched to this capture's Payment Entry / Journal Entry.",
+   "fieldname": "bank_transaction",
+   "fieldtype": "Link",
+   "label": "Bank Transaction",
+   "options": "Bank Transaction",
    "read_only": 1
   },
   {

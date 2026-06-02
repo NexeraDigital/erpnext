@@ -179,6 +179,7 @@ PAYMENT_LIFECYCLE_NOT_REQUESTED = "Not Requested"
 PAYMENT_LIFECYCLE_CONFIRMED = "Confirmed"
 PAYMENT_LIFECYCLE_CLOSED = "Closed"
 PAYMENT_LIFECYCLE_BLOCKED = "Blocked"
+PAYMENT_LIFECYCLE_BANK_CLEARED = "Bank Cleared"  # spec 13/14: the external close signal
 
 INTAKE_MANUAL_UPLOAD = "Manual ERPNext Upload"
 INTAKE_EMAIL_INBOUND = "Email Inbound"
@@ -291,6 +292,8 @@ class APInvoiceCapture(Document):
 		line_items: DF.Table[APInvoiceCaptureItem]
 		field_confidences: DF.Table[APInvoiceCaptureConfidence]
 		rejection_log: DF.Table[APCaptureRejectionLog]
+		bank_cleared: DF.Check
+		bank_transaction: DF.Link | None
 		received_at: DF.Datetime
 		stream: DF.Literal["Receipt (R)", "Invoice (I)", "Unclassified"]
 		stream_provisional_source: DF.Data | None
@@ -399,7 +402,7 @@ class APInvoiceCapture(Document):
 		mock_payment_issued_at: DF.Datetime | None
 		mock_payment_response: DF.LongText | None
 		payment_lifecycle_status: DF.Literal[
-			"Not Requested", "Confirmed", "Closed", "Blocked"
+			"Not Requested", "Confirmed", "Closed", "Blocked", "Bank Cleared"
 		]
 	# end: auto-generated types
 
@@ -4410,6 +4413,51 @@ def _bank_transaction_count_for_payment_entry(payment_entry: str | None) -> int:
 	)
 
 
+def _matched_bank_transaction(payment_document: str, voucher: str | None) -> "str | None":
+	"""The submitted Bank Transaction the native engine matched to a voucher (spec 13).
+
+	Reads the native ``Bank Transaction Payments`` child link (the row reconciliation
+	writes when a bank line is matched to a Payment Entry / Journal Entry). Returns the
+	parent Bank Transaction name, or None. No matching is rebuilt — this only reads the
+	native result."""
+
+	if not voucher or not frappe.db.exists("DocType", "Bank Transaction"):
+		return None
+	return (
+		frappe.db.get_value(
+			"Bank Transaction Payments",
+			{"payment_document": payment_document, "payment_entry": voucher},
+			"parent",
+		)
+		or None
+	)
+
+
+@frappe.whitelist()
+def reconcile_bank_for(capture: "APInvoiceCapture | str", save: bool = True) -> "APInvoiceCapture":
+	"""The EXTERNAL close signal (spec 13). Read the native Bank Reconciliation result
+	and stamp ``bank_cleared`` when the bank feed has matched a Bank Transaction to this
+	capture's disbursing voucher (Stream I → Payment Entry; Stream R → Journal Entry if
+	present). Idempotent; never matches itself — only surfaces the native match."""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	bt = None
+	if capture.payment_entry:
+		bt = _matched_bank_transaction("Payment Entry", capture.payment_entry)
+	if not bt and capture.get("journal_entry"):
+		bt = _matched_bank_transaction("Journal Entry", capture.get("journal_entry"))
+
+	if bt:
+		capture.bank_transaction = bt
+		capture.bank_cleared = 1
+		capture.payment_lifecycle_status = PAYMENT_LIFECYCLE_BANK_CLEARED
+	if save:
+		capture.save()
+	return capture
+
+
 def _derive_payment_lifecycle_status(capture: "APInvoiceCapture") -> str:
 	if is_payment_blocked(capture):
 		return PAYMENT_LIFECYCLE_BLOCKED
@@ -4559,7 +4607,11 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 	]
 	gl_entries = _gl_entries_for_vouchers(voucher_names)
 	bank_transaction_count = _bank_transaction_count_for_payment_entry(capture.payment_entry)
-	closed = bool(
+	# Dual-signal closure (spec 13/14): the INTERNAL half (settled) is the native PI/PE
+	# state; the EXTERNAL half (bank_cleared) is the bank-feed match. Truly closed =
+	# settled AND bank_cleared. (The Phase-1 "Bank Transaction count must remain 0"
+	# guardrail is retired here — bank-cleared closure REQUIRES a Bank Transaction.)
+	settled = bool(
 		pi_state
 		and pe_state
 		and int(pi_state.docstatus) == 1
@@ -4567,6 +4619,11 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 		and flt(pi_state.outstanding_amount) == 0
 		and pi_state.status == "Paid"
 	)
+	bank_cleared = bool(
+		capture.bank_cleared
+		or (capture.payment_entry and _matched_bank_transaction("Payment Entry", capture.payment_entry))
+	)
+	closed = settled and bank_cleared
 
 	return {
 		"capture": {
@@ -4653,11 +4710,19 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 			"gl_entry_count": len(gl_entries),
 			"bank_transaction_count": bank_transaction_count,
 		},
+		"bank_match": {
+			"bank_cleared": bank_cleared,
+			"bank_transaction": capture.bank_transaction,
+		},
+		"settled": settled,
+		"bank_cleared": bank_cleared,
 		"closed": closed,
 		"closure_basis": (
-			"Closed is derived from native ERPNext state: submitted Purchase Invoice, "
-			"submitted Payment Entry, Purchase Invoice outstanding_amount=0, and status Paid. "
-			"No custom closed flag is stored; Bank Transaction count must remain 0."
+			"Dual-signal closure (spec 13/14): truly closed = settled AND bank_cleared. "
+			"settled is the INTERNAL half (submitted Purchase Invoice + submitted Payment "
+			"Entry, outstanding_amount=0, status Paid); bank_cleared is the EXTERNAL half "
+			"(the bank feed matched a Bank Transaction to the disbursing voucher). No custom "
+			"closed flag is stored — both signals are re-derived from native state."
 		),
 	}
 

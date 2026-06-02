@@ -156,6 +156,8 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	_derive_coding_from_history,
 	ROOT_CAUSE_STREAM_MISTAG,
 	resolve_approver_role,
+	reconcile_bank_for,
+	PAYMENT_LIFECYCLE_BANK_CLEARED,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -1319,7 +1321,11 @@ class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
 		self.assertEqual(evidence["native"]["payment_entry"]["name"], capture.payment_entry)
 		self.assertGreater(evidence["native"]["gl_entry_count"], 0)
 		self.assertEqual(evidence["native"]["bank_transaction_count"], 0)
-		self.assertTrue(evidence["closed"])
+		# Dual-signal closure (spec 13/14): after mock payment the capture is SETTLED
+		# (internal) but NOT yet bank_cleared (no external bank-feed match) → not closed.
+		self.assertTrue(evidence["settled"])
+		self.assertFalse(evidence["bank_cleared"])
+		self.assertFalse(evidence["closed"])
 		self.assertIn("No custom closed flag", evidence["closure_basis"])
 
 	# AC-E2E2: AP Clerk can see lifecycle state and next action fields.
@@ -1382,7 +1388,9 @@ class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
 		self.assertEqual(evidence["approval"]["payment_readiness"], PAYMENT_READINESS_READY)
 		self.assertEqual(evidence["payment"]["lifecycle_status"], PAYMENT_LIFECYCLE_CLOSED)
 		self.assertTrue(evidence["payment"]["response"]["is_mock"])
-		self.assertTrue(evidence["closed"])
+		# Settled internally; closure now also needs the external bank-feed match (spec 13/14).
+		self.assertTrue(evidence["settled"])
+		self.assertFalse(evidence["closed"])
 
 
 # ---------------------------------------------------------------------------
@@ -4356,3 +4364,97 @@ class TestAPPaymentAutoPay(IntegrationTestCase):
 		self.assertEqual(cap.approval_status, APPROVAL_STATUS_AUTO_APPROVED)
 		self.assertTrue(cap.payment_entry)  # auto-paid by the cascade
 		self.assertEqual(cap.payment_lifecycle_status, PAYMENT_LIFECYCLE_CLOSED)
+
+
+class TestAPBankReconciliation(IntegrationTestCase):
+	"""Spec 13/14 — bank-feed match is the EXTERNAL close signal; closure is dual-signal
+	(settled AND bank_cleared). The Phase-1 'no Bank Transaction' guardrail is retired."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _settled(self):
+		f = _make_file("bank-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="Bank recon test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(cap, corrections={"supplier": "_Test Supplier", "total_amount": "250.00", "currency": "INR"})
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		issue_mock_payment(cap)
+		cap.reload()
+		return cap
+
+	def _bank_transaction_for(self, pe_name, amount):
+		bank = frappe.get_doc({"doctype": "Bank", "bank_name": "S13 Bank " + frappe.generate_hash(length=4)}).insert(ignore_permissions=True)
+		ba = frappe.get_doc(
+			{
+				"doctype": "Bank Account",
+				"account_name": "S13 Acct " + frappe.generate_hash(length=4),
+				"bank": bank.name,
+				"is_company_account": 1,
+				"company": "_Test Company",
+				"account": "_Test Bank - _TC",
+			}
+		).insert(ignore_permissions=True)
+		bt = frappe.get_doc(
+			{
+				"doctype": "Bank Transaction",
+				"date": frappe.utils.today(),
+				"bank_account": ba.name,
+				"company": "_Test Company",
+				"currency": "INR",
+				"withdrawal": amount,
+				"payment_entries": [
+					{"payment_document": "Payment Entry", "payment_entry": pe_name, "allocated_amount": amount}
+				],
+			}
+		)
+		bt.insert(ignore_permissions=True)
+		return bt.name
+
+	# Settled but no bank match → not bank_cleared, not closed (the dual-signal split).
+	def test_settled_not_closed_until_bank_match(self):
+		cap = self._settled()
+		ev = build_closure_evidence(cap)
+		self.assertTrue(ev["settled"])
+		self.assertFalse(ev["bank_cleared"])
+		self.assertFalse(ev["closed"])
+
+	# Dual-signal closure logic: settled AND bank_cleared → closed.
+	def test_dual_signal_closed(self):
+		cap = self._settled()
+		cap.bank_cleared = 1
+		cap.save(ignore_permissions=True)
+		ev = build_closure_evidence(cap)
+		self.assertTrue(ev["settled"])
+		self.assertTrue(ev["bank_cleared"])
+		self.assertTrue(ev["closed"])
+
+	# reconcile_bank_for surfaces the native Bank Transaction match → bank_cleared.
+	def test_reconcile_bank_sets_cleared(self):
+		cap = self._settled()
+		self.assertTrue(cap.payment_entry)
+		bt = self._bank_transaction_for(cap.payment_entry, 250.0)
+		reconcile_bank_for(cap)
+		cap.reload()
+		self.assertEqual(int(cap.bank_cleared), 1)
+		self.assertEqual(cap.bank_transaction, bt)
+		self.assertEqual(cap.payment_lifecycle_status, PAYMENT_LIFECYCLE_BANK_CLEARED)
+		# Now truly closed (settled AND bank_cleared).
+		self.assertTrue(build_closure_evidence(cap)["closed"])
+
+	# The retired guardrail: a Bank Transaction no longer breaks closure (it enables it).
+	def test_guardrail_retired(self):
+		cap = self._settled()
+		self._bank_transaction_for(cap.payment_entry, 250.0)
+		reconcile_bank_for(cap)
+		cap.reload()
+		ev = build_closure_evidence(cap)
+		self.assertGreaterEqual(ev["native"]["bank_transaction_count"], 1)  # a BT exists
+		self.assertTrue(ev["closed"])  # and that is what CLOSES it now
