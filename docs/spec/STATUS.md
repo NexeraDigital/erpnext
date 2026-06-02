@@ -3,9 +3,11 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 228 (221 original + 7 automation-first, T-015) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (173/228 ACs green; no regressions) + **T-015 auto-confirm built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 232 (221 original + 11 automation-first: T-015 ×7, T-016 ×4) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (177/232 ACs green; no regressions) + **automation-first: T-015 auto-confirm, T-016 coding-from-history built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 >
 > **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and added new automation-first ACs; unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Remaining automation backlog: **TODO T-016..T-018** (coding-from-history, classification trust-content, gated-create default).
+>
+> **2026-06-02 — T-016 built ✅ (coding bootstrap from history).** A routine vendor with **no coding profile** now self-codes from its own prior posted Purchase Invoices when their coding is consistent (`_derive_coding_from_history` → Layer-1.5 in `apply_coding_profile_for`, gated by `enable_coding_history_bootstrap`, default ON). A split history escalates that field to Coding Review naming the competing values; thin history (< min samples) falls through; a profile/caller value always wins. AC-06-15..18 green: `TestAPCodingHistory` **`Ran=4 … OK`**; full module **`Ran=199 … OK`** (was 195; zero regressions — inert for suppliers without qualifying history). Behavioral screenshots under `screenshots/t-016-coding-from-history/`.
 >
 > **2026-06-02 — T-015 built ✅ (the #1 automation lever).** Confidence-gated **auto-confirm** is implemented + tested: AC-04-16..19 + AC-09-15..17 green this session. `TestAPInvoiceCaptureAutoConfirm` **`Ran=10 … OK`**; full module **`Ran=195 failures=0 errors=0 skipped=1 → OK`** (was 185; +10, zero regressions — `auto_confirm_enabled` default OFF so shipped behaviour is unchanged). When opted in, a clean+confident extraction auto-confirms past the human OCR-review pause (Step 1a) with no AP Review Event; any low/missing confidence or open flag falls back to the human pause. Sequence diagram + PNG refreshed (Step 1a branch). Behavioral screenshots under `screenshots/t-015-auto-confirm/`.
 
@@ -208,7 +210,7 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-05-23
 </details>
 
-<details><summary><b>06 — GL Coding / Tax / Cost Center · 14/14</b></summary>
+<details><summary><b>06 — GL Coding / Tax / Cost Center · 18/18</b></summary>
 
 - [x] AC-06-1
 - [x] AC-06-2
@@ -224,6 +226,10 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-06-12
 - [x] AC-06-13
 - [x] AC-06-14
+- [x] AC-06-15 _(T-016 coding-from-history)_
+- [x] AC-06-16 _(T-016)_
+- [x] AC-06-17 _(T-016)_
+- [x] AC-06-18 _(T-016)_
 </details>
 
 <details><summary><b>07 — Classification & Branching · 14/14</b></summary>

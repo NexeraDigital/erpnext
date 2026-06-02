@@ -47,6 +47,10 @@ class APClosedLoopSettings(Document):
 
 		ap_intake_email_account: DF.Link | None
 		default_purchase_tax_template: DF.Link | None
+		enable_coding_history_bootstrap: DF.Check
+		coding_history_consensus_threshold: DF.Float
+		coding_history_min_samples: DF.Int
+		coding_history_lookback: DF.Int
 		employee_supplier_group: DF.Link | None
 		qty_tolerance_pct: DF.Float
 		amount_tolerance_pct: DF.Float
@@ -490,6 +494,58 @@ def get_coding_settings() -> dict:
 	return {
 		"unmapped_card_spend_account": stored.get("unmapped_card_spend_account") or None,
 		"purchase_tax_template": stored.get("default_purchase_tax_template") or None,
+	}
+
+
+DEFAULT_CODING_HISTORY_CONSENSUS = 0.8
+DEFAULT_CODING_HISTORY_MIN_SAMPLES = 3
+DEFAULT_CODING_HISTORY_LOOKBACK = 10
+
+
+def get_coding_history_config() -> dict:
+	"""Coding-bootstrap-from-history parameters (spec 06 §5.3.1 / T-016).
+
+	``enabled`` defaults ON (D9 b) — a routine vendor self-codes from its own posted
+	history. Thresholds fall back to conservative defaults when blank/non-positive.
+	``company`` is the single-company scope from default_company (D1). Returns::
+
+	    {"enabled": bool, "consensus": float, "min_samples": int, "lookback": int, "company": str|None}
+	"""
+
+	stored = _settings()
+
+	raw_enabled = stored.get("enable_coding_history_bootstrap")
+	if raw_enabled in (None, ""):
+		enabled = True
+	else:
+		try:
+			enabled = bool(int(float(raw_enabled)))
+		except (TypeError, ValueError):
+			enabled = True
+
+	def _f(key, default):
+		raw = stored.get(key)
+		try:
+			v = float(raw) if raw not in (None, "") else 0.0
+		except (TypeError, ValueError):
+			v = 0.0
+		return v if v > 0 else default
+
+	def _i(key, default):
+		raw = stored.get(key)
+		try:
+			v = int(float(raw)) if raw not in (None, "") else 0
+		except (TypeError, ValueError):
+			v = 0
+		return v if v > 0 else default
+
+	consensus = _f("coding_history_consensus_threshold", DEFAULT_CODING_HISTORY_CONSENSUS)
+	return {
+		"enabled": enabled,
+		"consensus": min(consensus, 1.0),
+		"min_samples": _i("coding_history_min_samples", DEFAULT_CODING_HISTORY_MIN_SAMPLES),
+		"lookback": _i("coding_history_lookback", DEFAULT_CODING_HISTORY_LOOKBACK),
+		"company": stored.get("default_company") or None,
 	}
 
 

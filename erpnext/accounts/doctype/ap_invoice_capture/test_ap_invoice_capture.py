@@ -153,6 +153,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	REJECTION_ACTION_REOPENED,
 	_evaluate_confirm_signals,
 	auto_confirm_extracted_fields_for,
+	_derive_coding_from_history,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -3970,3 +3971,123 @@ class TestAPInvoiceCaptureAutoConfirm(IntegrationTestCase):
 		auto_confirm_extracted_fields_for(cap.name)
 		cap.reload()
 		self.assertEqual(cap.ocr_status, OCR_STATUS_PROPOSED)
+
+
+class TestAPCodingHistory(IntegrationTestCase):
+	"""T-016 — coding bootstrap from history (spec 06 §5.3.1).
+
+	A routine vendor with no coding profile self-codes from its own prior posted PIs
+	when their coding is consistent; a split history escalates to Coding Review; thin
+	history falls through; a profile/caller value always wins over history.
+	"""
+
+	_A = "_Test Account Cost for Goods Sold - _TC"
+	_B = "Administrative Expenses - _TC"
+	_C = "Cost of Goods Sold - _TC"
+	_CC = "_Test Cost Center - _TC"
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _supplier(self):
+		return frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": "Hist Vendor " + frappe.generate_hash(length=8),
+				"supplier_group": "_Test Supplier Group",
+				"supplier_type": "Company",
+			}
+		).insert(ignore_permissions=True).name
+
+	def _submit_pi(self, supplier, expense, cc):
+		pi = frappe.get_doc(
+			{
+				"doctype": "Purchase Invoice",
+				"supplier": supplier,
+				"company": "_Test Company",
+				"currency": "INR",
+				"posting_date": frappe.utils.today(),
+				"bill_no": "HIST-" + frappe.generate_hash(length=6),
+				"items": [
+					{"item_code": "_Test Item", "qty": 1, "rate": 100, "expense_account": expense, "cost_center": cc}
+				],
+			}
+		)
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+		return pi.name
+
+	def _capture(self, supplier):
+		f = _make_file("hist-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context="coding-history test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(cap, corrections={"supplier": supplier, "total_amount": "100", "currency": "INR"})
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.matched_supplier, supplier)
+		return cap
+
+	# AC-06-15 — consistent history auto-codes with no profile.
+	def test_ac_06_15_consistent_history_auto_codes(self):
+		sup = self._supplier()
+		for _ in range(3):
+			self._submit_pi(sup, self._A, self._CC)
+		derived, ambiguous = _derive_coding_from_history(sup)
+		self.assertEqual(derived.get("expense_account"), self._A)
+		self.assertEqual(derived.get("cost_center"), self._CC)
+		self.assertEqual(ambiguous, {})
+		cap = self._capture(sup)
+		self.assertFalse(frappe.db.exists("AP Supplier Coding Profile", sup))  # no profile
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_expense_account, self._A)
+		self.assertEqual(cap.applied_cost_center, self._CC)
+		self.assertEqual(cap.coding_status, CODING_STATUS_CODED)
+		self.assertTrue(is_fully_coded(cap))
+
+	# AC-06-16 — split history escalates to Coding Review naming the competing values.
+	def test_ac_06_16_split_history_escalates(self):
+		sup = self._supplier()
+		for e in (self._A, self._A, self._B, self._B):  # 50/50, no consensus
+			self._submit_pi(sup, e, self._CC)
+		derived, ambiguous = _derive_coding_from_history(sup)
+		self.assertNotIn("expense_account", derived)
+		self.assertIn("expense_account", ambiguous)
+		cap = self._capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.coding_status, CODING_STATUS_AMBIGUOUS)
+		self.assertIn("history split", cap.coding_review_reason or "")
+		self.assertFalse(is_fully_coded(cap))
+
+	# AC-06-17 — thin history (< min samples) falls through; no auto-post on shaky evidence.
+	def test_ac_06_17_thin_history_falls_through(self):
+		sup = self._supplier()
+		for _ in range(2):  # below min_samples (3)
+			self._submit_pi(sup, self._A, self._CC)
+		derived, ambiguous = _derive_coding_from_history(sup)
+		self.assertEqual(derived, {})
+		self.assertEqual(ambiguous, {})
+		cap = self._capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertNotEqual(cap.applied_expense_account, self._A)  # thin history did not apply
+
+	# AC-06-18 — profile (then caller) win over history.
+	def test_ac_06_18_profile_and_caller_win(self):
+		sup = self._supplier()
+		for _ in range(3):
+			self._submit_pi(sup, self._A, self._CC)  # consistent history = A
+		frappe.get_doc(
+			{"doctype": "AP Supplier Coding Profile", "supplier": sup, "default_expense_account": self._B}
+		).insert(ignore_permissions=True)  # profile = B
+		cap = self._capture(sup)
+		apply_coding_profile_for(cap)
+		cap.reload()
+		self.assertEqual(cap.applied_expense_account, self._B)  # profile beats history
+		cap2 = self._capture(sup)
+		apply_coding_profile_for(cap2, defaults={"expense_account": self._C})
+		cap2.reload()
+		self.assertEqual(cap2.applied_expense_account, self._C)  # caller beats both

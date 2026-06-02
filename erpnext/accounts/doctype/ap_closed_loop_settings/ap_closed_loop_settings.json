@@ -46,6 +46,10 @@
   "employee_supplier_group",
   "coding_section",
   "default_purchase_tax_template",
+  "enable_coding_history_bootstrap",
+  "coding_history_consensus_threshold",
+  "coding_history_min_samples",
+  "coding_history_lookback",
   "stream_rules_section",
   "stream_rules",
   "ap_intake_email_account",
@@ -326,6 +330,34 @@
    "fieldtype": "Link",
    "label": "Default Purchase Tax Template",
    "options": "Purchase Taxes and Charges Template"
+  },
+  {
+   "default": "1",
+   "description": "Coding bootstrap from history (spec 06 §5.3.1 / T-016). When ON, a routine vendor with no coding profile is auto-coded from its own prior posted Purchase Invoices when their coding is consistent — so the profile bootstraps itself. A split history (no consensus) escalates that field to Coding Review; thin history (below min samples) falls through to today's behaviour. Layer 1.5: a profile or caller value always wins; history only fills what a human hasn't pinned.",
+   "fieldname": "enable_coding_history_bootstrap",
+   "fieldtype": "Check",
+   "label": "Enable Coding Bootstrap From History"
+  },
+  {
+   "default": "0.8",
+   "description": "Min share a single value must cover (of the non-empty observations) for a field to be confidently derived from history. Below this = split → Coding Review.",
+   "fieldname": "coding_history_consensus_threshold",
+   "fieldtype": "Float",
+   "label": "Coding History Consensus Threshold"
+  },
+  {
+   "default": "3",
+   "description": "Min number of historical observations of a field before it can be derived. Below this = thin history → fall through (no auto-post on shaky evidence).",
+   "fieldname": "coding_history_min_samples",
+   "fieldtype": "Int",
+   "label": "Coding History Min Samples"
+  },
+  {
+   "default": "10",
+   "description": "How many of the supplier's most recent posted Purchase Invoices to inspect.",
+   "fieldname": "coding_history_lookback",
+   "fieldtype": "Int",
+   "label": "Coding History Lookback"
   },
   {
    "collapsible": 1,

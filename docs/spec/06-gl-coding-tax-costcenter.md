@@ -199,9 +199,9 @@ def get_coding_review_queue_for() -> list[dict]:
 
 `is_fully_coded(capture)` → True **iff** effective `expense_account` resolved (non-empty) AND `cost_center` resolved unambiguously (`coding_status != "Ambiguous"` and `applied_cost_center` set) AND tax validated (no tax-mismatch flag; absence of an extracted tax line is "validated"). This is the gate [[08-validation-gates]] / [[09-confidence-routing]] / the Step-8 auto-post call site consult — **"without coding, nothing auto-posts."** Today `promote_to_purchase_invoice` would happily create a PI with empty expense/cost-center; this gate closes that hole.
 
-### 5.3.1 Coding bootstrap from history (planned — automation-first target)
+### 5.3.1 Coding bootstrap from history (built — T-016; automation-first target)
 
-*(Added 2026-06-02. Not yet built; status stays `Done` for the shipped profile-driven layer. This subsection specifies the planned automation that closes [[00-overview]] doctrine row 06: "bootstrap coding from the vendor's prior posted PIs so no human pre-builds a profile.")*
+*(Added 2026-06-02. **Built — T-016** (`_derive_coding_from_history` + Layer-1.5 in `apply_coding_profile_for`, gated by `AP Closed Loop Settings.enable_coding_history_bootstrap`, default ON per D9 b). Closes [[00-overview]] doctrine row 06: "bootstrap coding from the vendor's prior posted PIs so no human pre-builds a profile." AC-06-15..18 green.)*
 
 **Problem it solves.** The shipped Layer-1 (`_resolve_supplier_coding`) only fires when a human has already created an `AP Supplier Coding Profile` for the matched supplier. A new-but-routine vendor — one ERPNext has posted clean PIs for before — is coded by hand on every capture until an operator sets the profile up. There is **no learning from the vendor's own posting history**, even though that history is the single most reliable coding signal available.
 
@@ -262,10 +262,10 @@ def get_coding_review_queue_for() -> list[dict]:
 
 **Automation-first planned ACs** (new 2026-06-02; coding-bootstrap-from-history slice — see §5.3.1 and OD/D9. These are `(planned)`, not yet built; do not tick in STATUS.md until verified):
 
-- **AC-06-15 (planned — consistent history auto-codes with no profile):** a matched supplier with **no** `AP Supplier Coding Profile` but `>= coding_history_min_samples` prior posted PIs that all carry the same `expense_account` and `cost_center` → `_derive_coding_from_history` returns those values, they are written onto the draft PI, `coding_status=="Coded"`, `action_required==0`, and `is_fully_coded` is True — **with no human and no pre-built profile**. *(positive)*
-- **AC-06-16 (planned — inconsistent history escalates, no silent pick):** a matched supplier whose prior posted PIs split between two different `expense_account`s (neither clearing `coding_history_consensus_threshold`) → the field is **not** auto-written, `coding_status` is `Ambiguous`/`Flagged`, `coding_review_reason` names the competing values, `action_required==1`, and the capture parks in Coding Review (`is_fully_coded` False). *(edge/negative)*
-- **AC-06-17 (planned — no qualifying history falls through):** a matched supplier with fewer than `coding_history_min_samples` posted PIs and no profile → history derives nothing, behavior is exactly today's (Settings/Stream-R catch-all or Coding Review); no auto-post on thin evidence. *(negative)*
-- **AC-06-18 (planned — profile/caller still win over history):** with both a profile value and a confidently-derived history value for the same key, the **profile** (Layer-1) wins; a caller `defaults` override wins over both — history only fills keys a human hasn't pinned. *(positive — precedence)*
+- **AC-06-15 (built — T-016; consistent history auto-codes with no profile):** a matched supplier with **no** `AP Supplier Coding Profile` but `>= coding_history_min_samples` prior posted PIs that all carry the same `expense_account` and `cost_center` → `_derive_coding_from_history` returns those values, they are written onto the draft PI, `coding_status=="Coded"`, `action_required==0`, and `is_fully_coded` is True — **with no human and no pre-built profile**. *(positive)*
+- **AC-06-16 (built — T-016; inconsistent history escalates, no silent pick):** a matched supplier whose prior posted PIs split between two different `expense_account`s (neither clearing `coding_history_consensus_threshold`) → the field is **not** auto-written, `coding_status` is `Ambiguous`/`Flagged`, `coding_review_reason` names the competing values, `action_required==1`, and the capture parks in Coding Review (`is_fully_coded` False). *(edge/negative)*
+- **AC-06-17 (built — T-016; no qualifying history falls through):** a matched supplier with fewer than `coding_history_min_samples` posted PIs and no profile → history derives nothing, behavior is exactly today's (Settings/Stream-R catch-all or Coding Review); no auto-post on thin evidence. *(negative)*
+- **AC-06-18 (built — T-016; profile/caller still win over history):** with both a profile value and a confidently-derived history value for the same key, the **profile** (Layer-1) wins; a caller `defaults` override wins over both — history only fills keys a human hasn't pinned. *(positive — precedence)*
 
 ## 7. Tests
 

@@ -1083,3 +1083,23 @@ The whole pipeline already auto-advances the common case **except** the OCR-conf
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 195
 ```
+
+## 23. T-016 — Coding bootstrap from history (self-coding routine vendors)
+
+> **Status (2026-06-02):** implemented + tested. Second automation-first slice (builds spec 06 §5.3.1 planned ACs). **4 new tests** (capture suite 195 → **199 OK**, skipped=1); zero regressions.
+
+Shipped auto-coding (spec 06) only fired when a human pre-built an `AP Supplier Coding Profile` — a new-but-routine vendor was hand-coded every time. This adds **Layer 1.5**: a vendor with no profile self-codes from its **own prior posted Purchase Invoices** when their coding is consistent, so the profile bootstraps itself; a split history escalates to Coding Review; thin history falls through.
+
+```
+ erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- enable_coding_history_bootstrap (default ON) + consensus/min_samples/lookback + get_coding_history_config()
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _derive_coding_from_history (per-field consensus over the supplier's docstatus=1 PIs → derived + ambiguous); apply_coding_profile_for gains Layer-1.5 merge (below profile+caller, above Settings) + split-history → Coding Review escalation; _coding_configured fires the coding hop for a history-codable supplier with no profile
+```
+
+**The gate.** For each codable field independently (`expense_account` / `cost_center` / `taxes_and_charges`) over the supplier's last `lookback` posted PIs: a value is derived only when it covers `>= consensus` (default 0.8) of the non-empty observations AND there are `>= min_samples` (default 3). A confidently-derived field is merged **below** the profile and the caller `defaults` (they always win) but **above** Settings — history only fills what no human pinned. A **split** field (no consensus), that neither a profile nor the caller pinned and nothing else resolved, routes to **Coding Review** naming the competing values (escalate only the doubtful). **Thin** history derives nothing (no auto-post on shaky evidence).
+
+**Default ON** (decision D9 b) with conservative thresholds — but inert for any vendor without qualifying history, so existing sites/tests are unchanged. Self-seeding a profile from a confident derivation (D9 c) is the natural follow-on, deferred.
+
+### 23.1 Running the T-016 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 199
+```

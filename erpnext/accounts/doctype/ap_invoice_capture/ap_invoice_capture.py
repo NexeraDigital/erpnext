@@ -26,7 +26,7 @@ import hashlib
 import json
 import os
 import re
-from collections import namedtuple
+from collections import Counter, namedtuple
 from datetime import date, timedelta
 
 import frappe
@@ -641,6 +641,21 @@ class APInvoiceCapture(Document):
 			"AP Supplier Coding Profile", self.matched_supplier
 		):
 			return True
+		# Coding bootstrap from history (spec 06 §5.3.1, T-016): no profile, but the
+		# supplier has enough posted-PI history to self-code → the coding hop fires so
+		# _derive_coding_from_history gets a chance (cheap count guard).
+		if self.matched_supplier:
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				get_coding_history_config,
+			)
+
+			hist = get_coding_history_config()
+			if hist["enabled"]:
+				filters = {"supplier": self.matched_supplier, "docstatus": 1}
+				if hist["company"]:
+					filters["company"] = hist["company"]
+				if frappe.db.count("Purchase Invoice", filters) >= hist["min_samples"]:
+					return True
 		if self.stream == STREAM_RECEIPT:
 			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
 				get_coding_settings,
@@ -2890,6 +2905,71 @@ def _resolve_supplier_coding(matched_supplier: "str | None") -> dict:
 	return out
 
 
+def _derive_coding_from_history(
+	matched_supplier: "str | None", company: "str | None" = None
+) -> "tuple[dict, dict]":
+	"""Layer-1.5 (spec 06 §5.3.1 / T-016): derive coding from posted-PI history.
+
+	Inspects the supplier's most-recent **submitted** Purchase Invoices and, for each
+	codable field independently (``expense_account`` / ``cost_center`` /
+	``purchase_tax_template``), returns the value only when a single value covers
+	``>= consensus`` of the non-empty observations AND there are ``>= min_samples`` of
+	them. Returns ``(derived, ambiguous)``: ``derived`` = confidently-consistent field
+	values; ``ambiguous`` = field → competing-values reason for fields whose history is
+	split. Thin history (below min_samples) derives nothing and is not ambiguous (falls
+	through). Pure read; no writes. Disabled / no supplier / no history → ``({}, {})``.
+	"""
+
+	if not matched_supplier:
+		return {}, {}
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_coding_history_config,
+	)
+
+	cfg = get_coding_history_config()
+	if not cfg["enabled"]:
+		return {}, {}
+
+	filters = {"supplier": matched_supplier, "docstatus": 1}
+	if company or cfg["company"]:
+		filters["company"] = company or cfg["company"]
+	pis = frappe.get_all(
+		"Purchase Invoice",
+		filters=filters,
+		fields=["name", "taxes_and_charges"],
+		order_by="posting_date desc, creation desc",
+		limit=cfg["lookback"],
+	)
+	if not pis:
+		return {}, {}
+
+	pi_names = [p.name for p in pis]
+	items = frappe.get_all(
+		"Purchase Invoice Item",
+		filters={"parent": ["in", pi_names]},
+		fields=["expense_account", "cost_center"],
+	)
+	observations = {
+		"expense_account": [it.expense_account for it in items if it.expense_account],
+		"cost_center": [it.cost_center for it in items if it.cost_center],
+		"purchase_tax_template": [p.taxes_and_charges for p in pis if p.taxes_and_charges],
+	}
+
+	derived: dict = {}
+	ambiguous: dict = {}
+	for field, values in observations.items():
+		if len(values) < cfg["min_samples"]:
+			continue  # thin history → derive nothing (no auto-post on shaky evidence)
+		counts = Counter(values)
+		top_value, top_n = counts.most_common(1)[0]
+		if top_n / len(values) >= cfg["consensus"]:
+			derived[field] = top_value
+		else:
+			detail = ", ".join("{0} ({1})".format(v, n) for v, n in counts.most_common())
+			ambiguous[field] = _("history split for {0}: {1}").format(field, detail)
+	return derived, ambiguous
+
+
 # Cost-center inference signal resolvers — pilot stubs (decision D2). The
 # location→CC and card→CC maps don't exist as data yet (the Location doctype is
 # not installed; there's no card registry), so these return None and the profile
@@ -3020,6 +3100,13 @@ def apply_coding_profile_for(
 		merged["purchase_tax_template"] = coding_settings.get("purchase_tax_template")
 	except Exception:
 		coding_settings = {"unmapped_card_spend_account": None, "purchase_tax_template": None}
+	# Layer 1.5 (spec 06 §5.3.1, T-016): the supplier's own posted-PI history — below
+	# the profile + caller (they override), above Settings. Confidently-consistent
+	# fields fill what no human has pinned; split fields escalate (handled below).
+	history_derived, history_ambiguous = _derive_coding_from_history(capture.matched_supplier)
+	for k, v in history_derived.items():
+		if v is not None:
+			merged[k] = v
 	layer1 = _resolve_supplier_coding(capture.matched_supplier)
 	for k, v in layer1.items():  # Layer 1: supplier profile
 		if v is not None:
@@ -3068,6 +3155,21 @@ def apply_coding_profile_for(
 		if not ok:
 			coding_status = CODING_STATUS_FLAGGED
 			reasons.append(tax_reason)
+
+	# (8) History-ambiguity escalation (spec 06 §5.3.1, T-016). A field whose posted-PI
+	# history is split (no consensus), that neither a profile nor the caller pinned and
+	# that nothing else resolved, routes to Coding Review naming the competing values —
+	# escalate only the doubtful; history never auto-posts on shaky evidence.
+	pinned_keys = set(layer1.keys()) | set((defaults or {}).keys())
+	_applied = {
+		"expense_account": capture.applied_expense_account,
+		"cost_center": capture.applied_cost_center,
+		"purchase_tax_template": capture.applied_tax_template,
+	}
+	for field, reason in history_ambiguous.items():
+		if field not in pinned_keys and not _applied.get(field):
+			coding_status = CODING_STATUS_AMBIGUOUS
+			reasons.append(reason)
 
 	# (9) Apply onto an existing DRAFT PI, if any (re-code path).
 	if capture.purchase_invoice:
