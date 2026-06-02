@@ -154,6 +154,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	_evaluate_confirm_signals,
 	auto_confirm_extracted_fields_for,
 	_derive_coding_from_history,
+	ROOT_CAUSE_STREAM_MISTAG,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -4091,3 +4092,69 @@ class TestAPCodingHistory(IntegrationTestCase):
 		apply_coding_profile_for(cap2, defaults={"expense_account": self._C})
 		cap2.reload()
 		self.assertEqual(cap2.applied_expense_account, self._C)  # caller beats both
+
+
+class TestAPClassificationTrustContent(IntegrationTestCase):
+	"""T-017 — classification trusts confident content over a disagreeing intake tag
+	(spec 07 §5.3). Default OFF; only genuinely ambiguous content still escalates."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set(self, on):
+		frappe.db.set_single_value("AP Closed Loop Settings", "enable_classification_trust_content", 1 if on else 0)
+
+	def _confirmed(self, source_context, supplier="_Test Supplier"):
+		f = _make_file("t017-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context=source_context)
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(cap, corrections={"supplier": supplier, "currency": "INR", "total_amount": "100"}, reviewer="Administrator")
+		cap.reload()
+		cap.matched_supplier = supplier
+		cap.save(ignore_permissions=True)
+		return cap
+
+	# AC-07-15 — confident content (card marker) beats a disagreeing intake tag, no human.
+	def test_ac_07_15_confident_content_beats_intake(self):
+		cap = self._confirmed(source_context="paid by Visa ****1234")  # content → Already Paid (R)
+		cap.stream = "Invoice (I)"  # intake tagged I → disagreement
+		cap.save(ignore_permissions=True)
+		self._set(True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		self.assertEqual(cap.classified_stream, CLASSIFIED_STREAM_R)
+		self.assertEqual(cap.stream_tag_agreement, STREAM_AGREEMENT_DISAGREE)
+		self.assertNotEqual(cap.status, STATUS_MANUAL_REVIEW)  # did NOT halt
+		self.assertEqual(cap.action_required, 0)
+		# Exactly one stream_mistag AP Review Event recording the silent correction.
+		evs = frappe.get_all("AP Review Event", filters={"capture": cap.name, "root_cause_tag": ROOT_CAUSE_STREAM_MISTAG})
+		self.assertEqual(len(evs), 1)
+
+	# AC-07-16 — genuinely ambiguous content still escalates to Manual Review.
+	def test_ac_07_16_ambiguous_content_escalates(self):
+		cap = self._confirmed(source_context="ordinary bill")  # no marker → Unpaid Bill (I)
+		cap.stream = "Receipt (R)"  # intake tagged R → disagreement (R vs I)
+		# Make the content NOT confident: drop a mandatory field below threshold.
+		for r in cap.field_confidences:
+			if r.field_name == "total_amount":
+				r.is_above_threshold = 0
+		cap.save(ignore_permissions=True)
+		self._set(True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
+		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)
+		self.assertEqual(cap.action_required, 1)
+
+	# Regression — default OFF: a disagreement unconditionally escalates as shipped.
+	def test_default_off_escalates(self):
+		cap = self._confirmed(source_context="paid by Visa ****1234")
+		cap.stream = "Invoice (I)"
+		cap.save(ignore_permissions=True)
+		self._set(False)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
+		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)

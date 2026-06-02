@@ -74,6 +74,7 @@ class APClosedLoopSettings(Document):
 		ocr_force_reextract: DF.Check
 		auto_post_amount_threshold: DF.Float
 		auto_confirm_enabled: DF.Check
+		enable_classification_trust_content: DF.Check
 		credit_card_clearing_account: DF.Link | None
 		dedupe_enabled: DF.Check
 		dedupe_phash_max_distance: DF.Int
@@ -250,6 +251,20 @@ def is_auto_confirm_enabled() -> bool:
 	a human, exactly as shipped, until a site turns this on."""
 
 	raw = _settings().get("auto_confirm_enabled")
+	if raw in (None, ""):
+		return False
+	try:
+		return bool(int(float(raw)))
+	except (TypeError, ValueError):
+		return False
+
+
+def is_classification_trust_content_enabled() -> bool:
+	"""Whether classification trusts confident content over a disagreeing intake tag
+	(spec 07 §5.3 / T-017). Default OFF — a disagreement escalates as shipped until
+	a site opts in."""
+
+	raw = _settings().get("enable_classification_trust_content")
 	if raw in (None, ""):
 		return False
 	try:

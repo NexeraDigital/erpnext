@@ -3,9 +3,11 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 232 (221 original + 11 automation-first: T-015 ×7, T-016 ×4) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (177/232 ACs green; no regressions) + **automation-first: T-015 auto-confirm, T-016 coding-from-history built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-02 · **Specs:** 14 · **Acceptance criteria:** 234 (221 original + 13 automation-first: T-015 ×7, T-016 ×4, T-017 ×2) · **Overall:** 🟡 10/14 done — **specs 01–10 ✅** (179/234 ACs green; no regressions) + **automation-first: T-015 auto-confirm, T-016 coding-from-history, T-017 trust-content built**. **Gate phase (08–10) complete.** Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 >
 > **2026-06-02 — automation-first re-vision.** The whole spec set was re-anchored to the [[00-overview]] north star (automate the common case; escalate only genuine exceptions). Built specs (01–10) keep their shipped ACs green and added new automation-first ACs; unbuilt specs (11–14) were re-anchored directly (spec 11 now leads with the automation-first pilot; native Workflow demoted to a deferred upgrade). Remaining automation backlog: **TODO T-016..T-018** (coding-from-history, classification trust-content, gated-create default).
+>
+> **2026-06-02 — T-017 built ✅ (classification trusts confident content).** A Step-6 classification whose **confident** content read (a decisive paid/card marker, or mandatory-field confidence above threshold) disagrees with the Step-1 intake stream tag is now **trusted** — the correction is recorded as telemetry (an `AP Review Event`, root-cause `stream_mistag`) and the cascade continues with **no human**; only genuinely ambiguous content still escalates to Manual Review. Gated by `enable_classification_trust_content` (default OFF — a disagreement escalates as shipped until opted in). AC-07-15/16 green: `TestAPClassificationTrustContent` **`Ran=3 … OK`**; full module **`Ran=202 … OK`** (was 199; zero regressions). Behavioral screenshots under `screenshots/t-017-trust-content/`.
 >
 > **2026-06-02 — T-016 built ✅ (coding bootstrap from history).** A routine vendor with **no coding profile** now self-codes from its own prior posted Purchase Invoices when their coding is consistent (`_derive_coding_from_history` → Layer-1.5 in `apply_coding_profile_for`, gated by `enable_coding_history_bootstrap`, default ON). A split history escalates that field to Coding Review naming the competing values; thin history (< min samples) falls through; a profile/caller value always wins. AC-06-15..18 green: `TestAPCodingHistory` **`Ran=4 … OK`**; full module **`Ran=199 … OK`** (was 195; zero regressions — inert for suppliers without qualifying history). Behavioral screenshots under `screenshots/t-016-coding-from-history/`.
 >
@@ -232,7 +234,7 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-06-18 _(T-016)_
 </details>
 
-<details><summary><b>07 — Classification & Branching · 14/14</b></summary>
+<details><summary><b>07 — Classification & Branching · 16/16</b></summary>
 
 - [x] AC-07-1
 - [x] AC-07-2
@@ -248,6 +250,8 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-07-12
 - [x] AC-07-13
 - [x] AC-07-14
+- [x] AC-07-15 _(T-017 trust-content)_
+- [x] AC-07-16 _(T-017)_
 </details>
 
 <details><summary><b>08 — Validation Gates · 21/21</b></summary>

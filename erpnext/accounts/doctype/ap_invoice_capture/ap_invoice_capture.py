@@ -3277,6 +3277,17 @@ def _provisional_stream(capture: "APInvoiceCapture") -> "str | None":
 	return None  # Unclassified / unset
 
 
+def _content_classification_confident(capture: "APInvoiceCapture") -> bool:
+	"""Whether the content read is confident enough to trust over a weak intake tag
+	(spec 07 §5.3 / T-017). A decisive paid/card marker is itself a confident content
+	signal; otherwise the mandatory-header confidence (spec 04) must clear threshold."""
+
+	if capture.get("card_charge_marker"):
+		return True
+	fields_ok, _failing = _confidence_fields_ok(capture)
+	return fields_ok
+
+
 def classify_document_type(
 	capture: "APInvoiceCapture | str",
 	override: str | None = None,
@@ -3352,11 +3363,31 @@ def classify_document_type(
 			capture.stream_tag_agreement = STREAM_AGREEMENT_AGREE
 		else:
 			capture.stream_tag_agreement = STREAM_AGREEMENT_DISAGREE
-			reason = _(
-				"Stream conflict: intake tagged {0}, classifier read {1} ({2}) — manual classification required."
-			).format(provisional, capture.classified_stream, capture.card_charge_marker or capture.document_type)
-			capture.document_type = DOCUMENT_TYPE_MANUAL_REVIEW
-			capture.classified_stream = ""
+			# T-017 (spec 07 §5.3): content is the stronger signal. When opted in AND the
+			# content read is confident, trust the content over the weak intake tag —
+			# record the correction as telemetry (stream_mistag) and continue with NO
+			# human. Only genuinely ambiguous content still escalates to Manual Review.
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				is_classification_trust_content_enabled,
+			)
+
+			if is_classification_trust_content_enabled() and _content_classification_confident(capture):
+				_safe_emit_review_event(
+					capture,
+					action_taken=REVIEW_ACTION_CLASSIFIED_OTHER,
+					root_cause_tag=ROOT_CAUSE_STREAM_MISTAG,
+					exception_reason_code="stream_mistag",
+					note="intake tagged {0}, confident content read {1} — trusted content (no halt)".format(
+						provisional, capture.classified_stream
+					),
+				)
+				# document_type / classified_stream stand; reason stays None → no halt.
+			else:
+				reason = _(
+					"Stream conflict: intake tagged {0}, classifier read {1} ({2}) — manual classification required."
+				).format(provisional, capture.classified_stream, capture.card_charge_marker or capture.document_type)
+				capture.document_type = DOCUMENT_TYPE_MANUAL_REVIEW
+				capture.classified_stream = ""
 	else:
 		capture.stream_tag_agreement = STREAM_AGREEMENT_UNCONFIRMED
 

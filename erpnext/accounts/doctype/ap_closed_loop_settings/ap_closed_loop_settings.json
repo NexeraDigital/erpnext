@@ -26,6 +26,7 @@
   "field_thresholds",
   "auto_post_amount_threshold",
   "auto_confirm_enabled",
+  "enable_classification_trust_content",
   "dedupe_section",
   "dedupe_enabled",
   "dedupe_window_days",
@@ -200,6 +201,13 @@
    "fieldname": "auto_confirm_enabled",
    "fieldtype": "Check",
    "label": "Enable Confidence-Gated Auto-Confirm"
+  },
+  {
+   "default": "0",
+   "description": "Classification trust-content (spec 07 §5.3 / T-017). When ON, a Step-6 classification whose confident content read (a decisive paid/card marker, or mandatory-field confidence above threshold) disagrees with the Step-1 intake stream tag is TRUSTED — the correction is recorded as telemetry (an AP Review Event, root-cause stream_mistag) and the cascade continues with no human. Only genuinely ambiguous content (no decisive marker / low confidence) still escalates to Manual Review. OFF by default: a disagreement unconditionally escalates as shipped until a site opts in.",
+   "fieldname": "enable_classification_trust_content",
+   "fieldtype": "Check",
+   "label": "Trust Confident Content Over Intake Stream Tag"
   },
   {
    "collapsible": 1,

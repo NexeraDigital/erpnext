@@ -1103,3 +1103,21 @@ Shipped auto-coding (spec 06) only fired when a human pre-built an `AP Supplier 
 ```bash
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 199
 ```
+
+## 24. T-017 — Classification trusts confident content over a disagreeing intake tag
+
+> **Status (2026-06-02):** implemented + tested. Third automation-first slice (builds spec 07 §5.3 planned ACs). **3 new tests** (capture suite 199 → **202 OK**); zero regressions.
+
+Shipped classification sent **every** intake-vs-content stream disagreement to Manual Review — over-escalation, since the structured content read is usually the stronger signal. Now, when opted in, a **confident** content read that disagrees with the weak intake tag is **trusted**: the correction is recorded as telemetry and the cascade continues with no human. Only genuinely ambiguous content still escalates.
+
+```
+ erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- enable_classification_trust_content (default OFF) + is_classification_trust_content_enabled()
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _content_classification_confident (decisive marker OR _confidence_fields_ok); classify_document_type disagreement branch now trusts confident content (records a stream_mistag AP Review Event, no halt) instead of unconditional Manual Review
+```
+
+**The gate.** In the classifier's disagreement branch: when `enable_classification_trust_content` is ON AND the content is confident (`card_charge_marker` is itself decisive, else the spec-04 mandatory-field confidence passes), keep the content's `document_type`/`classified_stream`, set `stream_tag_agreement='Disagree'`, emit one `AP Review Event` (`classified_other` / `stream_mistag`), and **do not halt** (`reason` stays None → status remains Confirmed, cascade continues). Otherwise → Manual Review exactly as shipped. **Default OFF** — the disagreement→Manual-Review behaviour (AC-07-5) is unchanged until a site opts in. Disagreement is a *tuning signal* (the `stream_mistag` rate feeds the spec-10 report), not an exception.
+
+### 24.1 Running the T-017 tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 202
+```
