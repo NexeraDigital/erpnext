@@ -1255,3 +1255,23 @@ No controller/test change (field properties only). Verified in desk: hidden when
 ```
 
 `stream` stays `reqd` with default `Unclassified` and is always set at intake, so read-only does not block saves. Verified in desk — `test/testplans/screenshots/stream-readonly/`.
+
+## 33. Coding controls — reflect "posted on native defaults" (mark-and-continue)
+
+> **Status (2026-06-02):** behavior change to spec-06 coding + promote. **3 new tests** (`TestAPDefaultCodingReflection`); full module `Ran 229 tests OK` at default settings. Found while auditing a promoted-but-uncoded capture.
+
+When a capture can't be AP-coded (no supplier coding profile / history / catch-all), `_coding_configured()` is False and the cascade **skips** the coding step (graceful-degrade) — the PI then posts on **ERPNext native defaults**. Previously this was **silent**: `coding_status` stayed `Pending`, `applied_*` empty, and `coding_source` carried a static default of `ap-coding-v1` (which falsely implied the coding engine ran). A reviewer couldn't tell "posted on defaults" from "not yet coded."
+
+Now, when `promote_to_purchase_invoice` promotes a capture whose coding engine never ran (`coding_status` Pending, non-already-paid), `_reflect_default_coding` stamps the fallback:
+- `coding_status → Flagged`, `coding_source → native-default` (new `CODING_SOURCE_NATIVE_DEFAULT`),
+- `applied_expense_account` / `applied_cost_center` / `applied_tax_template` / `applied_payment_terms_template` **backfilled from the PI** (the section shows what actually posted),
+- `coding_review_reason` explains it, and `action_required = 1` surfaces it in the **coding-review queue**.
+
+**Mark-and-continue (not park):** the cascade gates on promotion/approval status, *not* `coding_status`/`action_required`, so the capture keeps advancing while a human reviews the defaulted coding after the fact. Real coding outcomes (Coded/Ambiguous/Flagged) and the already-paid stream are untouched. Also dropped the misleading static `ap-coding-v1` default on the `coding_source` field (empty until coding genuinely runs).
+
+```
+ ap_invoice_capture.py   | + CODING_SOURCE_NATIVE_DEFAULT; + _reflect_default_coding(); promote_to_purchase_invoice stamps it when uncoded
+ ap_invoice_capture.json | coding_source: removed static default "ap-coding-v1" (now empty until coding runs)
+```
+
+Not flow-visible (no new cascade hop/pause/STOP — routing unchanged; the coding-skip already existed, this only makes it visible), so the sequence diagram is unchanged. Verified in desk — `test/testplans/screenshots/default-coding-reflection/`. **Note:** pre-existing captures that promoted on defaults before this change keep the old silent state (not retroactively backfilled).

@@ -107,6 +107,11 @@ CODING_STATUS_CODED = "Coded"
 CODING_STATUS_AMBIGUOUS = "Ambiguous"
 CODING_STATUS_FLAGGED = "Flagged"
 CODING_SOURCE_DEFAULT = "ap-coding-v1"
+# Provenance stamped when a capture promotes WITHOUT the AP coding engine having run
+# (graceful-degrade: no profile/history/catch-all) — the PI posted on ERPNext native
+# defaults. Distinct from CODING_SOURCE_DEFAULT so "defaulted" is never mistaken for
+# "the ap-coding routine produced this". See _reflect_default_coding.
+CODING_SOURCE_NATIVE_DEFAULT = "native-default"
 # Tax-validation tolerance (D3): absorb extractor rounding without hiding real mismatches.
 CODING_TAX_TOLERANCE = 0.01
 
@@ -3731,9 +3736,57 @@ def promote_to_purchase_invoice(
 	if actor:
 		capture.validated_by = actor
 
+	# Mark-and-continue (controls reflection): if the AP coding engine never ran for
+	# this capture (coding_status still Pending at promotion — e.g. unconfigured
+	# supplier, graceful-degrade), the PI just posted on ERPNext native defaults.
+	# Reflect that on the capture so it is VISIBLE and queued for coding review,
+	# WITHOUT blocking the cascade (approval/payment do not gate on coding_status).
+	# Real coding outcomes (Coded/Ambiguous/Flagged) are left untouched, and the
+	# already-paid stream is exempt (it skips coding by design, spec 07).
+	if not _already_paid and capture.coding_status in (None, CODING_STATUS_PENDING):
+		_reflect_default_coding(capture, pi)
+
 	if save:
 		capture.save()
 	return pi
+
+
+def _reflect_default_coding(capture: "APInvoiceCapture", pi: "Document") -> None:
+	"""Stamp 'posted on ERPNext native defaults' onto a capture that promoted without
+	AP coding (spec 06 graceful-degrade). Mark-and-continue: backfills the ``applied_*``
+	fields from the PI so the GL Coding section shows what actually posted, flags the
+	capture for coding review, and records an honest provenance — but never parks it
+	(``action_required`` is left as promotion set it, so the cascade keeps moving)."""
+
+	first_item = pi.items[0] if pi.items else None
+	capture.applied_expense_account = (first_item.expense_account if first_item else None) or None
+	capture.applied_cost_center = (pi.get("cost_center") or (first_item.cost_center if first_item else None)) or None
+	capture.applied_tax_template = pi.get("taxes_and_charges") or None
+	capture.applied_payment_terms_template = pi.get("payment_terms_template") or None
+
+	capture.coding_status = CODING_STATUS_FLAGGED
+	capture.coding_source = CODING_SOURCE_NATIVE_DEFAULT
+
+	posted = []
+	if capture.applied_cost_center:
+		posted.append(_("cost center {0}").format(capture.applied_cost_center))
+	if capture.applied_expense_account:
+		posted.append(_("expense {0}").format(capture.applied_expense_account))
+	if capture.applied_tax_template:
+		posted.append(_("tax {0}").format(capture.applied_tax_template))
+	capture.coding_review_reason = _(
+		"No AP coding configuration resolved (no supplier coding profile, history, or "
+		"catch-all). Posted on ERPNext native defaults: {0}. Flagged for coding review."
+	).format(", ".join(posted) or _("native defaults, no tax"))
+
+	# Mark-and-continue: surface it in the coding-review queue (which filters on
+	# action_required + Flagged) WITHOUT blocking the cascade — approval/payment gate
+	# on promotion/approval status, not action_required, so it keeps advancing while a
+	# human reviews the defaulted coding after the fact.
+	capture.action_required = 1
+	capture.action_required_reason = _(
+		"Coding review: posted on ERPNext native defaults (no AP coding configured)."
+	)
 
 
 # ---------------------------------------------------------------------------

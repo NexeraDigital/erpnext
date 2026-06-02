@@ -738,8 +738,7 @@
    "label": "Receipt Location"
   },
   {
-   "default": "ap-coding-v1",
-   "description": "Provenance tag for the coding routine.",
+   "description": "Provenance tag for the coding routine. Empty until coding runs; 'ap-coding-v1' = the coding engine ran; 'native-default' = promoted on ERPNext native defaults (flagged for review).",
    "fieldname": "coding_source",
    "fieldtype": "Data",
    "label": "Coding Source",
@@ -1142,7 +1141,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-02 21:45:00",
+ "modified": "2026-06-02 22:10:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",

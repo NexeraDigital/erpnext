@@ -101,6 +101,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	CODING_STATUS_AMBIGUOUS,
 	CODING_STATUS_CODED,
 	CODING_STATUS_FLAGGED,
+	CODING_STATUS_PENDING,
 	classify_document_type,
 	promote_already_paid,
 	DOCUMENT_TYPE_UNPAID_BILL,
@@ -162,6 +163,9 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	enforce_retention_policy,
 	_resolve_mock_pay_account,
 	MOCK_CLEARING_ACCOUNT_DEFAULT,
+	CODING_SOURCE_NATIVE_DEFAULT,
+	CODING_SOURCE_DEFAULT,
+	get_coding_review_queue_for,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -4643,3 +4647,80 @@ class TestAPMockPaymentAccountResolution(IntegrationTestCase):
 		self.assertIn(
 			frappe.db.get_value("Account", acc, "account_type"), ("Bank", "Cash")
 		)
+
+
+class TestAPDefaultCodingReflection(IntegrationTestCase):
+	"""Mark-and-continue: a capture that promotes WITHOUT the AP coding engine having
+	run (graceful-degrade) posts on ERPNext native defaults — that fallback must be
+	reflected on the capture (flagged + queued + honest provenance + backfilled
+	applied_*), without blocking the cascade."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _validated(self, filename="defcode.pdf", total="250.00"):
+		f = _make_file(filename)
+		cap = create_capture_from_file(file_doc=f, source_context="default-coding test")
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "total_amount": total, "currency": "INR"},
+			reviewer="Administrator",
+		)
+		cap.reload()
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		return cap
+
+	# Promote without coding → the fallback is reflected, not silent.
+	def test_uncoded_promote_reflects_native_defaults(self):
+		cap = self._validated("defcode-reflect.pdf")
+		self.assertEqual(cap.coding_status, CODING_STATUS_PENDING)  # coding engine never ran
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+
+		# Flagged + honest provenance + reason — no longer silent.
+		self.assertEqual(cap.coding_status, CODING_STATUS_FLAGGED)
+		self.assertEqual(cap.coding_source, CODING_SOURCE_NATIVE_DEFAULT)
+		self.assertTrue(cap.coding_review_reason)
+		self.assertIn("native defaults", cap.coding_review_reason)
+		# applied_* backfilled from what the PI actually posted.
+		pi = frappe.get_doc("Purchase Invoice", cap.purchase_invoice)
+		self.assertEqual(cap.applied_expense_account, pi.items[0].expense_account)
+		self.assertEqual(cap.applied_cost_center, pi.items[0].cost_center)
+		# Queued for coding review…
+		queue = {r["name"] for r in get_coding_review_queue_for()}
+		self.assertIn(cap.name, queue)
+
+	# Mark-AND-CONTINUE: flagged + queued for review, but approval still proceeds.
+	def test_reflected_default_does_not_block_cascade(self):
+		cap = self._validated("defcode-continue.pdf")
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		self.assertEqual(cap.coding_status, CODING_STATUS_FLAGGED)
+		self.assertEqual(int(cap.action_required), 1)  # surfaced for review…
+		# …but the cascade does NOT gate on coding_status/action_required — approval routes.
+		request_approval(cap, threshold=1000)
+		cap.reload()
+		self.assertIn(
+			cap.approval_status, (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_PENDING_MANAGER)
+		)
+
+	# A genuinely-coded capture is NOT overwritten by the fallback stamp.
+	def test_real_coding_not_overwritten_on_promote(self):
+		cap = self._validated("defcode-realcoded.pdf")
+		apply_coding_profile_for(
+			cap,
+			defaults={
+				"expense_account": "_Test Account Cost for Goods Sold - _TC",
+				"cost_center": "_Test Cost Center - _TC",
+			},
+		)
+		cap.reload()
+		self.assertEqual(cap.coding_status, CODING_STATUS_CODED)
+		promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		# Real coding preserved — reflection did not fire.
+		self.assertEqual(cap.coding_status, CODING_STATUS_CODED)
+		self.assertEqual(cap.coding_source, CODING_SOURCE_DEFAULT)
