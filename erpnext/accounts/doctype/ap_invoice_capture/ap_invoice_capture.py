@@ -74,6 +74,32 @@ PROMOTION_STATUS_PROMOTED = "Promoted"
 
 VALIDATION_SOURCE_DEFAULT = "ap-validation-v1"
 
+# Validation gates: 3WM / anomaly / bank-change (spec 08)
+THREE_WAY_MATCH_NOT_CHECKED = "Not Checked"
+THREE_WAY_MATCH_NOT_APPLICABLE = "Not Applicable"
+THREE_WAY_MATCH_MATCHED = "Matched"
+THREE_WAY_MATCH_EXCEPTION = "Exception"
+THREE_WAY_MATCH_OVERRIDE = "Matched (Override)"
+ANOMALY_NOT_CHECKED = "Not Checked"
+ANOMALY_NORMAL = "Normal"
+ANOMALY_ANOMALOUS = "Anomalous"
+ANOMALY_INSUFFICIENT_HISTORY = "Insufficient History"
+
+# Document-type classification & branching (spec 07)
+DOCUMENT_TYPE_UNPAID_BILL = "Unpaid Bill"
+DOCUMENT_TYPE_ALREADY_PAID = "Already Paid"
+DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT = "Employee Reimbursement"
+DOCUMENT_TYPE_MANUAL_REVIEW = "Manual Review"
+STATUS_MANUAL_REVIEW = "Manual Review"
+CLASSIFIED_STREAM_I = "I"
+CLASSIFIED_STREAM_R = "R"
+CLASSIFIED_STREAM_R_EMPLOYEE = "R-employee"
+STREAM_AGREEMENT_AGREE = "Agree"
+STREAM_AGREEMENT_DISAGREE = "Disagree"
+STREAM_AGREEMENT_UNCONFIRMED = "Unconfirmed"
+CLASSIFICATION_SOURCE_DEFAULT = "ap-classify-v1"
+CLASSIFICATION_SOURCE_OVERRIDE = "clerk-override"
+
 # GL coding (spec 06)
 CODING_STATUS_PENDING = "Pending"
 CODING_STATUS_CODED = "Coded"
@@ -236,7 +262,38 @@ class APInvoiceCapture(Document):
 			"Needs Correction",
 			"Confirmed",
 			"Duplicate",
+			"Manual Review",
 		]
+		document_type: DF.Literal[
+			"", "Unpaid Bill", "Already Paid", "Employee Reimbursement", "Manual Review"
+		]
+		classification_override: DF.Literal[
+			"", "Unpaid Bill", "Already Paid", "Employee Reimbursement", "Manual Review"
+		]
+		classified_stream: DF.Literal["", "I", "R", "R-employee"]
+		stream_tag_agreement: DF.Literal["Agree", "Disagree", "Unconfirmed"]
+		card_charge_marker: DF.Data | None
+		detected_last4: DF.Data | None
+		expense_claim: DF.Data | None
+		classified_at: DF.Datetime | None
+		classified_by: DF.Link | None
+		classification_source: DF.Data | None
+		three_way_match_status: DF.Literal[
+			"Not Checked", "Not Applicable", "Matched", "Exception", "Matched (Override)"
+		]
+		three_way_match_result: DF.LongText | None
+		three_way_match_checked_at: DF.Datetime | None
+		three_way_match_override_by: DF.Link | None
+		three_way_match_override_at: DF.Datetime | None
+		three_way_match_override_notes: DF.SmallText | None
+		anomaly_status: DF.Literal[
+			"Not Checked", "Normal", "Anomalous", "Insufficient History"
+		]
+		anomaly_result: DF.SmallText | None
+		anomaly_checked_at: DF.Datetime | None
+		vendor_bank_change_detected: DF.Check
+		vendor_bank_change_result: DF.SmallText | None
+		vendor_bank_change_checked_at: DF.Datetime | None
 		validation_message: DF.SmallText | None
 		matched_supplier: DF.Link | None
 		supplier_match_status: DF.Literal[
@@ -416,12 +473,42 @@ class APInvoiceCapture(Document):
 		):
 			return ("run_fake_extraction_for", "auto: post-intake OCR")
 
-		# Step 2: Confirmed OCR → run validation
+		# Step 1b (spec 07): Confirmed OCR, not yet classified → Step-6 classification.
+		# Runs before validation so the doctype fork is decided first. A clerk override
+		# is honoured (re-classify supersedes); an Employee/Manual-Review outcome parks
+		# the capture (status -> Manual Review) and the steps below won't match.
 		if (
 			self.ocr_status == OCR_STATUS_CONFIRMED
+			and not self.document_type
+			and self.status == STATUS_CONFIRMED
+		):
+			return ("classify_document_type_for", "auto: post-confirm Step-6 classification")
+
+		# Step 2: Confirmed OCR → run validation (Stream-I Unpaid Bill, or Already
+		# Paid which still needs supplier resolution; unclassified back-compat too).
+		if (
+			self.ocr_status == OCR_STATUS_CONFIRMED
+			and self.status == STATUS_CONFIRMED
+			and self.document_type in (None, "", DOCUMENT_TYPE_UNPAID_BILL, DOCUMENT_TYPE_ALREADY_PAID)
 			and self.validation_status in (None, VALIDATION_STATUS_NOT_VALIDATED)
 		):
 			return ("validate_for_purchase_invoice_for", "auto: post-confirm validation")
+
+		# Step 2a (spec 07): Already Paid, validated, supplier resolved → post the
+		# is-paid Purchase Invoice (Stream R; no approval/payment). Only auto-fires when
+		# the paid-from account is configured; otherwise it parks at a manual seam.
+		if (
+			self.document_type == DOCUMENT_TYPE_ALREADY_PAID
+			and self.validation_status == VALIDATION_STATUS_VALIDATED
+			and self.matched_supplier
+			and not self.purchase_invoice
+		):
+			from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+				get_already_paid_config,
+			)
+
+			if get_already_paid_config().get("paid_from_account"):
+				return ("promote_already_paid_for", "auto: Stream-R already-paid posting")
 
 		# Step 2b: Validated → GL coding (spec 06). Only auto-fires when coding is
 		# actually configured for this capture (a supplier coding profile exists, or
@@ -440,10 +527,12 @@ class APInvoiceCapture(Document):
 		# (defaults like company / item_code are required by the PI schema
 		# and have no source on the capture record itself).
 
-		# Step 3: Promoted with no approval yet → route approval
+		# Step 3: Promoted with no approval yet → route approval. Already-Paid (Stream
+		# R) PIs skip approval/payment entirely — the money already moved (spec 07).
 		if (
 			self.promotion_status == PROMOTION_STATUS_PROMOTED
 			and self.purchase_invoice
+			and self.document_type != DOCUMENT_TYPE_ALREADY_PAID
 			and self.approval_status in (None, APPROVAL_STATUS_NOT_REQUIRED)
 		):
 			return ("request_approval_for", "auto: post-promotion approval routing")
@@ -1928,6 +2017,514 @@ def _classify_purchase_reference(po_ref: str | None, pr_ref: str | None) -> str:
 	return PURCHASE_REF_NON_PO
 
 
+# ---------------------------------------------------------------------------
+# Validation gates: three-way match, amount anomaly, vendor bank change (spec 08)
+# ---------------------------------------------------------------------------
+#
+# All three gates run inside ``validate_for_purchase_invoice`` (save=False) and
+# record their verdict on the capture. They are *stream-aware* exactly like the
+# supplier gate: on Stream I (or unset/Unclassified — the stricter D7 fallback) a
+# failing gate is BLOCKING; on Stream R (already-paid card spend) the verdict is
+# recorded but never blocks. The bank-change gate additionally re-asserts itself
+# at promotion time (an approved Update-Bank-Details request lifts it).
+
+
+def _is_stream_i(capture: "APInvoiceCapture") -> bool:
+	"""True when the gates should block on failure.
+
+	Stream R (Receipt) short-circuits to non-blocking; Invoice / Unclassified /
+	unset all resolve to Stream I (D7: absent stream ⇒ treat as the stricter I).
+	"""
+
+	return capture.stream != STREAM_RECEIPT
+
+
+def _resolve_gate_config(capture: "APInvoiceCapture") -> dict:
+	"""Effective gate parameters: site settings, with per-supplier profile overrides.
+
+	A non-zero ``AP Supplier Coding Profile`` override replaces the corresponding
+	site default (a Frappe Float can't be NULL, so 0 means "no override / use
+	settings"; the strict-0 floor already lives in settings). When
+	``respect_over_billing_allowance`` is on, the amount tolerance is widened to at
+	least the native ``Accounts Settings.over_billing_allowance`` so 3WM never
+	blocks what ERPNext itself would permit (D2).
+	"""
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_validation_gate_config,
+	)
+
+	cfg = dict(get_validation_gate_config())
+
+	supplier = capture.matched_supplier
+	if supplier and frappe.db.exists("AP Supplier Coding Profile", supplier):
+		profile = frappe.get_doc("AP Supplier Coding Profile", supplier)
+		for field in (
+			"qty_tolerance_pct",
+			"amount_tolerance_pct",
+			"anomaly_multiple",
+			"anomaly_sigma",
+			"anomaly_min_sample",
+		):
+			override = profile.get(field)
+			try:
+				if override not in (None, "") and float(override) != 0:
+					cfg[field] = float(override)
+			except (TypeError, ValueError):
+				pass
+
+	if cfg.get("respect_over_billing_allowance"):
+		try:
+			allowance = float(
+				frappe.db.get_single_value("Accounts Settings", "over_billing_allowance") or 0
+			)
+			cfg["amount_tolerance_pct"] = max(cfg["amount_tolerance_pct"], allowance)
+		except Exception:
+			pass
+
+	return cfg
+
+
+def three_way_match_for(capture: "APInvoiceCapture | str", save: bool = True) -> "APInvoiceCapture":
+	"""Three-way match the capture against its referenced Purchase Order(s).
+
+	PO-level match (pilot scope): OCR resolves a PO reference at header / line
+	granularity but does not produce a ``po_detail`` row mapping, so the cumulative
+	PO authority (sum of received_qty and ordered amount across the referenced POs)
+	is compared against the invoiced qty/amount. Honors D1 (cumulative received_qty,
+	not per-delivery) and the qty/amount tolerances.
+
+	* Stream R → ``Not Applicable`` (receipts are already paid; no PO control).
+	* An existing ``Matched (Override)`` is left untouched — an AP override stands
+	  and must not be silently recomputed back to ``Exception``.
+	* No PO referenced → ``Not Applicable``, unless ``require_po_for_invoices`` is on
+	  (then a Stream-I invoice with no PO is itself an ``Exception``).
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	capture.three_way_match_checked_at = now_datetime()
+
+	if capture.three_way_match_status == THREE_WAY_MATCH_OVERRIDE:
+		# An AP override is authoritative; never recompute over it.
+		if save:
+			capture.save()
+		return capture
+
+	if not _is_stream_i(capture):
+		capture.three_way_match_status = THREE_WAY_MATCH_NOT_APPLICABLE
+		capture.three_way_match_result = json.dumps({"reason": "Stream R — no PO control"})
+		if save:
+			capture.save()
+		return capture
+
+	cfg = _resolve_gate_config(capture)
+
+	po_refs: set[str] = set()
+	for line in capture.get("line_items") or []:
+		if line.get("po_reference"):
+			po_refs.add(line.po_reference)
+	if not po_refs and capture.purchase_order_reference:
+		po_refs.add(capture.purchase_order_reference)
+
+	if not po_refs:
+		if cfg.get("require_po_for_invoices"):
+			capture.three_way_match_status = THREE_WAY_MATCH_EXCEPTION
+			capture.three_way_match_result = json.dumps(
+				{"reason": "PO reference required by policy but none present"}
+			)
+		else:
+			capture.three_way_match_status = THREE_WAY_MATCH_NOT_APPLICABLE
+			capture.three_way_match_result = json.dumps({"reason": "No PO referenced (PO-less invoice)"})
+		if save:
+			capture.save()
+		return capture
+
+	po_received_qty = 0.0
+	po_ordered_amount = 0.0
+	for po in sorted(po_refs):
+		for item in frappe.get_all(
+			"Purchase Order Item",
+			filters={"parent": po},
+			fields=["qty", "rate", "received_qty"],
+		):
+			po_received_qty += flt(item.received_qty)
+			po_ordered_amount += flt(item.qty) * flt(item.rate)
+
+	invoiced_amount = flt(capture.final_total_amount)
+	line_qtys = [flt(line.qty) for line in (capture.get("line_items") or []) if line.get("qty")]
+	invoiced_qty = sum(line_qtys) if line_qtys else None
+
+	qty_ok = True
+	qty_diff_pct = 0.0
+	if invoiced_qty is not None:
+		if po_received_qty > 0:
+			qty_diff_pct = (invoiced_qty - po_received_qty) / po_received_qty * 100
+			qty_ok = qty_diff_pct <= cfg["qty_tolerance_pct"]
+		elif invoiced_qty > 0:
+			# Billing for goods with zero cumulative receipt is always an exception.
+			qty_ok = False
+			qty_diff_pct = 100.0
+
+	amount_ok = True
+	amount_diff_pct = 0.0
+	if po_ordered_amount > 0:
+		amount_diff_pct = (invoiced_amount - po_ordered_amount) / po_ordered_amount * 100
+		amount_ok = amount_diff_pct <= cfg["amount_tolerance_pct"]
+
+	within_tolerance = qty_ok and amount_ok
+	capture.three_way_match_status = (
+		THREE_WAY_MATCH_MATCHED if within_tolerance else THREE_WAY_MATCH_EXCEPTION
+	)
+	capture.three_way_match_result = json.dumps(
+		{
+			"purchase_orders": sorted(po_refs),
+			"po_received_qty": po_received_qty,
+			"po_ordered_amount": round(po_ordered_amount, 2),
+			"invoiced_qty": invoiced_qty,
+			"invoiced_amount": invoiced_amount,
+			"qty_tolerance_pct": cfg["qty_tolerance_pct"],
+			"amount_tolerance_pct": cfg["amount_tolerance_pct"],
+			"qty_diff_pct": round(qty_diff_pct, 2),
+			"amount_diff_pct": round(amount_diff_pct, 2),
+			"within_tolerance": within_tolerance,
+		}
+	)
+	if save:
+		capture.save()
+	return capture
+
+
+def _anomaly_baseline(supplier: str, cfg: dict) -> tuple[int, float, float]:
+	"""Return ``(sample_count, mean, population_stddev)`` of the supplier's recent PIs.
+
+	Uses the ``AP Supplier Anomaly Baseline`` cache when it is fresh (computed today
+	for the same window); otherwise recomputes inline from submitted Purchase
+	Invoices in the lookback window. Population stddev (denominator N) so a single
+	outlier in a small sample still moves sigma sensibly.
+	"""
+
+	lookback = int(cfg["anomaly_lookback_months"])
+
+	cached = frappe.db.get_value(
+		"AP Supplier Anomaly Baseline",
+		supplier,
+		["sample_count", "mean_grand_total", "stddev_grand_total", "computed_at", "window_months"],
+		as_dict=True,
+	)
+	if (
+		cached
+		and cached.computed_at
+		and getdate(cached.computed_at) == getdate(today())
+		and int(cached.window_months or 0) == lookback
+	):
+		return int(cached.sample_count or 0), flt(cached.mean_grand_total), flt(cached.stddev_grand_total)
+
+	totals = frappe.get_all(
+		"Purchase Invoice",
+		filters={
+			"supplier": supplier,
+			"docstatus": 1,
+			"posting_date": [">=", add_to_date(today(), months=-lookback)],
+		},
+		pluck="grand_total",
+	)
+	values = [flt(t) for t in totals]
+	n = len(values)
+	if n == 0:
+		return 0, 0.0, 0.0
+	mean = sum(values) / n
+	variance = sum((v - mean) ** 2 for v in values) / n
+	return n, mean, variance ** 0.5
+
+
+def detect_amount_anomaly_for(
+	capture: "APInvoiceCapture | str", save: bool = True
+) -> "APInvoiceCapture":
+	"""Flag a capture whose total is an outlier vs the supplier's recent history.
+
+	Anomalous when the total exceeds either rule: ``> anomaly_multiple × mean`` OR
+	``> anomaly_sigma × stddev`` from the mean. Below ``anomaly_min_sample`` prior
+	PIs → ``Insufficient History`` (recorded, never blocking — D8). No matched
+	supplier → also ``Insufficient History``.
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	capture.anomaly_checked_at = now_datetime()
+	supplier = capture.matched_supplier
+
+	if not supplier:
+		capture.anomaly_status = ANOMALY_INSUFFICIENT_HISTORY
+		capture.anomaly_result = "No matched supplier — anomaly baseline unavailable."
+		if save:
+			capture.save()
+		return capture
+
+	cfg = _resolve_gate_config(capture)
+	n, mean, stddev = _anomaly_baseline(supplier, cfg)
+	min_sample = int(cfg["anomaly_min_sample"])
+
+	if n < min_sample:
+		capture.anomaly_status = ANOMALY_INSUFFICIENT_HISTORY
+		capture.anomaly_result = "Only {0} prior invoice(s) in the last {1} months (min {2}).".format(
+			n, int(cfg["anomaly_lookback_months"]), min_sample
+		)
+		if save:
+			capture.save()
+		return capture
+
+	total = flt(capture.final_total_amount)
+	multiple_hit = mean > 0 and total > cfg["anomaly_multiple"] * mean
+	sigma_hit = stddev > 0 and abs(total - mean) > cfg["anomaly_sigma"] * stddev
+	anomalous = multiple_hit or sigma_hit
+	z_score = (total - mean) / stddev if stddev > 0 else 0.0
+
+	capture.anomaly_status = ANOMALY_ANOMALOUS if anomalous else ANOMALY_NORMAL
+	capture.anomaly_result = (
+		"Total {0:,.2f} vs {1}-mo mean {2:,.2f} ± {3:,.2f} (n={4}, z={5:.1f}); "
+		"rules: >{6}×mean={7}, >{8}σ={9}."
+	).format(
+		total,
+		int(cfg["anomaly_lookback_months"]),
+		mean,
+		stddev,
+		n,
+		z_score,
+		cfg["anomaly_multiple"],
+		multiple_hit,
+		cfg["anomaly_sigma"],
+		sigma_hit,
+	)
+	if save:
+		capture.save()
+	return capture
+
+
+# Vendor master fields whose change since the last payment is treated as a
+# bank-detail change (social-engineering-fraud defence).
+_BANK_ACCOUNT_WATCH_FIELDS = {"iban", "bank_account_no", "branch_code"}
+_BANK_WATCH_FIELDS = {"swift_number", "bank_name"}
+_SUPPLIER_WATCH_FIELDS = {"default_bank_account"}
+
+
+def detect_vendor_bank_change_for(
+	capture: "APInvoiceCapture | str", save: bool = True
+) -> "APInvoiceCapture":
+	"""Detect a watched vendor bank-detail change since the supplier's last payment.
+
+	Anchors on the most recent *submitted* Payment Entry to the supplier and scans
+	``Version`` history (Frappe's native ``track_changes`` audit) of the supplier's
+	default Bank Account, its Bank, and the Supplier's ``default_bank_account`` link
+	created after that anchor. No prior payment → not detected (soft baseline, D8a).
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	capture.vendor_bank_change_checked_at = now_datetime()
+	supplier = capture.matched_supplier
+
+	if not supplier:
+		capture.vendor_bank_change_detected = 0
+		capture.vendor_bank_change_result = "No matched supplier."
+		if save:
+			capture.save()
+		return capture
+
+	last_pe = frappe.get_all(
+		"Payment Entry",
+		filters={"party_type": "Supplier", "party": supplier, "docstatus": 1},
+		fields=["name", "creation"],
+		order_by="creation desc",
+		limit=1,
+	)
+	if not last_pe:
+		capture.vendor_bank_change_detected = 0
+		capture.vendor_bank_change_result = (
+			"No prior payment to this supplier — bank-change baseline not yet established."
+		)
+		if save:
+			capture.save()
+		return capture
+
+	anchor = last_pe[0].creation
+	default_bank_account = frappe.db.get_value("Supplier", supplier, "default_bank_account")
+	bank = (
+		frappe.db.get_value("Bank Account", default_bank_account, "bank")
+		if default_bank_account
+		else None
+	)
+
+	watch: list[tuple[str, str, set[str]]] = [("Supplier", supplier, _SUPPLIER_WATCH_FIELDS)]
+	if default_bank_account:
+		watch.append(("Bank Account", default_bank_account, _BANK_ACCOUNT_WATCH_FIELDS))
+	if bank:
+		watch.append(("Bank", bank, _BANK_WATCH_FIELDS))
+
+	change_msg = None
+	for ref_dt, dn, fields in watch:
+		rows = frappe.get_all(
+			"Version",
+			filters={"ref_doctype": ref_dt, "docname": dn, "creation": [">", anchor]},
+			fields=["data", "creation"],
+			order_by="creation desc",
+		)
+		for row in rows:
+			try:
+				changed = (json.loads(row.data or "{}")).get("changed", [])
+			except (ValueError, TypeError):
+				continue
+			for entry in changed:
+				if entry and entry[0] in fields:
+					change_msg = "{0}.{1} changed at {2} (after last payment {3}).".format(
+						ref_dt, entry[0], row.creation, anchor
+					)
+					break
+			if change_msg:
+				break
+		if change_msg:
+			break
+
+	capture.vendor_bank_change_detected = 1 if change_msg else 0
+	capture.vendor_bank_change_result = (
+		change_msg or "No watched bank field changed since the last payment."
+	)
+	if save:
+		capture.save()
+	return capture
+
+
+def has_approved_bank_change(supplier: str | None) -> bool:
+	"""True when a Posted Update-Bank-Details request lifts the bank-change block.
+
+	Conservative backstop (D10): a ``Supplier Master Change Request`` of type
+	``Update Bank Details`` for this supplier that reached ``Posted`` and was decided
+	by someone other than the requester (the spec-05 SoD rule). The full
+	Treasury-Approver / non-AP-approver role rule is owned by spec 11 (see TODO).
+	"""
+
+	if not supplier:
+		return False
+	if not frappe.db.exists("DocType", "Supplier Master Change Request"):
+		return False
+	for req in frappe.get_all(
+		"Supplier Master Change Request",
+		filters={
+			"target_supplier": supplier,
+			"change_type": "Update Bank Details",
+			"workflow_state": "Posted",
+		},
+		fields=["requested_by", "decision_by"],
+	):
+		if req.decision_by and req.decision_by != req.requested_by:
+			return True
+	return False
+
+
+def override_three_way_match(
+	capture: "APInvoiceCapture | str",
+	notes: str,
+	actor: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""AP override of a 3WM Exception into ``Matched (Override)``, then re-validate.
+
+	Dedicated override fields (D6) keep the override audit separate from the
+	approval-decision audit. Requires non-empty notes and an existing Exception.
+	Re-runs ``validate_for_purchase_invoice`` so the capture can leave Blocked if
+	3WM was its only outstanding issue — ``three_way_match_for`` will not recompute
+	over the override.
+	"""
+
+	frappe.only_for(("Accounts User", "Accounts Manager", "System Manager"))
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.three_way_match_status != THREE_WAY_MATCH_EXCEPTION:
+		raise CaptureValidationError(
+			_("Only a three-way-match Exception can be overridden; current status is {0}.").format(
+				capture.three_way_match_status
+			)
+		)
+
+	clean_notes = (notes or "").strip()
+	if not clean_notes:
+		raise CaptureValidationError(_("Override notes are required to override a 3WM Exception."))
+
+	capture.three_way_match_status = THREE_WAY_MATCH_OVERRIDE
+	capture.three_way_match_override_by = actor or frappe.session.user
+	capture.three_way_match_override_at = now_datetime()
+	capture.three_way_match_override_notes = clean_notes
+	capture.save()
+
+	# Re-validate so a now-cleared 3WM lets the capture leave Blocked.
+	validate_for_purchase_invoice(capture, save=save)
+	return capture
+
+
+def refresh_anomaly_baselines() -> int:
+	"""Daily scheduler: recompute the per-supplier anomaly baseline cache.
+
+	Returns the number of supplier baselines written. Idempotent (upserts one row
+	per supplier with at least one submitted PI in the lookback window).
+	"""
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_validation_gate_config,
+	)
+
+	cfg = get_validation_gate_config()
+	lookback = int(cfg["anomaly_lookback_months"])
+	since = add_to_date(today(), months=-lookback)
+
+	suppliers = frappe.get_all(
+		"Purchase Invoice",
+		filters={"docstatus": 1, "posting_date": [">=", since], "supplier": ["is", "set"]},
+		distinct=True,
+		pluck="supplier",
+	)
+
+	written = 0
+	for supplier in suppliers:
+		totals = frappe.get_all(
+			"Purchase Invoice",
+			filters={"supplier": supplier, "docstatus": 1, "posting_date": [">=", since]},
+			pluck="grand_total",
+		)
+		values = [flt(t) for t in totals]
+		if not values:
+			continue
+		n = len(values)
+		mean = sum(values) / n
+		variance = sum((v - mean) ** 2 for v in values) / n
+		_upsert_anomaly_baseline(supplier, n, mean, variance ** 0.5, lookback)
+		written += 1
+	return written
+
+
+def _upsert_anomaly_baseline(
+	supplier: str, sample_count: int, mean: float, stddev: float, window_months: int
+) -> None:
+	"""Insert/update the single baseline row for ``supplier``."""
+
+	if frappe.db.exists("AP Supplier Anomaly Baseline", supplier):
+		doc = frappe.get_doc("AP Supplier Anomaly Baseline", supplier)
+	else:
+		doc = frappe.new_doc("AP Supplier Anomaly Baseline")
+		doc.supplier = supplier
+	doc.sample_count = sample_count
+	doc.mean_grand_total = mean
+	doc.stddev_grand_total = stddev
+	doc.window_months = window_months
+	doc.computed_at = now_datetime()
+	doc.flags.ignore_permissions = True
+	doc.save()
+
+
 def validate_for_purchase_invoice(
 	capture: "APInvoiceCapture | str",
 	actor: str | None = None,
@@ -2006,6 +2603,30 @@ def validate_for_purchase_invoice(
 				).format(final_supplier_value or "", detail)
 			)
 
+	# Validation gates (spec 08). Each gate records its verdict on the capture
+	# (save=False — this function owns the single save below). On Stream I a failing
+	# gate is appended to ``issues`` and blocks; on Stream R the verdict is recorded
+	# but never blocks. The bank-change gate re-asserts at promotion time.
+	three_way_match_for(capture, save=False)
+	detect_amount_anomaly_for(capture, save=False)
+	detect_vendor_bank_change_for(capture, save=False)
+
+	if _is_stream_i(capture):
+		if capture.three_way_match_status == THREE_WAY_MATCH_EXCEPTION:
+			issues.append(
+				_("Three-way match exception — invoice does not reconcile to its Purchase Order (override required).")
+			)
+		if capture.anomaly_status == ANOMALY_ANOMALOUS:
+			# Keep the issue line short (action_required_reason is a 140-char field);
+			# the full mean/stddev/z evidence lives on the anomaly_result field.
+			issues.append(
+				_("Amount anomaly — total is an outlier vs this supplier's recent history.")
+			)
+		if capture.vendor_bank_change_detected and not has_approved_bank_change(capture.matched_supplier):
+			issues.append(
+				_("Vendor bank details changed since last payment — an approved Update-Bank-Details request is required.")
+			)
+
 	capture.validated_by = actor or frappe.session.user
 	capture.validated_at = now_datetime()
 	capture.validation_source = source or VALIDATION_SOURCE_DEFAULT
@@ -2019,9 +2640,11 @@ def validate_for_purchase_invoice(
 				capture.supplier_change_request
 			)
 		else:
-			capture.action_required_reason = _("Validation blocked: {0}").format(
-				capture.validation_result
-			)
+			# action_required_reason is a 140-char Data field; the full multi-issue
+			# detail stays on validation_result (Small Text). Truncate defensively so
+			# stacked gate issues (3WM + anomaly + bank-change) never raise.
+			reason = _("Validation blocked: {0}").format(capture.validation_result)
+			capture.action_required_reason = reason[:137] + "…" if len(reason) > 140 else reason
 	else:
 		capture.validation_status = VALIDATION_STATUS_VALIDATED
 		if soft_supplier:
@@ -2359,11 +2982,232 @@ def is_fully_coded(capture: "APInvoiceCapture | str") -> bool:
 	return True
 
 
+# ---------------------------------------------------------------------------
+# Document-type classification & branching (spec 07)
+# ---------------------------------------------------------------------------
+
+# last-4 card marker: "****1234", "xxxx1234", "ending in 1234"
+_CARD_LAST4_RE = re.compile(r"(?:\*{2,}|x{2,}|ending\s+in\s+)(\d{4})", re.IGNORECASE)
+_PAID_MARKER_RE = re.compile(r"\bpaid\b", re.IGNORECASE)
+
+_DOC_TYPE_TO_STREAM = {
+	DOCUMENT_TYPE_UNPAID_BILL: CLASSIFIED_STREAM_I,
+	DOCUMENT_TYPE_ALREADY_PAID: CLASSIFIED_STREAM_R,
+	DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT: CLASSIFIED_STREAM_R_EMPLOYEE,
+}
+
+
+def _classification_text(capture: "APInvoiceCapture") -> str:
+	"""Concatenated OCR/clerk text the classifier scans for a paid/card marker."""
+
+	parts = [
+		capture.source_context,
+		capture.review_notes,
+		capture.ocr_raw_response,
+		capture.source_filename,
+		capture.final_supplier_invoice_no,
+		capture.proposed_supplier_invoice_no,
+	]
+	return " ".join(str(p) for p in parts if p)
+
+
+def _detect_card_marker(text: str) -> "tuple[str | None, str | None]":
+	"""Return (marker_string, last4) when the text shows an already-paid card charge."""
+
+	m = _CARD_LAST4_RE.search(text)
+	if m:
+		return m.group(0), m.group(1)
+	if "paid by" in text.lower() or _PAID_MARKER_RE.search(text):
+		return "PAID", None
+	return None, None
+
+
+def _provisional_stream(capture: "APInvoiceCapture") -> "str | None":
+	"""Map the spec-02 ``stream`` field onto the classifier's I/R space."""
+
+	if capture.stream == STREAM_INVOICE:
+		return CLASSIFIED_STREAM_I
+	if capture.stream == STREAM_RECEIPT:
+		return CLASSIFIED_STREAM_R
+	return None  # Unclassified / unset
+
+
+def classify_document_type(
+	capture: "APInvoiceCapture | str",
+	override: str | None = None,
+	actor: str | None = None,
+	save: bool = True,
+) -> "APInvoiceCapture":
+	"""Step-6 classification (spec 07): route a confirmed capture to a document type.
+
+	Heuristics (clerk ``override`` always wins): a paid/card marker → Already Paid;
+	a matched supplier in the configured employee group → Employee Reimbursement;
+	an unmatched supplier when an employee group IS configured → Manual Review
+	(can't tell employee vs vendor); otherwise → Unpaid Bill. The classifier then
+	**confirms/revises** the intake stream tag — a disagreement forces Manual Review
+	and records the tuning signal. Employee/Manual-Review land the capture in the
+	review queue (``status=Manual Review`` + ``action_required``).
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.status not in (STATUS_CONFIRMED, STATUS_MANUAL_REVIEW):
+		raise CaptureValidationError(
+			_("Capture must be AP-reviewed (Confirmed) before classification; current status is {0}.").format(
+				capture.status
+			)
+		)
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_already_paid_config,
+	)
+
+	reason: str | None = None
+	eff_override = (override or capture.classification_override or "").strip() or None
+
+	if eff_override:
+		capture.document_type = eff_override
+		capture.classification_override = eff_override
+		capture.classified_stream = _DOC_TYPE_TO_STREAM.get(eff_override, "")
+		capture.stream_tag_agreement = STREAM_AGREEMENT_UNCONFIRMED
+		capture.classification_source = CLASSIFICATION_SOURCE_OVERRIDE
+		return _finalize_classification(capture, actor, save, reason)
+
+	emp_group = get_already_paid_config().get("employee_supplier_group")
+	marker, last4 = _detect_card_marker(_classification_text(capture))
+
+	if marker:
+		capture.document_type = DOCUMENT_TYPE_ALREADY_PAID
+		capture.classified_stream = CLASSIFIED_STREAM_R
+		capture.card_charge_marker = marker
+		capture.detected_last4 = last4
+	elif emp_group and capture.matched_supplier and (
+		frappe.db.get_value("Supplier", capture.matched_supplier, "supplier_group") == emp_group
+	):
+		capture.document_type = DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT
+		capture.classified_stream = CLASSIFIED_STREAM_R_EMPLOYEE
+	elif emp_group and not capture.matched_supplier:
+		# Employee distinction matters but the supplier is unresolved -> review (D-07-5).
+		capture.document_type = DOCUMENT_TYPE_MANUAL_REVIEW
+		capture.classified_stream = ""
+		reason = _("Supplier unmatched — cannot determine employee vs vendor; manual classification required.")
+	else:
+		capture.document_type = DOCUMENT_TYPE_UNPAID_BILL
+		capture.classified_stream = CLASSIFIED_STREAM_I
+
+	capture.classification_source = CLASSIFICATION_SOURCE_DEFAULT
+
+	# Confirm/revise the intake stream tag (spec 02). A disagreement → review.
+	if capture.document_type != DOCUMENT_TYPE_MANUAL_REVIEW:
+		provisional = _provisional_stream(capture)
+		if provisional is None:
+			capture.stream_tag_agreement = STREAM_AGREEMENT_UNCONFIRMED
+		elif provisional == capture.classified_stream:
+			capture.stream_tag_agreement = STREAM_AGREEMENT_AGREE
+		else:
+			capture.stream_tag_agreement = STREAM_AGREEMENT_DISAGREE
+			reason = _(
+				"Stream conflict: intake tagged {0}, classifier read {1} ({2}) — manual classification required."
+			).format(provisional, capture.classified_stream, capture.card_charge_marker or capture.document_type)
+			capture.document_type = DOCUMENT_TYPE_MANUAL_REVIEW
+			capture.classified_stream = ""
+	else:
+		capture.stream_tag_agreement = STREAM_AGREEMENT_UNCONFIRMED
+
+	return _finalize_classification(capture, actor, save, reason)
+
+
+def _finalize_classification(
+	capture: "APInvoiceCapture", actor: str | None, save: bool, reason: str | None
+) -> "APInvoiceCapture":
+	capture.classified_at = now_datetime()
+	capture.classified_by = actor or frappe.session.user
+	if not capture.classification_source:
+		capture.classification_source = CLASSIFICATION_SOURCE_DEFAULT
+
+	if capture.document_type in (DOCUMENT_TYPE_MANUAL_REVIEW, DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT):
+		capture.status = STATUS_MANUAL_REVIEW
+		capture.action_required = 1
+		if capture.document_type == DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT:
+			capture.action_required_reason = _(
+				"Employee reimbursement — the Expense Claim path needs the hrms app (not installed). Manual handling required."
+			)
+		else:
+			capture.action_required_reason = reason or _("Manual classification required.")
+	# Unpaid Bill / Already Paid: leave status Confirmed; downstream steps proceed.
+
+	if save:
+		capture.save()
+	return capture
+
+
+def _build_already_paid_voucher(capture: "APInvoiceCapture", defaults: dict | None) -> "Document":
+	"""The SINGLE swap point for the already-paid posting mechanism (D-07-1).
+
+	**Locked = Option C (PI is_paid=1):** build a Purchase Invoice marked paid — one
+	submitted PI posts the invoice legs (DR expense / CR supplier) plus the is-paid
+	payment legs (DR supplier / CR bank) via make_payment_gl_entries, netting the
+	supplier to zero while keeping it visible in spend-by-supplier/AP reports, and
+	reusing the existing promote_to_purchase_invoice mapping (adds only is_paid /
+	cash_bank_account / paid_amount). Keep the A/B/C choice ONLY here so switching to
+	a direct Journal Entry (Option A) or PI+Clearing (Option B) is a one-function
+	change with no caller impact.
+	"""
+
+	return promote_to_purchase_invoice(capture, defaults=defaults, _already_paid=True)
+
+
+def promote_already_paid(
+	capture: "APInvoiceCapture | str",
+	actor: str | None = None,
+	defaults: dict | None = None,
+	save: bool = True,
+) -> "Document":
+	"""Promote an 'Already Paid' (Stream R) capture into its posting voucher (spec 07).
+
+	Option C builds a paid Purchase Invoice. No approval and no separate payment hop —
+	the money already moved; closure is reconciliation-only (specs 13/14).
+	"""
+
+	if isinstance(capture, str):
+		capture = frappe.get_doc("AP Invoice Capture", capture)
+
+	if capture.document_type != DOCUMENT_TYPE_ALREADY_PAID:
+		raise CapturePromotionError(
+			_("Already-paid promotion requires document_type 'Already Paid'; current is {0}.").format(
+				capture.document_type or "(unset)"
+			)
+		)
+	if capture.promotion_status == PROMOTION_STATUS_PROMOTED and capture.purchase_invoice:
+		raise CapturePromotionError(
+			_("Capture has already been promoted to {0}.").format(capture.purchase_invoice)
+		)
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_already_paid_config,
+	)
+
+	paid_from = (defaults or {}).get("paid_from_account") or get_already_paid_config().get(
+		"paid_from_account"
+	)
+	if not paid_from:
+		raise CapturePromotionError(
+			_(
+				"Cannot post an already-paid receipt: no paid-from (Credit Card Clearing) account "
+				"is configured in AP Closed Loop Settings."
+			)
+		)
+
+	return _build_already_paid_voucher(capture, defaults)
+
+
 def promote_to_purchase_invoice(
 	capture: "APInvoiceCapture | str",
 	actor: str | None = None,
 	defaults: dict | None = None,
 	save: bool = True,
+	_already_paid: bool = False,
 ) -> "Document":
 	"""Promote a validated capture into the native Purchase Invoice lifecycle.
 
@@ -2381,7 +3225,27 @@ def promote_to_purchase_invoice(
 	if isinstance(capture, str):
 		capture = frappe.get_doc("AP Invoice Capture", capture)
 
-	if capture.validation_status != VALIDATION_STATUS_VALIDATED:
+	# Document-type guard (spec 07). The standard (Unpaid Bill) path refuses an
+	# Already-Paid capture; the already-paid path (_already_paid=True, via
+	# _build_already_paid_voucher) requires it. The guard only fires when
+	# document_type is set, so pre-spec-07 / unclassified captures still promote.
+	if not _already_paid:
+		if capture.document_type and capture.document_type != DOCUMENT_TYPE_UNPAID_BILL:
+			raise CapturePromotionError(
+				_("Capture document_type is {0}; only 'Unpaid Bill' promotes to a standard Purchase Invoice.").format(
+					capture.document_type
+				)
+			)
+	elif capture.document_type != DOCUMENT_TYPE_ALREADY_PAID:
+		raise CapturePromotionError(
+			_("Already-paid promotion requires document_type 'Already Paid'; current is {0}.").format(
+				capture.document_type or "(unset)"
+			)
+		)
+
+	# The already-paid path skips the Stream-I validation gate (PI-specific PO/PR
+	# logic); supplier resolution still runs upstream and is required below.
+	if not _already_paid and capture.validation_status != VALIDATION_STATUS_VALIDATED:
 		raise CapturePromotionError(
 			_(
 				"Capture must be successfully validated before promotion; "
@@ -2392,6 +3256,27 @@ def promote_to_purchase_invoice(
 		raise CapturePromotionError(
 			_("Capture cannot be promoted without a matched Supplier.")
 		)
+
+	# Bank-change block (spec 08). Re-assert at promotion time so a bank change made
+	# AFTER a clean validation is still caught (the stored flag may be stale). A
+	# detected change blocks promotion on the Stream-I path until an approved
+	# Update-Bank-Details request lifts it. The already-paid (Stream R) path is
+	# exempt — those funds already left.
+	if not _already_paid and _is_stream_i(capture):
+		detect_vendor_bank_change_for(capture, save=False)
+	if (
+		not _already_paid
+		and _is_stream_i(capture)
+		and capture.vendor_bank_change_detected
+		and not has_approved_bank_change(capture.matched_supplier)
+	):
+		raise CapturePromotionError(
+			_(
+				"Vendor bank details changed since the last payment to {0}; an approved "
+				"Update-Bank-Details request is required before this capture can be promoted."
+			).format(capture.matched_supplier)
+		)
+
 	if capture.promotion_status == PROMOTION_STATUS_PROMOTED and capture.purchase_invoice:
 		raise CapturePromotionError(
 			_("Capture has already been promoted to Purchase Invoice {0}.").format(
@@ -2521,6 +3406,22 @@ def promote_to_purchase_invoice(
 		pi.taxes_and_charges = capture.applied_tax_template
 	if capture.applied_payment_terms_template:
 		pi.payment_terms_template = capture.applied_payment_terms_template
+
+	# Already-paid (Stream R, spec 07 Option C): mark the PI paid so a single
+	# submitted PI books the invoice legs AND the payment legs (DR supplier / CR
+	# bank via make_payment_gl_entries). The supplier nets to zero but stays visible
+	# in spend-by-supplier/AP. Left DRAFT here (parity with the unpaid path).
+	if _already_paid:
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_already_paid_config,
+		)
+
+		paid_from = (defaults or {}).get("paid_from_account") or get_already_paid_config().get(
+			"paid_from_account"
+		)
+		pi.is_paid = 1
+		pi.cash_bank_account = paid_from
+		pi.paid_amount = flt(capture.final_total_amount)
 
 	pi.insert(ignore_permissions=True)
 
@@ -2906,6 +3807,26 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 			"validated_at": capture.validated_at,
 			"source": capture.validation_source,
 		},
+		"gates": {
+			"three_way_match": {
+				"status": capture.three_way_match_status,
+				"result": json.loads(capture.three_way_match_result or "{}"),
+				"checked_at": capture.three_way_match_checked_at,
+				"override_by": capture.three_way_match_override_by,
+				"override_at": capture.three_way_match_override_at,
+				"override_notes": capture.three_way_match_override_notes,
+			},
+			"anomaly": {
+				"status": capture.anomaly_status,
+				"result": capture.anomaly_result,
+				"checked_at": capture.anomaly_checked_at,
+			},
+			"vendor_bank_change": {
+				"detected": bool(capture.vendor_bank_change_detected),
+				"result": capture.vendor_bank_change_result,
+				"checked_at": capture.vendor_bank_change_checked_at,
+			},
+		},
 		"approval": {
 			"status": capture.approval_status,
 			"routing_reason": capture.routing_reason,
@@ -3028,6 +3949,59 @@ def promote_to_purchase_invoice_for(
 	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
 	cap._kick_next_step()
 	return pi.name
+
+
+@frappe.whitelist()
+def classify_document_type_for(capture: str, override: str | None = None) -> str:
+	"""Whitelisted entrypoint for Step-6 document-type classification (spec 07).
+	`override` (clerk) always wins. Returns capture.document_type; resumes the cascade."""
+
+	doc = classify_document_type(capture, override=(override or None))
+	doc._kick_next_step()
+	return doc.document_type
+
+
+@frappe.whitelist()
+def promote_already_paid_for(capture: str, defaults: str | dict | None = None) -> str:
+	"""Whitelisted entrypoint for the Stream-R already-paid posting (spec 07)."""
+
+	parsed = json.loads(defaults) if isinstance(defaults, str) and defaults else (defaults or None)
+	pi = promote_already_paid(capture, defaults=parsed)
+	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap._kick_next_step()
+	return pi.name
+
+
+@frappe.whitelist()
+def three_way_match_for_capture(capture: str) -> str:
+	"""Whitelisted re-run of the three-way-match gate (spec 08). Returns the status."""
+
+	doc = three_way_match_for(capture)
+	return doc.three_way_match_status
+
+
+@frappe.whitelist()
+def detect_amount_anomaly_for_capture(capture: str) -> str:
+	"""Whitelisted re-run of the amount-anomaly gate (spec 08). Returns the status."""
+
+	doc = detect_amount_anomaly_for(capture)
+	return doc.anomaly_status
+
+
+@frappe.whitelist()
+def detect_vendor_bank_change_for_capture(capture: str) -> int:
+	"""Whitelisted re-run of the vendor bank-change gate (spec 08). Returns 0/1."""
+
+	doc = detect_vendor_bank_change_for(capture)
+	return int(doc.vendor_bank_change_detected or 0)
+
+
+@frappe.whitelist()
+def override_three_way_match_for(capture: str, notes: str) -> str:
+	"""Whitelisted AP override of a 3WM Exception (spec 08). Re-validates; returns status."""
+
+	doc = override_three_way_match(capture, notes=notes)
+	return doc.three_way_match_status
 
 
 @frappe.whitelist()

@@ -47,6 +47,15 @@ class APClosedLoopSettings(Document):
 
 		ap_intake_email_account: DF.Link | None
 		default_purchase_tax_template: DF.Link | None
+		employee_supplier_group: DF.Link | None
+		qty_tolerance_pct: DF.Float
+		amount_tolerance_pct: DF.Float
+		respect_over_billing_allowance: DF.Check
+		require_po_for_invoices: DF.Check
+		anomaly_lookback_months: DF.Int
+		anomaly_multiple: DF.Float
+		anomaly_sigma: DF.Float
+		anomaly_min_sample: DF.Int
 		default_company: DF.Link | None
 		default_cost_center: DF.Link | None
 		default_expense_account: DF.Link | None
@@ -339,6 +348,91 @@ DEFAULT_SUPPLIER_FUZZY_THRESHOLD = 90.0
 DEFAULT_SUPPLIER_FUZZY_MIN_LENGTH = 4
 DEFAULT_SUPPLIER_AUTOCREATE_CONFIDENCE = 0.85
 DEFAULT_SUPPLIER_CHANGE_APPROVER_ROLE = "Accounts Manager"
+
+
+DEFAULT_ANOMALY_LOOKBACK_MONTHS = 6
+DEFAULT_ANOMALY_MULTIPLE = 3.0
+DEFAULT_ANOMALY_SIGMA = 2.0
+DEFAULT_ANOMALY_MIN_SAMPLE = 5
+
+
+def get_validation_gate_config() -> dict:
+	"""Three-way-match tolerances + anomaly parameters (spec 08).
+
+	Site-wide defaults; a per-supplier ``AP Supplier Coding Profile`` may override
+	the tolerances/anomaly params (resolved by the capture-side
+	``_resolve_gate_config``). Raw Singles reads with blank/non-positive → default,
+	mirroring the other getters. Tolerances default to 0 (strict / exact match)::
+
+	    {qty_tolerance_pct, amount_tolerance_pct, respect_over_billing_allowance,
+	     require_po_for_invoices, anomaly_lookback_months, anomaly_multiple,
+	     anomaly_sigma, anomaly_min_sample}
+	"""
+
+	stored = _settings()
+
+	def _f(key, default=0.0):
+		raw = stored.get(key)
+		try:
+			return float(raw) if raw not in (None, "") else default
+		except (TypeError, ValueError):
+			return default
+
+	def _i(key, default):
+		raw = stored.get(key)
+		try:
+			v = int(float(raw)) if raw not in (None, "") else default
+		except (TypeError, ValueError):
+			v = default
+		return v if v > 0 else default
+
+	def _b(key):
+		raw = stored.get(key)
+		try:
+			return bool(int(float(raw))) if raw not in (None, "") else False
+		except (TypeError, ValueError):
+			return False
+
+	return {
+		"qty_tolerance_pct": max(_f("qty_tolerance_pct"), 0.0),
+		"amount_tolerance_pct": max(_f("amount_tolerance_pct"), 0.0),
+		"respect_over_billing_allowance": _b("respect_over_billing_allowance"),
+		"require_po_for_invoices": _b("require_po_for_invoices"),
+		"anomaly_lookback_months": _i("anomaly_lookback_months", DEFAULT_ANOMALY_LOOKBACK_MONTHS),
+		"anomaly_multiple": _f("anomaly_multiple", DEFAULT_ANOMALY_MULTIPLE) or DEFAULT_ANOMALY_MULTIPLE,
+		"anomaly_sigma": _f("anomaly_sigma", DEFAULT_ANOMALY_SIGMA) or DEFAULT_ANOMALY_SIGMA,
+		"anomaly_min_sample": _i("anomaly_min_sample", DEFAULT_ANOMALY_MIN_SAMPLE),
+	}
+
+
+def get_already_paid_config() -> dict:
+	"""Stream-R already-paid (Option C: PI is_paid=1) config (spec 07).
+
+	Returns the values ``promote_already_paid`` needs to build a paid Purchase
+	Invoice + classify employees::
+
+	    {
+	        "company": str|None,
+	        "expense_account": str|None,
+	        "cost_center": str|None,
+	        "paid_from_account": str|None,   # reuses credit_card_clearing_account
+	        "employee_supplier_group": str|None,
+	    }
+
+	Raw reads via get_singles_dict (same empty-omitting / no-set_missing_values
+	discipline as get_promote_defaults). The paid-from account REUSES the existing
+	``credit_card_clearing_account`` (added spec 01) — the bank/clearing account the
+	card payment is booked against on the is-paid PI's payment leg.
+	"""
+
+	stored = _settings()
+	return {
+		"company": stored.get("default_company") or None,
+		"expense_account": stored.get("default_expense_account") or None,
+		"cost_center": stored.get("default_cost_center") or None,
+		"paid_from_account": stored.get("credit_card_clearing_account") or None,
+		"employee_supplier_group": stored.get("employee_supplier_group") or None,
+	}
 
 
 def get_coding_settings() -> dict:

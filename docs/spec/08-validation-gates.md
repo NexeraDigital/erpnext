@@ -3,7 +3,7 @@ spec: 08-validation-gates
 title: Validation, Anomaly Detection & Three-Way Match
 plan_step: "Step 7 — Validation suite + amount-anomaly + vendor bank-detail change + three-way match; plus the optional PO upstream control"
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 04-extraction-confidence-line-items, 05-supplier-resolution, 06-gl-coding-tax-costcenter, 11-approval-sod-workflow]
 related: [00-overview, 02-intake-stream-tagging, 07-classification-doctype-branching, 09-confidence-routing, 10-ap-review-observability, 14-closure-audit-retention]
 ---

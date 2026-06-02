@@ -18,6 +18,13 @@
   "default_purchase_tax_template",
   "dimensions_section",
   "default_accounting_dimensions",
+  "gates_section",
+  "qty_tolerance_pct",
+  "amount_tolerance_pct",
+  "gates_column_break",
+  "anomaly_multiple",
+  "anomaly_sigma",
+  "anomaly_min_sample",
   "notes_section",
   "coding_notes"
  ],
@@ -84,6 +91,47 @@
    "fieldtype": "Table",
    "label": "Default Accounting Dimensions",
    "options": "AP Supplier Coding Dimension"
+  },
+  {
+   "collapsible": 1,
+   "description": "Per-supplier overrides for the validation gates (spec 08). Blank = fall through to AP Closed Loop Settings.",
+   "fieldname": "gates_section",
+   "fieldtype": "Section Break",
+   "label": "Validation Gate Overrides"
+  },
+  {
+   "description": "Override of the 3WM qty tolerance % for this supplier (blank = settings).",
+   "fieldname": "qty_tolerance_pct",
+   "fieldtype": "Float",
+   "label": "Qty Tolerance % (override)"
+  },
+  {
+   "description": "Override of the 3WM amount tolerance % for this supplier (blank = settings).",
+   "fieldname": "amount_tolerance_pct",
+   "fieldtype": "Float",
+   "label": "Amount Tolerance % (override)"
+  },
+  {
+   "fieldname": "gates_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Override of the anomaly multiple for this supplier (e.g. a high-variance vendor). Blank = settings.",
+   "fieldname": "anomaly_multiple",
+   "fieldtype": "Float",
+   "label": "Anomaly Multiple (override)"
+  },
+  {
+   "description": "Override of the anomaly sigma for this supplier. Blank = settings.",
+   "fieldname": "anomaly_sigma",
+   "fieldtype": "Float",
+   "label": "Anomaly Sigma (override)"
+  },
+  {
+   "description": "Override of the anomaly min-sample for this supplier. Blank = settings.",
+   "fieldname": "anomaly_min_sample",
+   "fieldtype": "Int",
+   "label": "Anomaly Min Sample (override)"
   },
   {
    "fieldname": "notes_section",

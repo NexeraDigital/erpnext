@@ -3,7 +3,7 @@
 > Source-of-truth tracker for implementing `docs/spec/01`–`14`. Companion to [[00-overview]].
 > **Update on every merged slice PR.** This file — plus each spec's frontmatter `status:` — is what survives across sessions; the in-session task list does not.
 >
-> **Last updated:** 2026-06-01 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 6/14 done — **specs 01–06 ✅** (100/221 ACs green; no regressions). Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
+> **Last updated:** 2026-06-01 · **Specs:** 14 · **Acceptance criteria:** 221 · **Overall:** 🟡 8/14 done — **specs 01–08 ✅** (135/221 ACs green; no regressions). Behavioral browser-smoke screenshots committed per spec under `test/testplans/screenshots/<NN-slug>/`.
 
 ## How to use this file
 
@@ -44,8 +44,8 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 | 04 | [[04-extraction-confidence-line-items]] | 1 Intake | ✅ | 15/15 | L | 01 | #4 locked | committed ✓ |
 | 05 | [[05-supplier-resolution]] | 2 Resolve | ✅ | 23/23 | L | 01, 04 | bank-detail→`Bank Account` (fixed) | working tree |
 | 06 | [[06-gl-coding-tax-costcenter]] | 2 Resolve | ✅ | 14/14 | L | 01, 04, 05 | D8 → separate profile doctype | working tree |
-| 07 | [[07-classification-doctype-branching]] | 2 Resolve | 🔲 | 0/14 | L | 01, 02, 05, 06 | **#1 (Stream-R posting)** | — |
-| 08 | [[08-validation-gates]] | 3 Gate | 🔲 | 0/21 | L | 01, 04, 05, 06, **11※** | 3WM native-vs-custom; 11-stub※ | — |
+| 07 | [[07-classification-doctype-branching]] | 2 Resolve | ✅ | 14/14 | L | 01, 02, 05, 06 | #1 → Option C (PI is_paid), provisional | working tree |
+| 08 | [[08-validation-gates]] | 3 Gate | ✅ | 21/21 | L | 01, 04, 05, 06, **11※** | 3WM PO-level (pilot); bank-lift full rule → 11※ | working tree |
 | 09 | [[09-confidence-routing]] | 3 Gate | 🔲 | 0/14 | S | 04, 08 | threshold single-source (w/ 11) | — |
 | 10 | [[10-ap-review-observability]] | 3 Gate | 🔲 | 0/17 | — | 01 | `AP Review Event` seam freeze | — |
 | 11 | [[11-approval-sod-workflow]] | 4 Approve | 🔲 | 0/12 | L | 02, 05, 08 | **#3, #7** | — |
@@ -55,6 +55,10 @@ Lock these before starting the specs they gate. See each spec's §8 and [[00-ove
 
 *Size for 10 not stated in-spec (estimate M). **08※:** 08 and 11 are mutually dependent — land 08 with an interim `has_approved_bank_change()` **stub**, then 11, then wire 08's real check (08 §8 D10).*
 
+> **Verification state (08):** ✅ all 21 ACs green this session (Fake OCR). New class `TestAPInvoiceCaptureValidationGates` **22 tests** (21 ACs + one AC-08-16 re-check: promotion re-runs bank detection so a change *after* a clean validation still blocks) run programmatically via `unittest.TextTestRunner` (the bench-runner summary line is swallowed by the harness on this WSL bench, so the suite was loaded + run in `bench console`): **`Ran=22 failures=0 errors=0 skipped=0 → OK`**. **Blast-radius / regression (AC-08-21):** the three gates run inside `validate_for_purchase_invoice` (fires for every AP capture) and the bank gate re-runs inside `promote_to_purchase_invoice`, so the full module was re-run the same way: **`Ran=156 failures=0 errors=0 skipped=1 → OK`** (was 134; +22 gate tests, no false blocks on the existing happy paths). **Decisions adopted** = spec recommendations: D1 PO-cumulative 3WM, D2 `respect_over_billing_allowance` off (independent/stricter AP tolerance), D3 dedicated `AP Supplier Anomaly Baseline` cache, D4 daily-refresh + lazy-recompute (no per-PI `on_submit`), D5 pre-promotion custom 3WM only, D6 dedicated 3WM-override fields, D7 absent stream ⇒ Stream I, D8 soft-skip when no prior PE, D10 conservative `has_approved_bank_change` (Posted + decided-by-≠-requester). **Pilot simplification (honest):** 3WM is **PO-level** (sum of PO-item `received_qty` + ordered amount), not per-line PO-item matching — OCR emits no `po_detail` mapping yet. **Deferral (honest):** the full **non-AP / Treasury-Approver** bank-change-lift role rule is owned by **spec 11** (TODO **T-012**); the current lift is the spec-05 SoD backstop. §7.2 clean-room runbook **written** (`test/testplans/specs/08-validation-gates.md`); §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/08-validation-gates/`.
+>
+> **Verification state (07):** ✅ all 14 ACs green this session (Fake OCR). Built on the **provisionally-locked Option C (PI `is_paid=1`)** for Stream-R already-paid posting, behind the `_build_already_paid_voucher()` swap seam (reversible per TODO T-010). `test_ap_invoice_capture` **Ran 134 tests … OK (skipped=1)** (was 120; +14 `TestAPInvoiceCaptureDocumentTypeBranching`: classify Already-Paid/Employee/Unpaid, override-wins, stream-disagreement→Manual Review, ambiguous→Manual Review, already-paid→is_paid PI with the bank-leg GL verified on submit, wrong-doctype/idempotency/missing-config guards, PI-guard-rejects-Already-Paid, cascade routing decisions at each fork, `get_already_paid_config`, migrate-safety schema). No-regression this session: `ap_closed_loop_settings` 20, `ap_supplier_coding_profile` 5, `ap_supplier_alias` 8, `supplier_master_change_request` 6, `async_runner` 6, `idempotency` 7, `stream_tagging` 17, `extractors` 19, `walking_skeleton` 4 — all OK (the auto-progress cascade test is inside the 134 and passed with the new classify hop). **Decisions adopted** = spec recommendations: D-07-1 Option C (locked provisionally, swappable), D-07-3 `expense_claim` as `Data` (hrms absent), D-07-4 sibling `get_already_paid_config()`, D-07-5 unmatched-when-employee-check-needed → Manual Review, D-07-6 leave the PI draft. **Reconciliations:** derived the provisional stream from spec-02's existing `stream` field (no duplicate `provisional_stream` field); reused `purchase_invoice` (Option C makes the Stream-R voucher a PI, so no `journal_entry` field); reused spec-01's `credit_card_clearing_account` as the paid-from account. **Deferrals (honest):** the `AP Review Event` emission on stream-disagreement is **deferred to spec 10** (that doctype isn't built) — the signal is persisted on the capture (`stream_tag_agreement='Disagree'` + reason) instead; the Employee→Expense Claim path is Manual Review (hrms absent); the Option-A JE builder is specified behind the seam but not built (C is locked). §7.2 clean-room runbook **written**; §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/07-classification-doctype-branching/`.
+>
 > **Verification state (06):** ✅ all 14 ACs green this session (Fake OCR; coding needs no live provider). New suite `test_ap_supplier_coding_profile` **5 OK**; `test_ap_invoice_capture` **Ran 120 tests … OK (skipped=1)** (was 107; +13 `TestAPCodingProfile`: 3-layer precedence, cost-center single-signal + conflict→Ambiguous, tax match/mismatch, submitted-PI guard, Stream-R catch-all ×2, the `is_fully_coded` gate, re-code-on-supplier-change mutating the draft PI, settings-footgun regression, missing-dimension-column skip). AC-06-13 (additive regression) = the existing promote tests still green in the 120. No-regression this session: `ap_closed_loop_settings` 20, `ap_supplier_alias` 8, `supplier_master_change_request` 6, `async_runner` 6, `idempotency` 7, `stream_tagging` 17, `extractors` 19, `walking_skeleton` 4 — all OK. **Decisions adopted** = spec recommendations: D1 single-company profile (no `company` field; payable stays native), D2 profile-only cost-center shipped with monkeypatchable location/card stubs that degrade to the profile signal, D3 ±0.01 tax tolerance, D4 `receipt_location` as `Data` (the Location doctype is **absent** on this bench), D5 Dynamic-Link dimension value, D7 new Coding-Review pause point (cascade hop gated on profile-existence so unconfigured sites flow unchanged), D8 separate `AP Supplier Coding Profile` doctype. Reconciliations: reused spec-04's `tax_amount`/`subtotal_amount` (no duplicate `extracted_tax_amount`); `unmapped_card_spend_account` already existed (spec 01/05); added `get_coding_settings()` accessor rather than overloading `get_promote_defaults`. §7.2 clean-room runbook **written**; §7.3 behavioral browser-smoke screenshots **committed** under `screenshots/06-gl-coding-tax-costcenter/`.
 >
 > **Verification state (05):** ✅ all 23 ACs green this session (Fake OCR pinned per the spec-01 test-env note, then the site's `Anthropic Claude` provider restored). New suites: `test_ap_supplier_alias` **8 OK**, `test_supplier_master_change_request` **6 OK**; extended: `test_ap_invoice_capture` **Ran 107 tests … OK (skipped=1: PDF/poppler)** (was 88; +19 spec-05 resolver/stream/Tier-3 tests, incl. the existing ambiguous-supplier test rewritten to drive the real 3-tier resolver via two aliases since this site names Suppliers by `supplier_name` so duplicate-name ambiguity is impossible), `test_ap_closed_loop_settings` **20 OK** (was 17; +3). No-regression proof this session: `test_extractors` 19, `test_anthropic` 26, `test_audit` 11, `test_hardening` 16, `test_benchmark` 9, `test_idempotency` 7, `test_async_runner` 6, `test_install` 3, `test_stream_tagging` 17, `test_portal_pull` 2 — all OK. **Open-decisions adopted** = the spec's recommendations (OD-05-1 distinct `Alias` status; OD-05-2 fuzzy min-length floor=4, exposed in settings; OD-05-3 auto-seed exact alias on approved create; OD-05-5 Stream-R Ambiguous treated soft; OD-05-6 regex kept, manager-authored + guarded; OD-05-7 consumes spec-02 `stream` — values `Receipt (R)`/`Invoice (I)`; OD-05-8 submittable `Supplier Master Change Request`). The Workflow record (states/transitions/roles) + `Treasury Approver`/`Auditor (Read Only)` roles + the non-Create `change_type` bodies are **deferred to spec 11/08** (approval is controller-driven via `approve_supplier_master_change_request` for now). §7.2 clean-room runbook **written**; §7.3 Playwright pass **pending**.
@@ -210,47 +214,47 @@ Tick each AC when its automated test is green. Descriptions live in each spec's 
 - [x] AC-06-14
 </details>
 
-<details><summary><b>07 — Classification & Branching · 0/14</b></summary>
+<details><summary><b>07 — Classification & Branching · 14/14</b></summary>
 
-- [ ] AC-07-1
-- [ ] AC-07-2
-- [ ] AC-07-3
-- [ ] AC-07-4
-- [ ] AC-07-5
-- [ ] AC-07-6
-- [ ] AC-07-7
-- [ ] AC-07-8
-- [ ] AC-07-9
-- [ ] AC-07-10
-- [ ] AC-07-11
-- [ ] AC-07-12
-- [ ] AC-07-13
-- [ ] AC-07-14
+- [x] AC-07-1
+- [x] AC-07-2
+- [x] AC-07-3
+- [x] AC-07-4
+- [x] AC-07-5
+- [x] AC-07-6
+- [x] AC-07-7
+- [x] AC-07-8
+- [x] AC-07-9
+- [x] AC-07-10
+- [x] AC-07-11
+- [x] AC-07-12
+- [x] AC-07-13
+- [x] AC-07-14
 </details>
 
-<details><summary><b>08 — Validation Gates · 0/21</b></summary>
+<details><summary><b>08 — Validation Gates · 21/21</b></summary>
 
-- [ ] AC-08-1
-- [ ] AC-08-2
-- [ ] AC-08-3
-- [ ] AC-08-4
-- [ ] AC-08-5
-- [ ] AC-08-6
-- [ ] AC-08-7
-- [ ] AC-08-8
-- [ ] AC-08-9
-- [ ] AC-08-10
-- [ ] AC-08-11
-- [ ] AC-08-12
-- [ ] AC-08-13
-- [ ] AC-08-14
-- [ ] AC-08-15
-- [ ] AC-08-16
-- [ ] AC-08-17
-- [ ] AC-08-18
-- [ ] AC-08-19
-- [ ] AC-08-20
-- [ ] AC-08-21
+- [x] AC-08-1
+- [x] AC-08-2
+- [x] AC-08-3
+- [x] AC-08-4
+- [x] AC-08-5
+- [x] AC-08-6
+- [x] AC-08-7
+- [x] AC-08-8
+- [x] AC-08-9
+- [x] AC-08-10
+- [x] AC-08-11
+- [x] AC-08-12
+- [x] AC-08-13
+- [x] AC-08-14
+- [x] AC-08-15
+- [x] AC-08-16
+- [x] AC-08-17
+- [x] AC-08-18
+- [x] AC-08-19
+- [x] AC-08-20
+- [x] AC-08-21
 </details>
 
 <details><summary><b>09 — Confidence Routing · 0/14</b></summary>

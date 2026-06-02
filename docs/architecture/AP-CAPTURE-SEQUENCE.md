@@ -3,18 +3,20 @@
 > Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-05-31.
+> Last derived from code: 2026-06-01.
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
 > `<bench>/env/bin/python docs/architecture/render_sequence_diagram.py` and commit
 > both files together (the CLAUDE.md "AP capture cascade / workflow" rule).
 
-The cascade auto-advances through the steps below, **pausing at three human-decision
-seams** (OCR review, manual Promote, manager approval). Each hop is enqueued on the
-async runner (`frappe.enqueue`, after-commit) in production; in tests it runs
-synchronously. A step only fires when its precondition holds, so a `Duplicate` /
-`Unsupported` / `Rejected` capture simply stops.
+The cascade auto-advances through the steps below, **pausing at human-decision
+seams** (OCR review, Coding Review when ambiguous, manual Promote, manager approval)
+and **parking at Manual Review** for an employee/conflicting classification. Each hop
+is enqueued on the async runner (`frappe.enqueue`, after-commit) in production; in
+tests it runs synchronously. A step only fires when its precondition holds (the
+`_determine_next_step` routing table), so a `Duplicate` / `Unsupported` / `Manual
+Review` / `Blocked` / `Rejected` capture simply stops.
 
 ```mermaid
 sequenceDiagram
@@ -63,27 +65,56 @@ sequenceDiagram
     Cap->>Cap: proposed_* → final_*, ocr_status=Confirmed
     Cap->>Q: _kick_next_step()
 
-    Note over Q,Cap: Step 2 — validation
+    Note over Q,Cap: Step 1b — document-type classification (spec 07)
+    Q->>Cap: classify_document_type()
+    Cap->>Cap: card/paid marker · employee supplier group · stream agreement<br/>(clerk override always wins) → document_type
+    alt Employee Reimbursement, stream conflict, or unmatched-when-employee-check
+        Cap-->>Clerk: status=Manual Review — CASCADE STOPS
+    else Unpaid Bill or Already Paid
+        Cap->>Q: _kick_next_step()
+    end
+
+    Note over Q,Cap: Step 2 — validation + gates (specs 05 / 08)
     Q->>Cap: validate_for_purchase_invoice()
-    Cap->>Cap: supplier match + PO/PR reference,<br/>validation_status=Validated
-    alt unknown supplier / blocked
+    Cap->>Cap: 3-tier supplier match (alias→exact→fuzzy) + PO/PR reference (spec 05)
+    Cap->>Cap: gates (spec 08): three-way match · amount anomaly · vendor bank-change
+    alt unknown/ambiguous supplier · 3WM Exception · Anomalous · bank change (Stream I)
         Cap-->>Clerk: validation_status=Blocked + action_required — STOPS
+    else validated
+        Cap->>Cap: validation_status=Validated
+    end
+
+    alt document_type = Already Paid (Stream R) + paid-from account configured
+        Note over Q,PI: Step 2a — already-paid posting (spec 07)
+        Q->>PI: promote_already_paid() → Purchase Invoice is_paid=1
+        PI-->>Cap: invoice + payment legs in one voucher —<br/>SKIPS approval/payment, CASCADE STOPS
+    end
+
+    opt coding configured (supplier profile or Stream-R catch-all, spec 06)
+        Note over Q,Set: Step 2b — GL coding · cost center · tax
+        Q->>Cap: apply_coding_profile()
+        Cap->>Set: get_coding_settings()
+        alt cost-center conflict or tax mismatch
+            Cap-->>Clerk: coding_status=Ambiguous/Flagged — ⏸ Coding Review, STOPS
+        end
     end
     Note over Cap,Clerk: ⏸ PAUSE — manual Promote (needs company / item defaults)
 
     Clerk->>Cap: promote_to_purchase_invoice(defaults)
-    alt line items present (spec 04, line-aware)
+    opt line items present (spec 04, line-aware)
         Cap->>Cap: reconcile sum(lines) vs total
         alt mismatch > 0.01
             Cap-->>Clerk: CapturePromotionError + action_required — STOPS (no PI)
         end
-        Cap->>PI: create Purchase Invoice (one item per line)
-    else no line items (header-line fallback)
-        Cap->>PI: create Purchase Invoice (single header line)
     end
+    Cap->>Cap: re-check vendor bank-change (spec 08)
+    alt bank changed since last payment, no approved request (Stream I)
+        Cap-->>Clerk: CapturePromotionError — STOPS (no PI)
+    end
+    Cap->>PI: create Purchase Invoice (one item per line / header fallback)
     Cap->>Q: _kick_next_step()
 
-    Note over Q,Set: Step 3 — approval routing
+    Note over Q,Set: Step 3 — approval routing (Already-Paid skips)
     Q->>Cap: request_approval()
     Cap->>Set: get_auto_post_threshold()
     alt total ≤ threshold
@@ -107,18 +138,31 @@ sequenceDiagram
 
 ## Notes on current state
 
-- **Stream R vs Stream I:** intake tags a provisional stream (spec 02), but the
-  cascade above is the **single linear path** — the divergent Stream-R posting
-  (PI `is_paid` / clearing) and bank-feed reconciliation (specs 07 / 13) are
-  **not yet built**, so today every capture follows the Promote → Approve → Pay
-  path regardless of stream.
-- **Three pause seams** are deliberate (no silent posting): OCR review, manual
-  Promote, manager approval.
+- **Stream R vs Stream I now diverge (spec 07).** Step 1b classifies the doctype;
+  an **Already Paid** (Stream R) capture posts a single `is_paid=1` Purchase Invoice
+  at Step 2a (invoice + payment legs in one voucher) and **skips approval/payment**.
+  An **Unpaid Bill** (Stream I) follows the full Promote → Approve → Pay path. An
+  **Employee Reimbursement** / stream-conflict / unmatched-when-employee-check
+  classification parks at **Manual Review**. (Bank-feed reconciliation, specs 13/14,
+  is still not built.)
+- **Validation gates (spec 08).** Step 2 runs three stream-aware gates — three-way
+  match, amount anomaly, vendor bank-change — that block a Stream-I capture on
+  failure (recorded-only on Stream R). The bank-change gate **re-asserts inside
+  `promote_to_purchase_invoice`**, so a bank change made *after* a clean validation
+  still blocks promotion until an approved Update-Bank-Details request lifts it.
+- **GL coding (spec 06).** Step 2b auto-codes expense/cost-center/tax when a supplier
+  coding profile (or the Stream-R catch-all account) is configured; an ambiguous
+  cost center or tax mismatch parks at **Coding Review**. Unconfigured sites skip
+  straight to the Promote seam (graceful degrade).
+- **Pause / park seams** are deliberate (no silent posting): OCR review, Coding
+  Review (when ambiguous), manual Promote, manager approval — plus the Manual Review
+  park for classification.
 - **Payment is mock** — `issue_mock_payment` writes a Payment Entry tagged as a
   pilot mock; there is no real banking integration.
 - **Dedupe perceptual branch** needs `poppler` on the worker; absent it, Step 0
   degrades to the exact-hash check only (the rest of the flow is unchanged).
 - **Routing table:** the step preconditions live in `_determine_next_step`
   (`ap_invoice_capture.py`); the whitelisted step functions are
-  `run_dedupe_for` / `run_fake_extraction_for` / `validate_for_purchase_invoice_for`
-  / `request_approval_for` / `issue_mock_payment_for`.
+  `run_dedupe_for` / `run_fake_extraction_for` / `classify_document_type_for` /
+  `validate_for_purchase_invoice_for` / `promote_already_paid_for` /
+  `apply_coding_profile_for_ui` / `request_approval_for` / `issue_mock_payment_for`.

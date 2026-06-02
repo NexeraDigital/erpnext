@@ -468,6 +468,7 @@ scheduler_events = {
 	],
 	"daily": [
 		"erpnext.mcp.tasks.prune_audit_logs",
+		"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.refresh_anomaly_baselines",
 	],
 	"daily_long": [],
 	"daily_maintenance": [

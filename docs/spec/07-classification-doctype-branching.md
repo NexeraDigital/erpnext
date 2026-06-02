@@ -3,7 +3,7 @@ spec: 07-classification-doctype-branching
 title: Document-Type Classification & Doctype Branching (stream-aware)
 plan_step: Step 6 — Document-Type Classification & Doctype Selection (confirms/revises the Step 1 provisional stream tag)
 stream: both
-status: Draft
+status: Done
 depends_on: [01-foundations-settings-async-idempotency, 02-intake-stream-tagging, 05-supplier-resolution, 06-gl-coding-tax-costcenter]
 related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates, 10-ap-review-observability, 14-closure-audit-retention]
 ---

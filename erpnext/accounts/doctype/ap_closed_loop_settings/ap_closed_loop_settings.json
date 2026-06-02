@@ -42,12 +42,22 @@
   "clearing_accounts_section",
   "credit_card_clearing_account",
   "unmapped_card_spend_account",
+  "employee_supplier_group",
   "coding_section",
   "default_purchase_tax_template",
   "stream_rules_section",
   "stream_rules",
   "ap_intake_email_account",
+  "three_way_match_section",
+  "qty_tolerance_pct",
+  "amount_tolerance_pct",
+  "respect_over_billing_allowance",
+  "require_po_for_invoices",
   "anomaly_section",
+  "anomaly_lookback_months",
+  "anomaly_multiple",
+  "anomaly_sigma",
+  "anomaly_min_sample",
   "bank_feed_section"
  ],
  "fields": [
@@ -291,6 +301,13 @@
    "options": "Account"
   },
   {
+   "description": "Supplier Group whose members are treated as employees (spec 07): a matched supplier in this group classifies as Employee Reimbursement (routed to Manual Review until hrms is installed). No native employee flag exists on Supplier Group, so this is matched by group name.",
+   "fieldname": "employee_supplier_group",
+   "fieldtype": "Link",
+   "label": "Employee Supplier Group",
+   "options": "Supplier Group"
+  },
+  {
    "fieldname": "coding_section",
    "fieldtype": "Section Break",
    "label": "GL Coding Defaults (spec 06)"
@@ -325,10 +342,72 @@
   },
   {
    "collapsible": 1,
-   "description": "Reserved — amount-anomaly detection parameters are filled by the validation-gates step.",
+   "fieldname": "three_way_match_section",
+   "fieldtype": "Section Break",
+   "label": "Three-Way Match Tolerance (spec 08)"
+  },
+  {
+   "default": "0",
+   "description": "Max % over-receipt/over-bill on qty before a line is a 3WM Exception. 0 = exact match required.",
+   "fieldname": "qty_tolerance_pct",
+   "fieldtype": "Float",
+   "label": "Qty Tolerance %"
+  },
+  {
+   "default": "0",
+   "description": "Max % over-PO on rate before a line is a 3WM Exception. 0 = exact match required.",
+   "fieldname": "amount_tolerance_pct",
+   "fieldtype": "Float",
+   "label": "Amount Tolerance %"
+  },
+  {
+   "default": "0",
+   "description": "When on, the effective amount tolerance is max(amount_tolerance_pct, Accounts Settings.over_billing_allowance) so 3WM never blocks what ERPNext itself would allow. Default off = AP tolerance is independent and stricter.",
+   "fieldname": "respect_over_billing_allowance",
+   "fieldtype": "Check",
+   "label": "Respect Over-Billing Allowance"
+  },
+  {
+   "default": "0",
+   "description": "PO-upstream-control policy: when on, a Stream-I invoice with NO PO reference is itself a 3WM Exception. Default off allows PO-less / two-way matching.",
+   "fieldname": "require_po_for_invoices",
+   "fieldtype": "Check",
+   "label": "Require PO For Invoices"
+  },
+  {
+   "collapsible": 1,
+   "description": "Amount-anomaly detection parameters (spec 08): flag an invoice whose total far exceeds the supplier's recent history.",
    "fieldname": "anomaly_section",
    "fieldtype": "Section Break",
    "label": "Anomaly Detection"
+  },
+  {
+   "default": "6",
+   "description": "Rolling window of submitted PI history per supplier.",
+   "fieldname": "anomaly_lookback_months",
+   "fieldtype": "Int",
+   "label": "Anomaly Lookback Months"
+  },
+  {
+   "default": "3.0",
+   "description": "'> N x rolling average' rule.",
+   "fieldname": "anomaly_multiple",
+   "fieldtype": "Float",
+   "label": "Anomaly Multiple"
+  },
+  {
+   "default": "2.0",
+   "description": "'> N standard deviations from the mean' rule.",
+   "fieldname": "anomaly_sigma",
+   "fieldtype": "Float",
+   "label": "Anomaly Sigma"
+  },
+  {
+   "default": "5",
+   "description": "Minimum prior submitted PIs before the anomaly rule can fire; below this = Insufficient History (recorded, never blocking).",
+   "fieldname": "anomaly_min_sample",
+   "fieldtype": "Int",
+   "label": "Anomaly Min Sample"
   },
   {
    "collapsible": 1,

@@ -35,6 +35,11 @@ class APSupplierCodingProfile(Document):
 		default_expense_account: DF.Link | None
 		default_payment_terms_template: DF.Link | None
 		default_purchase_tax_template: DF.Link | None
+		qty_tolerance_pct: DF.Float
+		amount_tolerance_pct: DF.Float
+		anomaly_multiple: DF.Float
+		anomaly_sigma: DF.Float
+		anomaly_min_sample: DF.Int
 		supplier: DF.Link
 	# end: auto-generated types
 

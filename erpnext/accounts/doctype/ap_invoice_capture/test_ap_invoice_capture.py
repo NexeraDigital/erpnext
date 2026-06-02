@@ -101,9 +101,39 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	CODING_STATUS_AMBIGUOUS,
 	CODING_STATUS_CODED,
 	CODING_STATUS_FLAGGED,
+	classify_document_type,
+	promote_already_paid,
+	DOCUMENT_TYPE_UNPAID_BILL,
+	DOCUMENT_TYPE_ALREADY_PAID,
+	DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT,
+	DOCUMENT_TYPE_MANUAL_REVIEW,
+	STATUS_MANUAL_REVIEW,
+	STREAM_AGREEMENT_AGREE,
+	STREAM_AGREEMENT_DISAGREE,
+	STREAM_AGREEMENT_UNCONFIRMED,
+	CLASSIFIED_STREAM_I,
+	CLASSIFIED_STREAM_R,
+	CLASSIFICATION_SOURCE_OVERRIDE,
 	_apply_dimensions_to_row,
 	_match_supplier,
 	_resolve_supplier,
+	three_way_match_for,
+	detect_amount_anomaly_for,
+	detect_vendor_bank_change_for,
+	override_three_way_match,
+	has_approved_bank_change,
+	refresh_anomaly_baselines,
+	_upsert_anomaly_baseline,
+	_anomaly_baseline,
+	_resolve_gate_config,
+	THREE_WAY_MATCH_NOT_CHECKED,
+	THREE_WAY_MATCH_NOT_APPLICABLE,
+	THREE_WAY_MATCH_MATCHED,
+	THREE_WAY_MATCH_EXCEPTION,
+	THREE_WAY_MATCH_OVERRIDE,
+	ANOMALY_NORMAL,
+	ANOMALY_ANOMALOUS,
+	ANOMALY_INSUFFICIENT_HISTORY,
 )
 from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
 
@@ -2672,3 +2702,684 @@ class TestAPCodingProfile(IntegrationTestCase):
 			_apply_dimensions_to_row(item, [{"dimension": "No Such Dim", "dimension_value": "X"}])
 		except Exception as exc:  # noqa: BLE001
 			self.fail(f"_apply_dimensions_to_row raised on a missing dimension: {exc}")
+
+
+class TestAPInvoiceCaptureDocumentTypeBranching(IntegrationTestCase):
+	"""Spec 07 — Step-6 document-type classification + stream-aware doctype branching
+	(Already-Paid posts an is_paid Purchase Invoice, the locked Option C)."""
+
+	_BANK = "_Test Bank - _TC"
+
+	def setUp(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "ocr_provider", "Fake (Deterministic)")
+		frappe.db.set_single_value("AP Closed Loop Settings", "employee_supplier_group", None)
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", None)
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	# --- helpers ---------------------------------------------------------
+	def _confirmed(self, supplier="_Test Supplier", source_context="ordinary bill", total="100.00"):
+		f = _make_file(f"cls-{frappe.generate_hash(length=6)}.pdf")
+		cap = create_capture_from_file(file_doc=f, source_context=source_context)
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap, corrections={"supplier": supplier, "currency": "INR", "total_amount": total}, reviewer="Administrator"
+		)
+		cap.reload()
+		return cap
+
+	def _employee_group(self):
+		name = f"SPEC07 Employees {frappe.generate_hash(length=6)}"
+		frappe.get_doc({"doctype": "Supplier Group", "supplier_group_name": name, "parent_supplier_group": "All Supplier Groups"}).insert(ignore_permissions=True)
+		frappe.db.set_single_value("AP Closed Loop Settings", "employee_supplier_group", name)
+		return name
+
+	def _supplier_in_group(self, group):
+		name = f"SPEC07 Emp {frappe.generate_hash(length=6)}"
+		frappe.get_doc({"doctype": "Supplier", "supplier_name": name, "supplier_group": group, "supplier_type": "Individual"}).insert(ignore_permissions=True)
+		return name
+
+	# --- AC-07-1: classify Already Paid ----------------------------------
+	def test_ac_07_1_classify_already_paid(self):
+		cap = self._confirmed(source_context="Receipt — paid by Visa ****1234")
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		self.assertEqual(cap.classified_stream, CLASSIFIED_STREAM_R)
+		self.assertEqual(cap.detected_last4, "1234")
+		self.assertTrue(cap.card_charge_marker)
+
+	# --- AC-07-2: classify Employee Reimbursement ------------------------
+	def test_ac_07_2_classify_employee(self):
+		group = self._employee_group()
+		emp = self._supplier_in_group(group)
+		cap = self._confirmed(supplier=emp)
+		cap.matched_supplier = emp  # classifier keys on matched_supplier
+		cap.save(ignore_permissions=True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_EMPLOYEE_REIMBURSEMENT)
+		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)
+		self.assertFalse(cap.expense_claim)  # no live link (hrms absent)
+
+	# --- AC-07-3: classify Unpaid Bill -----------------------------------
+	def test_ac_07_3_classify_unpaid_bill(self):
+		cap = self._confirmed()
+		cap.matched_supplier = "_Test Supplier"
+		cap.save(ignore_permissions=True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(cap.classified_stream, CLASSIFIED_STREAM_I)
+
+	# --- AC-07-4: override wins ------------------------------------------
+	def test_ac_07_4_override_wins(self):
+		cap = self._confirmed(source_context="paid by Visa ****1234")  # would be Already Paid
+		classify_document_type(cap, override=DOCUMENT_TYPE_UNPAID_BILL)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_OVERRIDE)
+
+	# --- AC-07-5: stream disagreement -> Manual Review -------------------
+	def test_ac_07_5_disagreement_manual_review(self):
+		cap = self._confirmed(source_context="paid by Visa ****1234")  # classifier reads R
+		cap.stream = "Invoice (I)"  # intake tagged I
+		cap.save(ignore_permissions=True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
+		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)
+		self.assertEqual(cap.stream_tag_agreement, STREAM_AGREEMENT_DISAGREE)
+		self.assertEqual(cap.action_required, 1)
+		self.assertIn("conflict", (cap.action_required_reason or "").lower())
+
+	# --- AC-07-6: unmatched supplier when employee-check needed -> review -
+	def test_ac_07_6_ambiguous_manual_review(self):
+		self._employee_group()  # employee distinction is configured
+		cap = self._confirmed(source_context="ordinary bill")
+		cap.matched_supplier = None
+		cap.save(ignore_permissions=True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
+		self.assertEqual(cap.status, STATUS_MANUAL_REVIEW)
+
+	# --- AC-07-7: Already-Paid -> is_paid PI with both GL layers ----------
+	def test_ac_07_7_already_paid_is_paid_invoice(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", self._BANK)
+		cap = self._confirmed(source_context="paid by Visa ****1234", total="100.00")
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		validate_for_purchase_invoice(cap)  # resolve supplier (Stream R still needs a Supplier for the PI)
+		cap.reload()
+		pi = promote_already_paid(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		self.assertEqual(int(pi.is_paid), 1)
+		self.assertEqual(pi.cash_bank_account, self._BANK)
+		self.assertEqual(cap.purchase_invoice, pi.name)
+		self.assertEqual(cap.promotion_status, PROMOTION_STATUS_PROMOTED)
+		# Submit and prove the is-paid payment leg posts to the bank account.
+		frappe.get_doc("Purchase Invoice", pi.name).submit()
+		bank_gl = frappe.get_all("GL Entry", filters={"voucher_no": pi.name, "account": self._BANK})
+		self.assertTrue(bank_gl, "expected a GL entry against the bank account from the is_paid leg")
+
+	# --- AC-07-8: wrong document_type on already-paid promote ------------
+	def test_ac_07_8_already_paid_wrong_doctype(self):
+		cap = self._confirmed()
+		cap.matched_supplier = "_Test Supplier"
+		cap.save(ignore_permissions=True)
+		classify_document_type(cap)  # -> Unpaid Bill
+		cap.reload()
+		with self.assertRaises(CapturePromotionError):
+			promote_already_paid(cap)
+
+	# --- AC-07-9: idempotency guard --------------------------------------
+	def test_ac_07_9_already_paid_idempotent(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", self._BANK)
+		cap = self._confirmed(source_context="paid by Visa ****1234")
+		classify_document_type(cap)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		promote_already_paid(cap, defaults=_PROMOTION_DEFAULTS)
+		cap.reload()
+		with self.assertRaises(CapturePromotionError):
+			promote_already_paid(cap, defaults=_PROMOTION_DEFAULTS)
+
+	# --- AC-07-10: missing config -> raises, no PI -----------------------
+	def test_ac_07_10_missing_config(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", None)
+		cap = self._confirmed(source_context="paid by Visa ****1234")
+		classify_document_type(cap)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		pi_before = frappe.db.count("Purchase Invoice")
+		with self.assertRaises(CapturePromotionError):
+			promote_already_paid(cap, defaults=_PROMOTION_DEFAULTS)
+		self.assertEqual(frappe.db.count("Purchase Invoice"), pi_before)
+
+	# --- AC-07-11: PI guard rejects Already-Paid -------------------------
+	def test_ac_07_11_pi_guard_rejects_already_paid(self):
+		cap = self._confirmed(source_context="paid by Visa ****1234")
+		classify_document_type(cap)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)  # standard path
+
+	# --- AC-07-12: cascade routing decisions at each fork ----------------
+	def test_ac_07_12_cascade_routing(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", self._BANK)
+		# Confirmed + unclassified -> classify first.
+		unpaid = self._confirmed(source_context="ordinary bill")
+		self.assertEqual(unpaid._determine_next_step()[0], "classify_document_type_for")
+		# Unpaid Bill -> validation path.
+		classify_document_type(unpaid)
+		unpaid.reload()
+		self.assertEqual(unpaid.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(unpaid._determine_next_step()[0], "validate_for_purchase_invoice_for")
+		# Already Paid -> after validation, routes to the already-paid posting.
+		paid = self._confirmed(source_context="paid by Visa ****1234")
+		classify_document_type(paid)
+		paid.reload()
+		self.assertEqual(paid.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		validate_for_purchase_invoice(paid)
+		paid.reload()
+		self.assertEqual(paid._determine_next_step()[0], "promote_already_paid_for")
+		# Manual Review (stream conflict) halts the cascade.
+		mr = self._confirmed(source_context="paid by Visa ****1234")
+		mr.stream = "Invoice (I)"
+		mr.save(ignore_permissions=True)
+		classify_document_type(mr)
+		mr.reload()
+		self.assertEqual(mr.document_type, DOCUMENT_TYPE_MANUAL_REVIEW)
+		self.assertIsNone(mr._determine_next_step())
+
+	# --- AC-07-13: get_already_paid_config -------------------------------
+	def test_ac_07_13_already_paid_config(self):
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			get_already_paid_config,
+		)
+
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", self._BANK)
+		cfg = get_already_paid_config()
+		self.assertEqual(cfg["paid_from_account"], self._BANK)
+		frappe.db.set_single_value("AP Closed Loop Settings", "credit_card_clearing_account", None)
+		self.assertIsNone(get_already_paid_config()["paid_from_account"])
+
+	# --- AC-07-14: migrate safety ----------------------------------------
+	def test_ac_07_14_schema(self):
+		meta = frappe.get_meta("AP Invoice Capture")
+		self.assertEqual(meta.get_field("document_type").fieldtype, "Select")
+		self.assertEqual(meta.get_field("expense_claim").fieldtype, "Data")  # NOT a Link
+		self.assertIn("Manual Review", (meta.get_field("status").options or "").split("\n"))
+
+
+class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
+	"""Spec 08 — three-way match, amount anomaly, vendor bank-change gates.
+
+	Gates are stream-aware: blocking on Stream I, recorded-only on Stream R. Each
+	test rolls back in tearDown so the suite stays reentrant.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	# ---- fixtures ---------------------------------------------------------
+
+	def _new_supplier(self):
+		"""A fresh Supplier with NO PI / PE / bank history (clean baseline)."""
+		s = frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": "AP Gate Vendor " + frappe.generate_hash(length=8),
+				"supplier_group": "_Test Supplier Group",
+				"supplier_type": "Company",
+			}
+		).insert(ignore_permissions=True)
+		return s.name
+
+	def _confirmed(
+		self,
+		*,
+		supplier="_Test Supplier",
+		matched=None,
+		total=1000.0,
+		stream=STREAM_INVOICE,
+		lines=None,
+		po_ref=None,
+	):
+		"""A Confirmed capture with gate-relevant fields set (no validate run yet)."""
+		f = _make_file("gate-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f)
+		run_fake_extraction(cap)
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": supplier, "total_amount": str(total), "currency": "INR"},
+		)
+		cap.reload()
+		cap.stream = stream
+		cap.matched_supplier = supplier if matched is None else matched
+		if po_ref:
+			cap.purchase_order_reference = po_ref
+		if lines is not None:
+			cap.set("line_items", lines)
+		cap.flags.ignore_links = True
+		cap.save()
+		return cap
+
+	def _make_po(self, *, qty=10, rate=100, received_qty=None):
+		from erpnext.buying.doctype.purchase_order.test_purchase_order import create_purchase_order
+
+		po = create_purchase_order(qty=qty, rate=rate)
+		if received_qty is not None:
+			frappe.db.set_value("Purchase Order Item", po.items[0].name, "received_qty", received_qty)
+		return po.name
+
+	def _line(self, qty, rate, po_ref=None):
+		row = {
+			"description": "Item",
+			"qty": qty,
+			"rate": rate,
+			"amount": qty * rate,
+			"currency": "INR",
+		}
+		if po_ref:
+			row["po_reference"] = po_ref
+		return row
+
+	def _seed_baseline(self, supplier, *, n, mean, stddev, window=6):
+		"""Plant a FRESH anomaly baseline cache row (O(1) read path)."""
+		_upsert_anomaly_baseline(supplier, n, mean, stddev, window)
+
+	# ---- three-way match --------------------------------------------------
+
+	# AC-08-1
+	def test_ac_08_1_three_way_match_matched(self):
+		po = self._make_po(qty=10, rate=100, received_qty=10)  # ordered 1000, received 10
+		cap = self._confirmed(total=1000.0, po_ref=po, lines=[self._line(10, 100, po)])
+		three_way_match_for(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_MATCHED)
+		result = json.loads(cap.three_way_match_result)
+		self.assertTrue(result["within_tolerance"])
+		self.assertTrue(cap.three_way_match_checked_at)
+
+	# AC-08-2
+	def test_ac_08_2_three_way_match_qty_exception(self):
+		po = self._make_po(qty=10, rate=100, received_qty=10)
+		# invoiced qty 12 > received 10 (tol 0); amount kept within (final_total 1000)
+		cap = self._confirmed(total=1000.0, po_ref=po, lines=[self._line(12, 100, po)])
+		three_way_match_for(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_EXCEPTION)
+		self.assertGreater(json.loads(cap.three_way_match_result)["qty_diff_pct"], 0)
+
+	# AC-08-3
+	def test_ac_08_3_three_way_match_amount_exception(self):
+		po = self._make_po(qty=10, rate=100, received_qty=10)  # ordered 1000
+		# invoiced amount 1100 over PO 1000 beyond 0 tolerance; qty within
+		cap = self._confirmed(total=1100.0, po_ref=po, lines=[self._line(10, 110, po)])
+		three_way_match_for(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_EXCEPTION)
+		self.assertGreater(json.loads(cap.three_way_match_result)["amount_diff_pct"], 0)
+
+	# AC-08-4
+	def test_ac_08_4_strict_boundary(self):
+		po = self._make_po(qty=10, rate=100, received_qty=10)  # ordered 1000
+		exact = self._confirmed(total=1000.0, po_ref=po, lines=[self._line(10, 100, po)])
+		three_way_match_for(exact)
+		exact.reload()
+		self.assertEqual(exact.three_way_match_status, THREE_WAY_MATCH_MATCHED)
+
+		over = self._confirmed(total=1000.01, po_ref=po, lines=[self._line(10, 100, po)])
+		three_way_match_for(over)
+		over.reload()
+		self.assertEqual(over.three_way_match_status, THREE_WAY_MATCH_EXCEPTION)
+
+	# AC-08-5
+	def test_ac_08_5_per_supplier_override_widens(self):
+		supplier = self._new_supplier()
+		profile = frappe.get_doc(
+			{
+				"doctype": "AP Supplier Coding Profile",
+				"supplier": supplier,
+				"amount_tolerance_pct": 20.0,  # widen so 1100 vs 1000 passes
+			}
+		).insert(ignore_permissions=True)
+		self.assertTrue(profile.name)
+		po = self._make_po(qty=10, rate=100, received_qty=10)  # ordered 1000
+		cap = self._confirmed(
+			supplier=supplier, matched=supplier, total=1100.0, po_ref=po, lines=[self._line(10, 110, po)]
+		)
+		# Sanity: the resolver actually picked up the override.
+		self.assertEqual(_resolve_gate_config(cap)["amount_tolerance_pct"], 20.0)
+		three_way_match_for(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_MATCHED)
+
+	# AC-08-6
+	def test_ac_08_6_no_profile_settings_fallback(self):
+		supplier = self._new_supplier()  # no coding profile
+		self.assertFalse(frappe.db.exists("AP Supplier Coding Profile", supplier))
+		cfg = _resolve_gate_config(self._confirmed(supplier=supplier, matched=supplier))
+		# Hard-default settings (strict 0 tolerance, defaults for anomaly).
+		self.assertEqual(cfg["amount_tolerance_pct"], 0.0)
+		self.assertEqual(cfg["qty_tolerance_pct"], 0.0)
+		self.assertEqual(cfg["anomaly_multiple"], 3.0)
+
+	# AC-08-7
+	def test_ac_08_7_override_three_way_match(self):
+		po = self._make_po(qty=10, rate=100, received_qty=10)
+		cap = self._confirmed(total=1100.0, po_ref=po, lines=[self._line(10, 110, po)])
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_EXCEPTION)
+
+		# empty notes -> raises
+		with self.assertRaises(CaptureValidationError):
+			override_three_way_match(cap, notes="   ")
+
+		override_three_way_match(cap, notes="Approved variance per PO amendment.")
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_OVERRIDE)
+		self.assertEqual(cap.three_way_match_override_by, "Administrator")
+		self.assertTrue(cap.three_way_match_override_at)
+		self.assertIn("variance", cap.three_way_match_override_notes)
+
+		# non-Exception status -> raises (already Override now)
+		with self.assertRaises(CaptureValidationError):
+			override_three_way_match(cap, notes="again")
+
+	# AC-08-8
+	def test_ac_08_8_not_applicable_no_po_and_stream_r(self):
+		no_po = self._confirmed(total=500.0)  # Stream I, no PO, require_po off
+		three_way_match_for(no_po)
+		no_po.reload()
+		self.assertEqual(no_po.three_way_match_status, THREE_WAY_MATCH_NOT_APPLICABLE)
+
+		stream_r = self._confirmed(total=500.0, stream=STREAM_RECEIPT)
+		three_way_match_for(stream_r)
+		stream_r.reload()
+		self.assertEqual(stream_r.three_way_match_status, THREE_WAY_MATCH_NOT_APPLICABLE)
+
+	# AC-08-9
+	def test_ac_08_9_require_po_policy(self):
+		frappe.db.set_single_value("AP Closed Loop Settings", "require_po_for_invoices", 1)
+		try:
+			cap = self._confirmed(total=500.0)  # Stream I, no PO
+			three_way_match_for(cap)
+			cap.reload()
+			self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_EXCEPTION)
+		finally:
+			frappe.db.set_single_value("AP Closed Loop Settings", "require_po_for_invoices", 0)
+
+	# ---- amount anomaly ---------------------------------------------------
+
+	# AC-08-10
+	def test_ac_08_10_anomaly_normal(self):
+		supplier = self._new_supplier()
+		self._seed_baseline(supplier, n=6, mean=5000.0, stddev=300.0)
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=5500.0)
+		detect_amount_anomaly_for(cap)
+		cap.reload()
+		self.assertEqual(cap.anomaly_status, ANOMALY_NORMAL)
+		self.assertTrue(cap.anomaly_result)
+
+	# AC-08-11
+	def test_ac_08_11_anomaly_anomalous(self):
+		supplier = self._new_supplier()
+		self._seed_baseline(supplier, n=6, mean=5200.0, stddev=400.0)
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=18400.0)
+		detect_amount_anomaly_for(cap)
+		cap.reload()
+		self.assertEqual(cap.anomaly_status, ANOMALY_ANOMALOUS)
+		self.assertIn("18,400", cap.anomaly_result)
+
+		# Through validate -> Blocked, and action_required_reason (a 140-char Data
+		# field) must not overflow on the long anomaly evidence.
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_BLOCKED)
+		self.assertLessEqual(len(cap.action_required_reason or ""), 140)
+		self.assertIn("anomaly", cap.validation_result.lower())
+
+	# AC-08-12
+	def test_ac_08_12_insufficient_history_not_blocking(self):
+		supplier = self._new_supplier()
+		self._seed_baseline(supplier, n=3, mean=5000.0, stddev=200.0)  # n < 5
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=50000.0)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.anomaly_status, ANOMALY_INSUFFICIENT_HISTORY)
+		# Not blocked on anomaly alone (no PO -> 3WM N/A, no PE -> bank soft).
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
+
+	# AC-08-13
+	def test_ac_08_13_empty_history(self):
+		supplier = self._new_supplier()  # zero PIs, no baseline row
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=9999.0)
+		detect_amount_anomaly_for(cap)
+		cap.reload()
+		self.assertEqual(cap.anomaly_status, ANOMALY_INSUFFICIENT_HISTORY)
+
+	# AC-08-14
+	def test_ac_08_14_refresh_baseline_matches_recompute_and_idempotent(self):
+		supplier = self._new_supplier()
+		self._submit_pi(supplier, 1000.0)
+		self._submit_pi(supplier, 2000.0)
+		self._submit_pi(supplier, 3000.0)
+
+		refresh_anomaly_baselines()
+		row = frappe.db.get_value(
+			"AP Supplier Anomaly Baseline",
+			supplier,
+			["sample_count", "mean_grand_total", "stddev_grand_total"],
+			as_dict=True,
+		)
+		self.assertIsNotNone(row)
+		# Direct recompute (population stats over 1000/2000/3000).
+		self.assertEqual(int(row.sample_count), 3)
+		self.assertAlmostEqual(flt(row.mean_grand_total), 2000.0, places=2)
+		self.assertAlmostEqual(flt(row.stddev_grand_total), (2_000_000 / 3) ** 0.5, places=2)
+
+		# Idempotent: a second run keeps one row, same values.
+		before = frappe.db.count("AP Supplier Anomaly Baseline", {"supplier": supplier})
+		refresh_anomaly_baselines()
+		after = frappe.db.count("AP Supplier Anomaly Baseline", {"supplier": supplier})
+		self.assertEqual(before, after)
+		row2 = frappe.db.get_value(
+			"AP Supplier Anomaly Baseline", supplier, "mean_grand_total"
+		)
+		self.assertAlmostEqual(flt(row2), 2000.0, places=2)
+
+	def _submit_pi(self, supplier, amount):
+		pi = frappe.get_doc(
+			{
+				"doctype": "Purchase Invoice",
+				"supplier": supplier,
+				"company": "_Test Company",
+				"currency": "INR",
+				"posting_date": frappe.utils.today(),
+				"bill_no": "GATE-" + frappe.generate_hash(length=6),
+				"items": [
+					{
+						"item_code": "_Test Item",
+						"qty": 1,
+						"rate": amount,
+						"expense_account": "_Test Account Cost for Goods Sold - _TC",
+						"cost_center": "_Test Cost Center - _TC",
+					}
+				],
+			}
+		)
+		pi.insert(ignore_permissions=True)
+		pi.submit()
+		return pi.name
+
+	# ---- vendor bank change ----------------------------------------------
+
+	# AC-08-15 / AC-08-16
+	def _bank_setup(self, supplier):
+		"""Give the supplier a default Bank Account; return (bank, bank_account)."""
+		bank_name = "AP Gate Bank " + frappe.generate_hash(length=6)
+		bank = frappe.get_doc({"doctype": "Bank", "bank_name": bank_name}).insert(
+			ignore_permissions=True
+		)
+		ba = frappe.get_doc(
+			{
+				"doctype": "Bank Account",
+				"account_name": "Vendor Acct " + frappe.generate_hash(length=4),
+				"bank": bank.name,
+				"party_type": "Supplier",
+				"party": supplier,
+				"iban": "GB29NWBK60161331926819",
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.set_value("Supplier", supplier, "default_bank_account", ba.name)
+		return bank.name, ba.name
+
+	def _submit_pe(self, supplier):
+		from erpnext.accounts.doctype.payment_entry.test_payment_entry import create_payment_entry
+
+		pe = create_payment_entry(party=supplier, paid_amount=500, save=True, submit=True)
+		return pe.name
+
+	def test_ac_08_15_bank_change_none(self):
+		supplier = self._new_supplier()
+		self._bank_setup(supplier)
+		self._submit_pe(supplier)  # anchor; no change afterward
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=500.0)
+		detect_vendor_bank_change_for(cap)
+		cap.reload()
+		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
+
+	def test_ac_08_16_bank_change_detected_blocks_promotion(self):
+		supplier = self._new_supplier()
+		bank, ba = self._bank_setup(supplier)
+		self._submit_pe(supplier)  # anchor
+		# Mutate a watched field AFTER the payment -> Version row written.
+		ba_doc = frappe.get_doc("Bank Account", ba)
+		ba_doc.iban = "DE89370400440532013000"
+		ba_doc.save(ignore_permissions=True)
+		self.assertTrue(
+			frappe.db.exists("Version", {"ref_doctype": "Bank Account", "docname": ba})
+		)
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=500.0)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(int(cap.vendor_bank_change_detected), 1)
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_BLOCKED)
+		self.assertEqual(cap.action_required, 1)
+		# Promotion is hard-blocked while no approved request exists.
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+
+	def test_ac_08_17_no_prior_pe_soft_skip(self):
+		supplier = self._new_supplier()
+		bank, ba = self._bank_setup(supplier)
+		# Change bank but NEVER paid this supplier -> baseline not established.
+		ba_doc = frappe.get_doc("Bank Account", ba)
+		ba_doc.iban = "DE89370400440532013000"
+		ba_doc.save(ignore_permissions=True)
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=500.0)
+		detect_vendor_bank_change_for(cap)
+		cap.reload()
+		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
+
+	# AC-08-16 (re-check): a bank change AFTER a clean validation is caught at
+	# promotion time (the promotion gate re-runs detection, not just the stored flag).
+	def test_ac_08_16b_promotion_recheck_after_clean_validation(self):
+		supplier = self._new_supplier()
+		bank, ba = self._bank_setup(supplier)
+		self._submit_pe(supplier)  # anchor
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=500.0)
+		# Validate while the bank is unchanged -> clean Validated, flag 0.
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
+		# Fraudster changes the bank AFTER validation.
+		ba_doc = frappe.get_doc("Bank Account", ba)
+		ba_doc.iban = "DE89370400440532013000"
+		ba_doc.save(ignore_permissions=True)
+		# Promotion re-detects and blocks with the bank-specific error.
+		with self.assertRaises(CapturePromotionError):
+			promote_to_purchase_invoice(cap, defaults=_PROMOTION_DEFAULTS)
+
+	# AC-08-18
+	def test_ac_08_18_sod_ap_self_approval_does_not_lift(self):
+		supplier = self._new_supplier()
+
+		def _smcr(requested_by, decision_by):
+			req = frappe.get_doc(
+				{
+					"doctype": "Supplier Master Change Request",
+					"change_type": "Update Bank Details",
+					"target_supplier": supplier,
+					"requested_by": requested_by,
+					"decision_by": decision_by,
+				}
+			)
+			req.flags.ignore_links = True  # synthetic emails are not real Users
+			req.insert(ignore_permissions=True, ignore_mandatory=True)
+			frappe.db.set_value(
+				"Supplier Master Change Request", req.name, "workflow_state", "Posted"
+			)
+			return req.name
+
+		# Self-approved (requester == decider) -> SoD fails -> NOT lifted.
+		name = _smcr("ap@example.com", "ap@example.com")
+		self.assertFalse(has_approved_bank_change(supplier))
+		# A genuine non-self approval lifts it.
+		frappe.db.set_value(
+			"Supplier Master Change Request", name, "decision_by", "treasury@example.com"
+		)
+		self.assertTrue(has_approved_bank_change(supplier))
+
+	# ---- wiring / integration --------------------------------------------
+
+	# AC-08-19
+	def test_ac_08_19_stream_r_short_circuits_gates(self):
+		supplier = self._new_supplier()
+		self._seed_baseline(supplier, n=6, mean=5000.0, stddev=100.0)
+		po = self._make_po(qty=10, rate=100, received_qty=0)  # would be an Exception on Stream I
+		cap = self._confirmed(
+			supplier=supplier,
+			matched=supplier,
+			total=99999.0,  # would be Anomalous on Stream I
+			stream=STREAM_RECEIPT,
+			po_ref=po,
+			lines=[self._line(10, 100, po)],
+		)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_NOT_APPLICABLE)
+		# Stream R records anomaly but never blocks.
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
+
+	# AC-08-20
+	def test_ac_08_20_closure_evidence_includes_gates(self):
+		cap = self._confirmed(total=500.0)
+		validate_for_purchase_invoice(cap)
+		evidence = build_closure_evidence(cap)
+		self.assertIn("gates", evidence)
+		self.assertIn("three_way_match", evidence["gates"])
+		self.assertIn("anomaly", evidence["gates"])
+		self.assertIn("vendor_bank_change", evidence["gates"])
+
+	# AC-08-21 (local sentinel; full-suite regression run separately)
+	def test_ac_08_21_happy_path_not_falsely_blocked(self):
+		# Stream I, no PO, no bank history, fresh supplier (insufficient history):
+		# none of the gates should add a false block.
+		supplier = self._new_supplier()
+		cap = self._confirmed(supplier=supplier, matched=supplier, total=750.0)
+		validate_for_purchase_invoice(cap)
+		cap.reload()
+		self.assertEqual(cap.validation_status, VALIDATION_STATUS_VALIDATED)
+		self.assertEqual(cap.three_way_match_status, THREE_WAY_MATCH_NOT_APPLICABLE)
+		self.assertEqual(cap.anomaly_status, ANOMALY_INSUFFICIENT_HISTORY)
+		self.assertEqual(int(cap.vendor_bank_change_detected), 0)

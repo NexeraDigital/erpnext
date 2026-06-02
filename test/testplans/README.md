@@ -27,6 +27,8 @@ Clean-room runbooks for independent, external verification of this fork's featur
 | `specs/04-extraction-line-items-promote.md` | 04 — Line items + line-aware promote | — |
 | `specs/05-supplier-resolution-3tier.md` | 05 — Supplier resolution (3-tier) + gated creation | `screenshots/05-supplier-resolution-3tier/` |
 | `specs/06-gl-coding-tax-costcenter.md` | 06 — GL coding, cost center & tax assignment | `screenshots/06-gl-coding-tax-costcenter/` |
+| `specs/07-classification-doctype-branching.md` | 07 — Document-type classification & doctype branching | `screenshots/07-classification-doctype-branching/` |
+| `specs/08-validation-gates.md` | 08 — Validation gates: 3-way match, anomaly, vendor bank-change | `screenshots/08-validation-gates/` |
 
 ### `ocr/` — real-OCR build phases
 | Plan | Phase |

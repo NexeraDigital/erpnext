@@ -193,6 +193,29 @@ Still **read-only. Still no real changes to your accounting. The AI still only l
 
 ---
 
+## Update (2026-06-01): sorting each document into the right "bucket" so the books stay correct
+
+Not every AP document is the same kind of thing, and they must be booked **differently**:
+- a **bill you haven't paid yet** (you owe a vendor) →  recorded as a normal **Purchase Invoice**, paid later;
+- a **receipt for something already paid on a card** (the money's gone) → recorded as a Purchase Invoice **stamped "paid"**, so it books the expense *and* its payment in one go;
+- an **employee out-of-pocket expense** → a different kind of record (an Expense Claim).
+
+If you booked all of these the same way, you'd **double-count what you owe** and your books wouldn't balance. So this update adds the step that **looks at each document and routes it to the right bucket** — and, when it can't tell, sends it to a human review queue instead of guessing.
+
+How it decides:
+- **Sees a card-payment marker** (like "paid by Visa ****1234" or "PAID") → it's an **already-paid receipt**.
+- **The vendor is flagged as an employee** (a group you configure) → it's an **employee reimbursement** → review queue (the employee-expense feature needs an add-on that isn't installed yet, so for now it's handled manually).
+- **Otherwise** → a normal **unpaid bill**.
+- **A clerk can always override** the decision, and the override wins.
+
+A nice safety check: step 1 of the pipeline already made a quick guess about whether something was a bill or a receipt. This step **double-checks that guess** against the actual contents. If they **disagree** (the quick guess said "bill" but the document clearly shows a card payment), it doesn't just pick one — it **flags it for a human** and records the disagreement, so you can see how often the early guess is wrong and improve it.
+
+For the already-paid receipts, we went with the **simplest, safest accounting method** (recording them as a paid Purchase Invoice) so the vendor still shows up in your "spend by supplier" reports. This is a **provisional** choice we'll confirm with you/the accountant, and it's built so we can switch the method later with a one-line change — nothing is locked in.
+
+As always: **invisible until used** (documents with no markers just behave like before), **no employee-expense automation yet** (routed to manual review), and the already-paid invoices are left as **drafts** for a person to submit. 14 more automated tests, all passing (the main capture suite is now 134).
+
+---
+
 ## Update (2026-06-01): auto-filling the accounting codes for routine vendors
 
 Every bill has to be tagged with *where the money comes from* before it can be booked: which **expense account**, which **cost center** (department/project), and what **tax** applies. Doing that by hand for every invoice is the slow part. This update teaches the system to fill those in automatically for vendors you've set up — and, crucially, to **stop and ask a human** when it isn't sure rather than guess.
@@ -225,6 +248,24 @@ When an invoice arrives, the system reads a vendor *name* off it — but that te
 **Bills vs. card receipts are treated differently.** For a normal **bill (Invoice)** you haven't paid yet, an unknown vendor is a hard stop — you should never set up a payable to a vendor you can't identify. For an already-paid **card receipt**, the money's already gone, so an unknown vendor is just a soft note: the receipt still goes through, posting to an "Unmapped Card Spend" account with the original vendor text kept as a memo, and someone tidies up the vendor mapping later — it never holds up the bank-reconciliation clock.
 
 There are **two new behind-the-scenes record types** (a vendor-nickname table and the vendor-change-request) and a handful of new knobs on the settings page (how fuzzy is "close enough", whether the create-vendor gate is on, who approves). It's **invisible and inert unless used** — with the gate off (the default) and no nicknames, it behaves exactly like before, just with the smarter fuzzy match added. The actual approval *workflow screen* and a couple of related request types (changing a vendor's bank details, etc.) come in a later step. 36 more automated tests, all passing (the main capture suite is now 107).
+
+---
+
+## Update (2026-06-01): three fraud-and-error catches before a bill gets booked
+
+Before an invoice is allowed through to be paid, this update runs it past **three independent safety checks** — the same three a careful accounts-payable clerk does by hand. If a check fails on a real **bill** (one you'll pay later), the invoice is **held in a review queue** instead of flowing on. On an already-paid **card receipt** (the money's already gone) the checks still run and get **recorded**, but they never hold anything up.
+
+The three checks:
+
+1. **Does it match the purchase order?** ("Three-way match.") If the bill points at a PO, the system compares what was **ordered**, what was actually **received**, and what's being **billed**. Bill for more than you received, or at a higher price than the PO? → flagged. You set how much wiggle-room to allow (default: none — must match exactly). A supervisor can **override** a flag with a typed reason, which is recorded separately so the audit trail stays clean.
+2. **Is the amount weird for this vendor?** ("Anomaly check.") The system quietly learns each vendor's recent invoice sizes. A bill that's wildly bigger than normal — say a vendor who's always ~$5,000 suddenly sends $18,400 — gets flagged for a look. If there isn't enough history yet (fewer than 5 past invoices), it just says "not enough history" and never blocks.
+3. **Did the vendor's bank details just change?** ("Bank-change check" — an anti-fraud catch.) A classic scam is an email saying "we've changed our bank account, please pay here instead." If a vendor's bank details changed **since the last time you paid them**, the system **blocks the payment** until someone who isn't the requester approves the change. This one even re-checks at the moment of payment, so it can't be slipped past.
+
+How it stays safe and unobtrusive: it **only blocks real bills, never card receipts**; an invoice with no PO simply skips the match (unless you turn on a "PO required" policy); the bank check **does nothing** for a brand-new vendor you've never paid. The vendor "normal size" history is kept in a small behind-the-scenes table that refreshes automatically each night.
+
+One honest limitation: the PO match currently works at the **whole-PO level** (totals), not line-by-line, because the AI doesn't yet tell us exactly which PO line each invoice line maps to — that finer matching comes later. And the bank-change "who's allowed to approve" rule is the **basic** version for now (just "not the same person who asked"); the full treasury-approver rule arrives with the approval-workflow step.
+
+It's **invisible until used** (a bill with no PO, normal amount, and unchanged bank details flows exactly as before) and ships with **22 more automated tests, all passing** (the main capture suite is now 156).
 
 ---
 

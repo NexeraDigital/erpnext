@@ -957,3 +957,55 @@ Adds the **auto-coding layer** for routine vendors: a per-supplier `AP Supplier 
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_coding_profile.test_ap_supplier_coding_profile   # 5
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                    # 120
 ```
+
+## 18. Spec 07 — Document-Type Classification & Doctype Branching (stream-aware)
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Seventh slice of the v2 build — see `docs/spec/07-classification-doctype-branching.md`. All 14 acceptance criteria green this session; **14 new automated tests** (capture suite 120 → **134 OK**); spec-01..06 suites pass unchanged. Built on the **provisionally-locked Stream-R posting model = Option C (PI `is_paid=1`)** (gating decision #1 / D-07-1; reversible, see TODO T-010).
+
+Adds the Step-6 fork that classifies a confirmed capture and routes it to the right posting doctype — **Unpaid Bill → Purchase Invoice** (existing path), **Already Paid → Purchase Invoice with `is_paid=1`** (NEW Stream-R path: one submitted PI books the invoice legs *and* the payment legs, netting the supplier to zero while keeping it visible in spend-by-supplier/AP), **Employee Reimbursement → Manual Review** (hrms absent), **Other / stream conflict → Manual Review**. Routing everything to one doctype double-counts liabilities; this branch is the heart of correct AP automation.
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- classification_section + document_type/classified_stream/stream_tag_agreement/classification_override/card_charge_marker/detected_last4/expense_claim(Data)/classified_at/by/source; status +Manual Review
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- classify_document_type (+_for) + _detect_card_marker/_provisional_stream/_finalize_classification; promote_already_paid (+_for) + _build_already_paid_voucher (Option-C swap seam); promote_to_purchase_invoice gains _already_paid param + the document_type guard + is_paid fields; cascade Step-1b classify hop + Already-Paid posting hop + Step-3 approval guard (Already-Paid skips approval/payment)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- employee_supplier_group + get_already_paid_config() (reuses credit_card_clearing_account as the paid-from account)
+ test/testplans/specs/07-classification-doctype-branching.md | clean-room runbook
+```
+
+**Classifier (`classify_document_type`, §5.3):** clerk `classification_override` always wins; else a paid/card marker (`****1234` / `PAID`) → Already Paid; a matched supplier in the configured `employee_supplier_group` → Employee Reimbursement; an unmatched supplier when an employee group IS configured → Manual Review; otherwise → Unpaid Bill. It then **confirms/revises** the intake stream tag — a disagreement forces Manual Review and records `stream_tag_agreement='Disagree'` (the spec-10 tuning signal). **Already-paid posting** is isolated to `_build_already_paid_voucher()` (Option C builds the `is_paid` PI; swap to a Journal Entry or PI+Clearing is a one-function change). Already-Paid PIs **skip approval/payment** (the money already moved; closure is reconciliation-only per specs 13/14).
+
+**Reconciliations / decisions:** derived the provisional stream from spec-02's existing `stream` field (no duplicate field); reused `purchase_invoice` (Option C makes the Stream-R voucher a PI — no `journal_entry` field, and closure-evidence needs no third voucher type); reused spec-01's `credit_card_clearing_account` as the paid-from account; `expense_claim` is a `Data` placeholder (hrms / Expense Claim absent — D-07-3). **Deferred:** the `AP Review Event` emission on disagreement (spec 10 owns that doctype — the signal is persisted on the capture instead); the Employee → Expense Claim path (Manual Review until hrms is installed); the Option-A JE builder (specified behind the seam, not built since C is locked).
+
+### 18.1 Running the spec-07 tests
+```bash
+# Pin Fake OCR first.
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 134
+```
+
+## 19. Spec 08 — Validation Gates: Three-Way Match, Amount Anomaly, Vendor Bank-Change
+
+> **Status (2026-06-01):** implemented + tested on `russ/migrateToV16` (working tree). Eighth slice of the v2 build — see `docs/spec/08-validation-gates.md`. All 21 acceptance criteria green this session; **22 new automated tests** (capture suite 134 → **156 OK**, skipped=1; the extra test is an AC-08-16 re-check — promotion re-runs bank detection so a change *after* a clean validation is still caught); spec-01..07 suites pass unchanged (the gates add no false blocks to the existing happy paths). Adopted the spec's recommended defaults for every open decision (PO-cumulative 3WM, dedicated `AP Supplier Anomaly Baseline` cache, conservative bank-change lift deferring the full Treasury-Approver rule to spec 11 — TODO T-012).
+
+Adds three **stream-aware** validation gates that run inside `validate_for_purchase_invoice` and one promotion-time re-check. On **Stream I** (or unset/Unclassified — the stricter D7 fallback) a failing gate **blocks** the capture into the review queue (`validation_status='Blocked'`, `action_required=1`); on **Stream R** (already-paid card spend) every gate is **recorded but never blocks**.
+
+- **Three-way match** — the invoiced qty/amount vs the referenced Purchase Order's cumulative `received_qty` + ordered amount (D1 cumulative, not per-delivery), within `qty_tolerance_pct` / `amount_tolerance_pct`. PO-level match is the pilot scope (OCR resolves a PO reference at header/line granularity but produces no `po_detail` row mapping). Statuses: `Not Checked` / `Not Applicable` (receipt / no-PO) / `Matched` / `Exception` / `Matched (Override)`. An AP `override_three_way_match` (dedicated override-by/at/notes fields, D6) flips an Exception to `Matched (Override)` and re-validates.
+- **Amount anomaly** — the capture total vs the supplier's rolling submitted-PI history: `> anomaly_multiple × mean` OR `> anomaly_sigma × stddev`. Below `anomaly_min_sample` prior PIs → `Insufficient History` (never blocks). Backed by a derived `AP Supplier Anomaly Baseline` cache (one row/supplier, refreshed by a daily scheduler, recomputed inline when stale).
+- **Vendor bank-change** — a watched bank field (`Bank Account.iban`/`bank_account_no`/`branch_code`, `Bank.swift_number`/`bank_name`, `Supplier.default_bank_account`) changed **after** the supplier's last submitted Payment Entry, read from Frappe's native `Version` audit. Detection blocks **promotion** (`CapturePromotionError`) until a Posted Update-Bank-Details `Supplier Master Change Request` decided by someone other than the requester lifts it. No prior PE → soft-skip (no false block).
+
+```
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- validation_gates_section + three_way_match_status/result/checked_at/override_by/override_at/override_notes + anomaly_status/result/checked_at + vendor_bank_change_detected/result/checked_at
+ erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- _is_stream_i/_resolve_gate_config + three_way_match_for + detect_amount_anomaly_for + _anomaly_baseline + detect_vendor_bank_change_for + has_approved_bank_change + override_three_way_match + refresh_anomaly_baselines/_upsert_anomaly_baseline; gate-run + Stream-I issue wiring inside validate_for_purchase_invoice; bank-change block inside promote_to_purchase_invoice; gates block added to build_closure_evidence; 4 whitelisted wrappers (three_way_match_for_capture/detect_amount_anomaly_for_capture/detect_vendor_bank_change_for_capture/override_three_way_match_for)
+ erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- three_way_match_section (qty/amount tolerance, respect_over_billing_allowance, require_po_for_invoices) + anomaly_section fields (lookback_months/multiple/sigma/min_sample) + get_validation_gate_config()
+ erpnext/accounts/doctype/ap_supplier_coding_profile/*.json + .py | +/- per-supplier gate overrides (qty/amount tolerance, anomaly multiple/sigma/min_sample)
+ erpnext/accounts/doctype/ap_supplier_anomaly_baseline/* | NEW derived cache doctype (supplier-keyed mean/stddev/sample_count/window/computed_at)
+ erpnext/hooks.py | +/- scheduler_events.daily += refresh_anomaly_baselines
+ docs/architecture/AP-CAPTURE-SEQUENCE.md + .png | refreshed to current cascade (also caught up specs 06/07): Step 1b classify, Step 2 gates, Step 2a already-paid, Step 2b coding, promote-time bank re-check
+ test/testplans/specs/08-validation-gates.md | clean-room runbook
+```
+
+**Decisions adopted** (= spec recommendations): D1 PO-cumulative 3WM; D2 `respect_over_billing_allowance` off by default (AP tolerance independent/stricter); D3 dedicated `AP Supplier Anomaly Baseline` cache; D4 daily-refresh + lazy-recompute (no per-PI `on_submit` hook); D5 pre-promotion custom 3WM only; D6 dedicated 3WM-override fields; D7 absent stream ⇒ Stream I (stricter); D8 soft-skip when no prior PE; D10 conservative `has_approved_bank_change` (Posted + decided-by-≠-requester) with the full **non-AP / Treasury-Approver role rule deferred to [[11-approval-sod-workflow]]** (TODO T-012). **Pilot simplification (honest):** 3WM is PO-level (sum of PO-item `received_qty`/ordered amount), not per-line PO-item matching — OCR doesn't emit a `po_detail` mapping; per-line 3WM lands when classification produces it.
+
+### 19.1 Running the spec-08 tests
+```bash
+# Pin Fake OCR first (run_fake_extraction is explicit, but the site provider should be Fake for the suite).
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 156
+```

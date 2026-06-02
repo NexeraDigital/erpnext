@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:supplier",
+ "creation": "2026-06-01 00:00:00.000000",
+ "description": "Per-supplier rolling mean/stddev of submitted Purchase Invoice grand_total (spec 08). A derived perf cache so the per-capture amount-anomaly check is O(1); refreshed by the daily refresh_anomaly_baselines scheduler and recomputed inline when stale. One row per Supplier (autoname field:supplier, unique).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "supplier",
+  "sample_count",
+  "mean_grand_total",
+  "stddev_grand_total",
+  "column_break_anb",
+  "window_months",
+  "computed_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Supplier",
+   "options": "Supplier",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "sample_count",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Sample Count"
+  },
+  {
+   "fieldname": "mean_grand_total",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Mean Grand Total"
+  },
+  {
+   "fieldname": "stddev_grand_total",
+   "fieldtype": "Float",
+   "label": "Stddev Grand Total"
+  },
+  {
+   "fieldname": "column_break_anb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "window_months",
+   "fieldtype": "Int",
+   "label": "Window Months"
+  },
+  {
+   "fieldname": "computed_at",
+   "fieldtype": "Datetime",
+   "label": "Computed At"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Accounts",
+ "name": "AP Supplier Anomaly Baseline",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager"
+  },
+  {
+   "read": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

@@ -89,6 +89,32 @@
   "card_last4",
   "receipt_location",
   "coding_source",
+  "classification_section",
+  "document_type",
+  "classified_stream",
+  "stream_tag_agreement",
+  "classification_override",
+  "column_break_classify",
+  "card_charge_marker",
+  "detected_last4",
+  "expense_claim",
+  "classified_at",
+  "classified_by",
+  "classification_source",
+  "validation_gates_section",
+  "three_way_match_status",
+  "three_way_match_result",
+  "three_way_match_checked_at",
+  "three_way_match_override_by",
+  "three_way_match_override_at",
+  "three_way_match_override_notes",
+  "column_break_gates",
+  "anomaly_status",
+  "anomaly_result",
+  "anomaly_checked_at",
+  "vendor_bank_change_detected",
+  "vendor_bank_change_result",
+  "vendor_bank_change_checked_at",
   "promotion_section",
   "purchase_invoice",
   "promotion_status",
@@ -227,7 +253,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed\nDuplicate",
+   "options": "Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed\nDuplicate\nManual Review",
    "reqd": 1
   },
   {
@@ -708,6 +734,189 @@
    "fieldname": "coding_source",
    "fieldtype": "Data",
    "label": "Coding Source",
+   "read_only": 1
+  },
+  {
+   "description": "Step-6 document-type classification (spec 07): routes the capture to the right posting doctype. Unpaid Bill -> Purchase Invoice; Already Paid -> PI with is_paid=1; Employee Reimbursement / Manual Review -> review queue.",
+   "fieldname": "classification_section",
+   "fieldtype": "Section Break",
+   "label": "Document-Type Classification"
+  },
+  {
+   "description": "The classification that drives the cascade fork. Empty until classified.",
+   "fieldname": "document_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Document Type",
+   "options": "\nUnpaid Bill\nAlready Paid\nEmployee Reimbursement\nManual Review",
+   "read_only": 1
+  },
+  {
+   "description": "Stream this step resolved to, derived from document_type (I / R / R-employee).",
+   "fieldname": "classified_stream",
+   "fieldtype": "Select",
+   "label": "Classified Stream",
+   "options": "\nI\nR\nR-employee",
+   "read_only": 1
+  },
+  {
+   "default": "Unconfirmed",
+   "description": "Does the classifier agree with the intake stream tag? 'Disagree' forces Manual Review (tuning signal for spec 10).",
+   "fieldname": "stream_tag_agreement",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Stream Tag Agreement",
+   "options": "Agree\nDisagree\nUnconfirmed",
+   "read_only": 1
+  },
+  {
+   "description": "Clerk override of the classification — always wins over the heuristics.",
+   "fieldname": "classification_override",
+   "fieldtype": "Select",
+   "label": "Classification Override",
+   "options": "\nUnpaid Bill\nAlready Paid\nEmployee Reimbursement\nManual Review"
+  },
+  {
+   "fieldname": "column_break_classify",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The OCR evidence string that drove an 'Already Paid' call (e.g. 'paid by Visa ****1234' / 'PAID').",
+   "fieldname": "card_charge_marker",
+   "fieldtype": "Data",
+   "label": "Card Charge Marker",
+   "read_only": 1
+  },
+  {
+   "description": "Last-4 card digits matched, if any.",
+   "fieldname": "detected_last4",
+   "fieldtype": "Data",
+   "label": "Detected Last 4",
+   "read_only": 1
+  },
+  {
+   "description": "RESERVED for the Employee Reimbursement -> Expense Claim path. A Data placeholder (not a Link) because the Expense Claim doctype ships with hrms, which is absent on this bench. Converts to Link -> Expense Claim when hrms is installed.",
+   "fieldname": "expense_claim",
+   "fieldtype": "Data",
+   "label": "Expense Claim",
+   "read_only": 1
+  },
+  {
+   "fieldname": "classified_at",
+   "fieldtype": "Datetime",
+   "label": "Classified At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "classified_by",
+   "fieldtype": "Link",
+   "label": "Classified By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "ap-classify-v1",
+   "description": "Provenance tag for the classification routine.",
+   "fieldname": "classification_source",
+   "fieldtype": "Data",
+   "label": "Classification Source",
+   "read_only": 1
+  },
+  {
+   "description": "Validation gates (spec 08): three-way match, amount-anomaly, and vendor bank-change detection. On Stream I a failure blocks the capture into the review queue; on Stream R these are recorded but never blocking.",
+   "fieldname": "validation_gates_section",
+   "fieldtype": "Section Break",
+   "label": "Validation Gates"
+  },
+  {
+   "default": "Not Checked",
+   "description": "Three-way match (invoice vs Purchase Order vs received qty). Not Applicable on receipts / no-PO; Exception blocks (Stream I).",
+   "fieldname": "three_way_match_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Three-Way Match Status",
+   "options": "Not Checked\nNot Applicable\nMatched\nException\nMatched (Override)",
+   "read_only": 1
+  },
+  {
+   "description": "Per-line 3WM diff (JSON): ordered/received/invoiced qty + rate + tolerance verdict.",
+   "fieldname": "three_way_match_result",
+   "fieldtype": "Long Text",
+   "label": "Three-Way Match Result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "three_way_match_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Three-Way Match Checked At",
+   "read_only": 1
+  },
+  {
+   "description": "Clerk who overrode a 3WM Exception (dedicated fields so an override never clobbers the approval-decision audit).",
+   "fieldname": "three_way_match_override_by",
+   "fieldtype": "Link",
+   "label": "3WM Override By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "three_way_match_override_at",
+   "fieldtype": "Datetime",
+   "label": "3WM Override At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "three_way_match_override_notes",
+   "fieldtype": "Small Text",
+   "label": "3WM Override Notes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_gates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Not Checked",
+   "description": "Amount-anomaly outcome vs the supplier's rolling history. Anomalous blocks (Stream I); Insufficient History never blocks.",
+   "fieldname": "anomaly_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Anomaly Status",
+   "options": "Not Checked\nNormal\nAnomalous\nInsufficient History",
+   "read_only": 1
+  },
+  {
+   "description": "Human-readable anomaly evidence (total vs rolling mean ± stddev, z-score).",
+   "fieldname": "anomaly_result",
+   "fieldtype": "Small Text",
+   "label": "Anomaly Result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "anomaly_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Anomaly Checked At",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "1 = a watched vendor bank field changed since the last submitted Payment Entry (social-engineering-fraud defence). Blocks promotion (Stream I) until an approved Update-Bank-Details request exists.",
+   "fieldname": "vendor_bank_change_detected",
+   "fieldtype": "Check",
+   "label": "Vendor Bank Change Detected",
+   "read_only": 1
+  },
+  {
+   "description": "Which record/field changed and when.",
+   "fieldname": "vendor_bank_change_result",
+   "fieldtype": "Small Text",
+   "label": "Vendor Bank Change Result",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vendor_bank_change_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Vendor Bank Change Checked At",
    "read_only": 1
   },
   {
