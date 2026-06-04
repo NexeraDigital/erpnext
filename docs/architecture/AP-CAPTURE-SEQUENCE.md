@@ -3,7 +3,7 @@
 > Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-06-02 (default-coding reflection §33 + company-scoped mock payment §30).
+> Last derived from code: 2026-06-04 (content-based receipt/invoice classifier §34 + default-coding reflection §33 + company-scoped mock payment §30).
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
@@ -70,9 +70,9 @@ sequenceDiagram
     end
     Cap->>Q: _kick_next_step()
 
-    Note over Q,Cap: Step 1b — document-type classification (spec 07)
+    Note over Q,Cap: Step 1b — document-type classification (spec 07 + content classifier §34)
     Q->>Cap: classify_document_type()
-    Cap->>Cap: card/paid marker · employee supplier group · stream agreement<br/>(clerk override always wins) → document_type
+    Cap->>Cap: decide in order: clerk override → card/PAID marker → employee group →<br/>CONTENT CLASSIFIER (rule scorer / LLM, when enabled) → default Unpaid Bill ·<br/>records classification_confidence + rationale always · stream-agreement check → document_type
     alt Employee Reimbursement, stream conflict, or unmatched-when-employee-check
         Cap-->>Clerk: status=Manual Review — CASCADE STOPS
     else Unpaid Bill or Already Paid
@@ -191,6 +191,15 @@ sequenceDiagram
   coding profile (or the Stream-R catch-all account) is configured; an ambiguous
   cost center or tax mismatch parks at **Coding Review**. Unconfigured sites skip
   straight to the Promote seam (graceful degrade).
+- **Content-based receipt/invoice classifier (§34, spec 07).** Step 1b no longer decides
+  genre from the filename/keyword alone. After the clerk-override, card/PAID-marker, and
+  employee-group checks, a **content classifier** reads the document text: Phase 1 is a
+  deterministic **rule scorer** (`_score_document_content`), Phase 2 an optional **LLM**
+  (`_classify_text_anthropic`) selected by `content_classifier_provider`, dispatched by
+  `classify_document_content` which **degrades to the rule scorer on any LLM failure**. It
+  is **default-OFF** (gated by `enable_content_classifier`): the verdict only *decides* the
+  document type when opted in, but the `classification_confidence` + `classification_rationale`
+  are recorded either way. Clerk override and the card/PAID short-circuit still take precedence.
 - **Default-coding reflection (§33 — mark-and-continue).** When the coding engine
   never ran (unconfigured → skipped) and the capture is promoted, the PI posts on
   ERPNext native defaults. `promote_to_purchase_invoice` now **reflects** that via

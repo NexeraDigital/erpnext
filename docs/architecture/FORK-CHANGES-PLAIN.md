@@ -328,6 +328,25 @@ Two finishing pieces. **First, what counts as "closed."** A bill being marked pa
 
 ---
 
+## Update (2026-06-04): when a bill posts on "default" accounting codes, it now says so
+
+When the system can't figure out the right accounting codes for a bill (because that vendor has no saved coding rules), it used to quietly fall back to ERPNext's built-in defaults and say nothing — so a reviewer couldn't tell "posted on guessed defaults" from "not looked at yet." Now it's honest: a bill that goes out on default codes is **flagged**, labelled "posted on native defaults," shows the actual codes that were used, and lands in a **coding-review queue** — *without* stopping it (it keeps moving; a human reviews after the fact). Same spirit as everywhere else: automate, but make the soft spots visible.
+
+---
+
+## Update (2026-06-04): teaching the system to tell a receipt from an invoice by *reading* it
+
+The big one. Until now, deciding "is this a paid receipt or an unpaid invoice?" leaned on crude hints — the **filename** (`receipt_...` vs `invoice_...`), the sender's email domain, or spotting the word "PAID." Real documents don't come conveniently named, so that's brittle. This update teaches the system to decide from the **document's actual content**, in two levels:
+
+1. **A keyword reader** (free, instant) — scores the words on the page ("amount due / net 30 / remit" → invoice; "approval code / change due / thank you for your purchase" → receipt). Good on obvious documents.
+2. **An AI reader** (optional) — sends the read-off text to Claude, which *understands* the document even when it uses none of those keywords (a plain café slip, a terse consulting bill).
+
+Every bill now also records **how confident** the decision was and a one-line **reason**, so a person can see why it was classified that way. It's **off by default** (nothing changes until you switch it on), the AI is optional and **falls back to the keyword reader** if it's unavailable, and a human can always override.
+
+We measured it on a set of **42 labelled test receipts/invoices** (built for exactly this): the keyword reader gets the genre right **62%** of the time; the **AI gets it 88%** — and on the tricky keyword-free documents it jumps from 50% to **100%**. So the AI clearly earns its place. Built and tested (**20 more automated tests**); shipped off-by-default for you to turn on when ready.
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

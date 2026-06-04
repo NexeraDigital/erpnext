@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-024`
+- **Next ID:** `T-026`
 
 **Priority labels.**
 
@@ -46,6 +46,11 @@ The next free ID is tracked in the counter below — bump it whenever you add a 
 _Nothing in progress._
 
 ## Backlog
+
+### Content classifier (spec 07 §34) — next phases
+
+- [ ] **T-024** Content classifier Phase 3 — hybrid rule→LLM escalation. Run the free rule scorer first; only call the LLM when the rule verdict is low-confidence/unknown, so the easy majority never costs an API call. Today the dispatcher is all-rule or all-LLM. _(P2 · added 2026-06-04 · ref: docs/architecture/FORK-CHANGES.md §34; erpnext/.../ap_invoice_capture.py classify_document_content)_
+- [ ] **T-025** Content classifier Phase 4 — accuracy at scale. (a) Run the **full real-OCR pipeline** (Anthropic OCR on the Track-B scanned images + any Track-A real dataset, then classify) to measure accuracy on real images, not just text. (b) Grow the labeled corpus (`test/receipts/`), especially the adversarial tier (paid invoices, unpaid receipts, statements, credit notes). (c) Wire the LLM call audit (Integration Request) like the OCR extractor. _(P2 · added 2026-06-04 · ref: test/receipts/README.md; docs/architecture/FORK-CHANGES.md §34)_
 
 ### Test hygiene
 

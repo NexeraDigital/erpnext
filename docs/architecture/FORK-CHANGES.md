@@ -1275,3 +1275,31 @@ Now, when `promote_to_purchase_invoice` promotes a capture whose coding engine n
 ```
 
 Not flow-visible (no new cascade hop/pause/STOP — routing unchanged; the coding-skip already existed, this only makes it visible), so the sequence diagram is unchanged. Verified in desk — `test/testplans/screenshots/default-coding-reflection/`. **Note:** pre-existing captures that promoted on defaults before this change keep the old silent state (not retroactively backfilled).
+
+## 34. Content-based receipt/invoice classifier (spec 07 — Phase 1 rule + Phase 2 LLM)
+
+> **Status (2026-06-04):** implemented + tested (**default OFF**). **20 new tests** (`TestAPContentClassifier` 8 + `TestAPContentClassifierLLM` 6, plus the receipt-corpus harness). The shipped behaviour is byte-identical until a site opts in.
+
+**Why.** Step-6 classification previously decided receipt-vs-invoice from the **filename** convention (`receipt_*` / `invoice_*`), the **sender** (`stripe.com`), or a **card/PAID keyword** — none of which a real-world document reliably carries. This adds a classifier that reads the document **content**.
+
+Two orthogonal axes — **genre** (receipt / invoice / other) and **payment state** (paid / unpaid) — both recorded, then mapped to the existing `document_type`. Two phases behind one shared verdict contract `{genre, paid, confidence, signals, provider}`:
+
+- **Phase 1 — rule scorer (`_score_document_content`).** Deterministic, free, explainable: weighted phrase signals over the OCR text + fields (`amount due` / `net 30` / `remit` → invoice; `approval code` / `change due` / `thank you for your purchase` → receipt). Confident genre wins; ambiguous → `unknown`.
+- **Phase 2 — LLM (`_classify_text_anthropic`).** Sends the OCR text to Claude via a forced tool call (structured `genre / paid / confidence / rationale`); reuses `get_ai_credentials("anthropic")`. Injectable client for tests.
+- **Dispatcher (`classify_document_content`).** Rule by default; LLM only when enabled AND provider=Anthropic; **degrades to the rule scorer on any LLM failure** (no key, API down) — selecting the LLM never blocks classification.
+
+```
+ ap_invoice_capture.py   | + _score_document_content / _classify_text_anthropic / classify_document_content / _content_rationale; classify_document_type consumes the dispatcher; + CLASSIFICATION_SOURCE_CONTENT(_LLM); records confidence/rationale always, only DECIDES when enabled
+ ap_invoice_capture.json | + classification_confidence (Float, ro) + classification_rationale (Small Text, ro)
+ ap_closed_loop_settings.{py,json} | + enable_content_classifier (Check, default 0) + content_classifier_provider (Select Rule|Anthropic, default Rule); getters is_content_classifier_enabled / get_content_classifier_provider
+```
+
+**Gating + visibility.** `enable_content_classifier` (default OFF) gates whether the content verdict DECIDES the document type; the **confidence + rationale are recorded either way** (the `Classification Confidence` / `Classification Rationale` fields). Clerk override still wins; the card/PAID marker short-circuit still runs first. Source stamped `content-classifier-v1` (rule) / `content-classifier-llm-v1` (LLM).
+
+**Measured (accuracy harness over the 42-doc labeled corpus, `test/receipts/`):** rule scorer 62% genre / 93% document_type; LLM **88% genre / 98% document_type**, lifting the keyword-free *semantic* tier from 50% → **100%**. See `test/receipts/README.md`.
+
+### 34.1 Running the tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture --test TestAPContentClassifier      # 8
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture --test TestAPContentClassifierLLM   # 6 (mocked — no API cost)
+```
