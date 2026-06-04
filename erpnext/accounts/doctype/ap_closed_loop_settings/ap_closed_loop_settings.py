@@ -75,6 +75,8 @@ class APClosedLoopSettings(Document):
 		auto_post_amount_threshold: DF.Float
 		auto_confirm_enabled: DF.Check
 		enable_classification_trust_content: DF.Check
+		enable_content_classifier: DF.Check
+		content_classifier_provider: DF.Literal["Rule", "Anthropic"]
 		credit_card_clearing_account: DF.Link | None
 		dedupe_enabled: DF.Check
 		dedupe_phash_max_distance: DF.Int
@@ -271,6 +273,33 @@ def is_classification_trust_content_enabled() -> bool:
 		return bool(int(float(raw)))
 	except (TypeError, ValueError):
 		return False
+
+
+def is_content_classifier_enabled() -> bool:
+	"""Whether Step-6 uses the content-based receipt/invoice classifier (Phase 1 — a
+	rule scorer over the OCR text/fields) as the primary genre+payment signal, instead
+	of only the card/paid keyword markers. Default OFF — classification is byte-for-byte
+	the shipped behaviour (card marker → Already Paid, else Unpaid Bill) until a site
+	opts in; the computed confidence/rationale are still recorded for visibility."""
+
+	raw = _settings().get("enable_content_classifier")
+	if raw in (None, ""):
+		return False
+	try:
+		return bool(int(float(raw)))
+	except (TypeError, ValueError):
+		return False
+
+
+def get_content_classifier_provider() -> str:
+	"""Which engine computes the content-classifier verdict (Phase 2): ``"rule"`` (the
+	deterministic phrase scorer — free, default) or ``"anthropic"`` (an LLM reads the
+	OCR text). Only consulted when ``enable_content_classifier`` is ON; an unknown or
+	blank value falls back to ``"rule"``. The LLM path degrades to the rule scorer on
+	any credential/API failure, so selecting Anthropic never blocks classification."""
+
+	raw = (_settings().get("content_classifier_provider") or "").strip().lower()
+	return "anthropic" if raw == "anthropic" else "rule"
 
 
 def get_routing_config() -> dict:

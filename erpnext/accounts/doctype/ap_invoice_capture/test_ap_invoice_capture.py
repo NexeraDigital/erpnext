@@ -115,6 +115,12 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	CLASSIFIED_STREAM_I,
 	CLASSIFIED_STREAM_R,
 	CLASSIFICATION_SOURCE_OVERRIDE,
+	CLASSIFICATION_SOURCE_DEFAULT,
+	CLASSIFICATION_SOURCE_CONTENT,
+	CLASSIFICATION_SOURCE_CONTENT_LLM,
+	_score_document_content,
+	_classify_text_anthropic,
+	classify_document_content,
 	_apply_dimensions_to_row,
 	_match_supplier,
 	_resolve_supplier,
@@ -4724,3 +4730,228 @@ class TestAPDefaultCodingReflection(IntegrationTestCase):
 		# Real coding preserved — reflection did not fire.
 		self.assertEqual(cap.coding_status, CODING_STATUS_CODED)
 		self.assertEqual(cap.coding_source, CODING_SOURCE_DEFAULT)
+
+
+class TestAPContentClassifier(IntegrationTestCase):
+	"""Phase 1 content-based receipt/invoice classifier — a rule scorer that reads the
+	genre + payment state from the document CONTENT (not the filename/keyword markers).
+	Gated default-OFF: confidence/rationale recorded either way; only DECIDES when on."""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set(self, on):
+		frappe.db.set_single_value(
+			"AP Closed Loop Settings", "enable_content_classifier", 1 if on else 0
+		)
+
+	def _confirmed(self, content):
+		f = _make_file("ccls-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context=content)
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "currency": "INR", "total_amount": "100"},
+			reviewer="Administrator",
+		)
+		cap.reload()
+		cap.matched_supplier = "_Test Supplier"
+		cap.save(ignore_permissions=True)
+		return cap
+
+	# ---- scorer unit ----
+	def test_scorer_reads_invoice(self):
+		v = _score_document_content("TAX INVOICE  Amount Due 450  Net 30  Please remit to us")
+		self.assertEqual(v["genre"], "invoice")
+		self.assertFalse(v["paid"])
+		self.assertGreater(v["confidence"], 0.3)
+
+	def test_scorer_reads_receipt(self):
+		v = _score_document_content(
+			"SALES RECEIPT  Thank you for your purchase  Approval Code 7  Change Due 0.00"
+		)
+		self.assertEqual(v["genre"], "receipt")
+		self.assertTrue(v["paid"])
+
+	def test_scorer_ambiguous_is_unknown(self):
+		v = _score_document_content("Acme Corp  Total 100.00")
+		self.assertEqual(v["genre"], "unknown")
+		self.assertEqual(v["confidence"], 0.0)
+
+	def test_scorer_card_marker_boosts_receipt(self):
+		v = _score_document_content("Total 12.50", has_card_marker=True)
+		self.assertEqual(v["genre"], "receipt")
+		self.assertTrue(v["paid"])
+
+	# ---- integration: confidence/rationale recorded regardless of the flag ----
+	def test_confidence_recorded_even_when_off(self):
+		cap = self._confirmed(
+			"SALES RECEIPT thank you for your purchase approval code 9 change due 0.00 merchant cafe"
+		)
+		self._set(False)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertGreater(cap.classification_confidence, 0.0)
+		self.assertIn("content[rule]", cap.classification_rationale)
+		# Flag OFF → shipped behaviour: no card/PAID marker → Unpaid Bill, default source.
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_DEFAULT)
+
+	# ---- the feature: flag ON recognises a receipt from its content (no marker) ----
+	def test_flag_on_recognises_receipt_from_content(self):
+		cap = self._confirmed(
+			"SALES RECEIPT thank you for your purchase approval code 9 change due 0.00 merchant cafe terminal 3"
+		)
+		self._set(True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		self.assertEqual(cap.classified_stream, CLASSIFIED_STREAM_R)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_CONTENT)
+
+	def test_flag_on_invoice_stays_unpaid_bill(self):
+		cap = self._confirmed(
+			"TAX INVOICE invoice no 5 amount due 450 net 30 please remit to acme bill to us"
+		)
+		self._set(True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(cap.classified_stream, CLASSIFIED_STREAM_I)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_CONTENT)
+
+	# ---- clerk override still wins over the content classifier ----
+	def test_override_still_wins_with_flag_on(self):
+		cap = self._confirmed("SALES RECEIPT thank you for your purchase approval code 1")
+		cap.classification_override = DOCUMENT_TYPE_UNPAID_BILL
+		cap.save(ignore_permissions=True)
+		self._set(True)
+		classify_document_type(cap)
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_UNPAID_BILL)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_OVERRIDE)
+
+
+class _FakeAnthropicClient:
+	"""Minimal stand-in for anthropic.Anthropic — returns a canned forced-tool result."""
+
+	class _Block:
+		type = "tool_use"
+
+		def __init__(self, data):
+			self.input = data
+
+	class _Resp:
+		def __init__(self, data):
+			self.content = [_FakeAnthropicClient._Block(data)]
+
+	class _Messages:
+		def __init__(self, data):
+			self._data = data
+
+		def create(self, **kwargs):
+			return _FakeAnthropicClient._Resp(self._data)
+
+	def __init__(self, data):
+		self.messages = _FakeAnthropicClient._Messages(data)
+
+
+class TestAPContentClassifierLLM(IntegrationTestCase):
+	"""Phase 2 — LLM content classifier. The Anthropic SDK is mocked (injected client /
+	monkeypatched module fn) so tests never hit the network; the dispatcher degrades to
+	the rule scorer on any failure so selecting the LLM never blocks classification."""
+
+	def tearDown(self):
+		frappe.flags.in_test = True
+		frappe.db.rollback()
+
+	def _cfg(self, enabled, provider):
+		frappe.db.set_single_value("AP Closed Loop Settings", "enable_content_classifier", 1 if enabled else 0)
+		frappe.db.set_single_value("AP Closed Loop Settings", "content_classifier_provider", provider)
+
+	def _confirmed(self, content="ordinary document"):
+		f = _make_file("ccls-llm-" + frappe.generate_hash(length=6) + ".pdf")
+		cap = create_capture_from_file(file_doc=f, source_context=content)
+		run_fake_extraction(cap)
+		cap.reload()
+		confirm_extracted_fields(
+			cap,
+			corrections={"supplier": "_Test Supplier", "currency": "INR", "total_amount": "100"},
+			reviewer="Administrator",
+		)
+		cap.reload()
+		cap.matched_supplier = "_Test Supplier"
+		cap.save(ignore_permissions=True)
+		return cap
+
+	# ---- the LLM adapter maps the tool response into the shared verdict contract ----
+	def test_llm_maps_receipt_response(self):
+		client = _FakeAnthropicClient(
+			{"genre": "receipt", "paid": True, "confidence": 0.92, "rationale": "POS slip paid by card"}
+		)
+		v = _classify_text_anthropic("any text", client=client, model="x")
+		self.assertEqual(v["genre"], "receipt")
+		self.assertTrue(v["paid"])
+		self.assertEqual(v["provider"], "anthropic")
+		self.assertEqual(v["confidence"], 0.92)
+		self.assertIn("POS", v["rationale"])
+
+	def test_llm_other_maps_to_unknown_and_clamps_confidence(self):
+		client = _FakeAnthropicClient({"genre": "other", "paid": None, "confidence": 5, "rationale": "unclear"})
+		v = _classify_text_anthropic("any", client=client, model="x")
+		self.assertEqual(v["genre"], "unknown")
+		self.assertIsNone(v["paid"])
+		self.assertEqual(v["confidence"], 1.0)  # clamped to [0,1]
+
+	# ---- dispatcher: rule by default, LLM when opted in, rule-fallback on failure ----
+	def test_dispatcher_rule_by_default(self):
+		self._cfg(enabled=False, provider="Rule")
+		v = classify_document_content("SALES RECEIPT thank you for your purchase change due 0.00")
+		self.assertEqual(v["provider"], "rule")
+
+	def test_dispatcher_uses_llm_when_enabled(self):
+		self._cfg(enabled=True, provider="Anthropic")
+		orig = _apic_mod._classify_text_anthropic
+		_apic_mod._classify_text_anthropic = lambda text, **kw: {
+			"genre": "receipt", "paid": True, "confidence": 0.9, "signals": ["llm"], "provider": "anthropic", "rationale": "r"
+		}
+		try:
+			v = classify_document_content("anything")
+		finally:
+			_apic_mod._classify_text_anthropic = orig
+		self.assertEqual(v["provider"], "anthropic")
+		self.assertEqual(v["genre"], "receipt")
+
+	def test_dispatcher_falls_back_to_rule_on_llm_error(self):
+		self._cfg(enabled=True, provider="Anthropic")
+		orig = _apic_mod._classify_text_anthropic
+
+		def _boom(text, **kw):
+			raise RuntimeError("no key / api down")
+
+		_apic_mod._classify_text_anthropic = _boom
+		try:
+			v = classify_document_content("TAX INVOICE amount due 100 net 30")
+		finally:
+			_apic_mod._classify_text_anthropic = orig
+		self.assertEqual(v["provider"], "rule-fallback")
+		self.assertEqual(v["genre"], "invoice")  # rule scorer still classified it
+
+	# ---- end-to-end: classify_document_type stamps the LLM source + rationale ----
+	def test_classify_document_type_stamps_llm_source(self):
+		self._cfg(enabled=True, provider="Anthropic")
+		cap = self._confirmed("scanned document text")
+		orig = _apic_mod._classify_text_anthropic
+		_apic_mod._classify_text_anthropic = lambda text, **kw: {
+			"genre": "receipt", "paid": True, "confidence": 0.95,
+			"signals": ["clear POS receipt"], "provider": "anthropic", "rationale": "clear POS receipt",
+		}
+		try:
+			classify_document_type(cap)
+		finally:
+			_apic_mod._classify_text_anthropic = orig
+		cap.reload()
+		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
+		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_CONTENT_LLM)
+		self.assertIn("content[anthropic]", cap.classification_rationale)

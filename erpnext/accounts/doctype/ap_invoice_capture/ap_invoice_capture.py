@@ -100,6 +100,14 @@ STREAM_AGREEMENT_DISAGREE = "Disagree"
 STREAM_AGREEMENT_UNCONFIRMED = "Unconfirmed"
 CLASSIFICATION_SOURCE_DEFAULT = "ap-classify-v1"
 CLASSIFICATION_SOURCE_OVERRIDE = "clerk-override"
+# Set when the Phase-1 content classifier (rule scorer over OCR text/fields) — not the
+# keyword markers — decided the document type.
+CLASSIFICATION_SOURCE_CONTENT = "content-classifier-v1"
+# Set when the Phase-2 LLM content classifier decided the document type.
+CLASSIFICATION_SOURCE_CONTENT_LLM = "content-classifier-llm-v1"
+# Default model for the LLM content classifier (text-only, cheap — Haiku). Overridable
+# via AI Provider Settings' default model.
+DEFAULT_CLASSIFIER_MODEL = "claude-haiku-4-5-20251001"
 
 # GL coding (spec 06)
 CODING_STATUS_PENDING = "Pending"
@@ -332,6 +340,8 @@ class APInvoiceCapture(Document):
 		card_charge_marker: DF.Data | None
 		detected_last4: DF.Data | None
 		expense_claim: DF.Data | None
+		classification_confidence: DF.Float
+		classification_rationale: DF.SmallText | None
 		classified_at: DF.Datetime | None
 		classified_by: DF.Link | None
 		classification_source: DF.Data | None
@@ -3293,6 +3303,234 @@ def _detect_card_marker(text: str) -> "tuple[str | None, str | None]":
 	return None, None
 
 
+# Content-based receipt/invoice classifier — Phase 1 (rule scorer over OCR text/fields).
+# Two orthogonal axes: GENRE (receipt vs invoice) and PAYMENT STATE (paid vs unpaid).
+# Each entry is (compiled regex, weight). Phrases chosen from how the two genres
+# actually read; weights are relative votes, not probabilities. The LLM classifier
+# (Phase 2) plugs in behind the same _score_document_content contract.
+def _humanize_signal(pattern: str) -> str:
+	"""Turn a regex phrase into a readable label for the rationale string."""
+
+	label = (
+		pattern.replace(r"\s+", " ")
+		.replace(r"\s*", " ")
+		.replace(r"\d+", "N")
+		.replace(r"\.?", "")
+		.replace("(?:orization)?", "")
+		.replace("(?:", "")
+		.replace(")?", "")
+		.replace(".*", " … ")
+	)
+	return " ".join(label.split())
+
+
+def _ci(*phrases: str) -> "list[tuple]":
+	"""Compile each phrase with word boundaries; keep a human label alongside."""
+
+	return [(re.compile(r"\b" + p + r"\b", re.IGNORECASE), _humanize_signal(p)) for p in phrases]
+
+
+_GENRE_INVOICE_SIGNALS = _ci(
+	"invoice", "tax invoice", "amount due", "balance due", "please remit", "remit to",
+	"payment due", "due date", "net\\s+\\d+", "payment terms", "bill to", "purchase order",
+	"p\\.?o\\.?\\s*number", "outstanding", "please pay",
+)
+_GENRE_RECEIPT_SIGNALS = _ci(
+	"receipt", "sales receipt", "thank you for your purchase", "thank you for shopping",
+	"tendered", "change due", "cash tendered", "approval code", "auth(?:orization)?\\s+code",
+	"merchant", "transaction id", "terminal", "card present", "cashier", "store\\s*#",
+	"subtotal.*tax.*total",
+)
+_PAID_SIGNALS = _ci(
+	"paid", "paid in full", "payment received", "amount paid", "tendered", "change due",
+	"approval code", "auth(?:orization)?\\s+code", "balance\\s*:?\\s*0\\.00",
+)
+_UNPAID_SIGNALS = _ci(
+	"amount due", "balance due", "please pay", "payment due", "due date", "net\\s+\\d+",
+	"outstanding", "remit",
+)
+
+# Confidence margin (winning − losing weighted votes, normalised by total) at/above
+# which a genre read is treated as decisive. Below it, the scorer stays "unknown".
+_CONTENT_DECISIVE_MARGIN = 0.34
+
+
+def _count_signals(text: str, signals: "list") -> "tuple[int, list[str]]":
+	hits = [label for rx, label in signals if rx.search(text)]
+	return len(hits), hits
+
+
+def _score_document_content(text: str, *, has_card_marker: bool = False) -> dict:
+	"""Rule-score document text into a genre + payment verdict (Phase 1 content classifier).
+
+	Returns ``{genre, paid, confidence, signals}`` where ``genre`` ∈
+	``"receipt" | "invoice" | "unknown"``, ``paid`` ∈ ``True | False | None`` (None =
+	undetermined), ``confidence`` ∈ ``0.0–1.0`` (the normalised winning margin), and
+	``signals`` is the list of matched phrases (audit/rationale). Pure + deterministic;
+	no DB, no network. A card marker is folded in as a strong paid+receipt vote."""
+
+	text = text or ""
+	inv_n, inv_hits = _count_signals(text, _GENRE_INVOICE_SIGNALS)
+	rec_n, rec_hits = _count_signals(text, _GENRE_RECEIPT_SIGNALS)
+	paid_n, paid_hits = _count_signals(text, _PAID_SIGNALS)
+	unpaid_n, unpaid_hits = _count_signals(text, _UNPAID_SIGNALS)
+
+	if has_card_marker:
+		rec_n += 2
+		paid_n += 2
+
+	# Genre verdict + confidence (normalised margin).
+	total_genre = inv_n + rec_n
+	if total_genre == 0:
+		genre, confidence = "unknown", 0.0
+	else:
+		margin = abs(rec_n - inv_n) / total_genre
+		if margin < _CONTENT_DECISIVE_MARGIN:
+			genre, confidence = "unknown", round(margin, 3)
+		else:
+			genre = "receipt" if rec_n > inv_n else "invoice"
+			confidence = round(margin, 3)
+
+	# Payment verdict (independent of genre).
+	if paid_n == 0 and unpaid_n == 0:
+		paid = None
+	else:
+		paid = paid_n > unpaid_n if paid_n != unpaid_n else None
+
+	return {
+		"genre": genre,
+		"paid": paid,
+		"confidence": confidence,
+		"signals": sorted(set(rec_hits + inv_hits + paid_hits + unpaid_hits)),
+		"provider": "rule",
+	}
+
+
+_CLASSIFIER_PROMPT = (
+	"You are classifying an accounts-payable document from its extracted text.\n"
+	"Decide two things and call the tool:\n"
+	"1. genre: 'receipt' = proof of a COMPLETED purchase/payment (point-of-sale slip, "
+	"card charge confirmation, 'thank you for your purchase'); 'invoice' = a REQUEST for "
+	"payment / a bill owed ('amount due', 'net 30', 'remit to'); 'other' if neither fits.\n"
+	"2. paid: true if the document shows it was ALREADY paid, false if it shows an amount "
+	"still owed, null if genuinely unclear.\n"
+	"Also give a 0..1 confidence and a one-sentence rationale. Judge ONLY from the text — "
+	"do not assume. Document text follows:\n\n"
+)
+
+_CLASSIFIER_TOOL = {
+	"name": "classify_document",
+	"description": "Record the receipt/invoice classification of an AP document.",
+	"input_schema": {
+		"type": "object",
+		"properties": {
+			"genre": {"type": "string", "enum": ["receipt", "invoice", "other"]},
+			"paid": {"type": ["boolean", "null"]},
+			"confidence": {"type": "number"},
+			"rationale": {"type": "string"},
+		},
+		"required": ["genre", "paid", "confidence", "rationale"],
+	},
+}
+
+
+def _classify_text_anthropic(text: str, *, client=None, model: str | None = None) -> dict:
+	"""Phase 2: ask Claude to classify the document text into the same verdict contract
+	as the rule scorer (``{genre, paid, confidence, signals, provider, rationale}``).
+
+	The client is injectable (``client=``) so tests never hit the network; otherwise the
+	key is fetched lazily from ``AI Provider Settings`` via ``get_ai_credentials`` (never
+	logged). Raises on any credential/SDK error — the dispatcher catches and degrades."""
+
+	if client is None:
+		import anthropic
+
+		from erpnext.ai.credentials import get_ai_credentials
+
+		creds = get_ai_credentials("anthropic")
+		client = anthropic.Anthropic(api_key=creds.api_key)
+		model = model or creds.default_model or DEFAULT_CLASSIFIER_MODEL
+	model = model or DEFAULT_CLASSIFIER_MODEL
+
+	response = client.messages.create(
+		model=model,
+		max_tokens=512,
+		tools=[_CLASSIFIER_TOOL],
+		tool_choice={"type": "tool", "name": "classify_document"},
+		messages=[{"role": "user", "content": _CLASSIFIER_PROMPT + (text or "")[:8000]}],
+	)
+	data = next(b.input for b in response.content if getattr(b, "type", None) == "tool_use")
+
+	genre = {"receipt": "receipt", "invoice": "invoice"}.get(
+		str(data.get("genre") or "").lower(), "unknown"
+	)
+	paid = data.get("paid")
+	if paid not in (True, False, None):
+		paid = None
+	try:
+		confidence = round(max(0.0, min(1.0, float(data.get("confidence")))), 3)
+	except (TypeError, ValueError):
+		confidence = 0.0
+	rationale = str(data.get("rationale") or "").strip()
+	return {
+		"genre": genre,
+		"paid": paid,
+		"confidence": confidence,
+		"signals": [rationale] if rationale else [],
+		"provider": "anthropic",
+		"rationale": rationale,
+	}
+
+
+def classify_document_content(text: str, *, has_card_marker: bool = False) -> dict:
+	"""Dispatch the content-classifier verdict to the configured provider (Phase 2).
+
+	Anthropic (LLM) is used only when the classifier is ENABLED and the provider is set
+	to Anthropic — otherwise (and on ANY LLM failure) the deterministic rule scorer runs,
+	so the cheap path is the default and the LLM never blocks classification. Returns the
+	shared verdict dict."""
+
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		get_content_classifier_provider,
+		is_content_classifier_enabled,
+	)
+
+	use_llm = is_content_classifier_enabled() and get_content_classifier_provider() == "anthropic"
+	if use_llm:
+		try:
+			return _classify_text_anthropic(text)
+		except Exception as exc:  # noqa: BLE001 — degrade, never block classification
+			frappe.logger("ap_content_classifier").warning(
+				"LLM content classifier failed (%s); falling back to rule scorer.", exc
+			)
+			verdict = _score_document_content(text, has_card_marker=has_card_marker)
+			verdict["provider"] = "rule-fallback"
+			return verdict
+	return _score_document_content(text, has_card_marker=has_card_marker)
+
+
+def _content_rationale(verdict: dict) -> str:
+	"""One-line, human-readable explanation of a content-classifier verdict (audit/UI)."""
+
+	paid = verdict.get("paid")
+	paid_txt = "paid" if paid is True else "unpaid" if paid is False else "payment-unknown"
+	provider = verdict.get("provider") or "rule"
+	tag = "content[{0}]".format(provider)
+	# LLM gives its own sentence; the rule scorer lists matched phrases.
+	if verdict.get("rationale"):
+		detail = verdict["rationale"]
+	else:
+		signals = verdict.get("signals") or []
+		detail = ("signals: " + ", ".join(signals[:8]) + ("…" if len(signals) > 8 else "")) if signals else ""
+	return "{0}: {1} · {2} · confidence {3:.2f}{4}".format(
+		tag,
+		verdict.get("genre", "unknown"),
+		paid_txt,
+		float(verdict.get("confidence") or 0.0),
+		" · " + detail if detail else "",
+	)
+
+
 def _provisional_stream(capture: "APInvoiceCapture") -> "str | None":
 	"""Map the spec-02 ``stream`` field onto the classifier's I/R space."""
 
@@ -3357,7 +3595,22 @@ def classify_document_type(
 		return _finalize_classification(capture, actor, save, reason)
 
 	emp_group = get_already_paid_config().get("employee_supplier_group")
-	marker, last4 = _detect_card_marker(_classification_text(capture))
+	text = _classification_text(capture)
+	marker, last4 = _detect_card_marker(text)
+
+	# Content classifier (Phase 1): score the document text into a genre + payment
+	# verdict. ALWAYS computed and recorded (confidence + rationale → visibility);
+	# only allowed to DECIDE the document type when the site opts in
+	# (enable_content_classifier — default OFF → shipped behaviour is byte-identical).
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		is_content_classifier_enabled,
+	)
+
+	verdict = classify_document_content(text, has_card_marker=bool(marker))
+	capture.classification_confidence = verdict["confidence"]
+	capture.classification_rationale = _content_rationale(verdict)
+	content_on = is_content_classifier_enabled()
+	content_decided = False
 
 	if marker:
 		capture.document_type = DOCUMENT_TYPE_ALREADY_PAID
@@ -3374,11 +3627,26 @@ def classify_document_type(
 		capture.document_type = DOCUMENT_TYPE_MANUAL_REVIEW
 		capture.classified_stream = ""
 		reason = _("Supplier unmatched — cannot determine employee vs vendor; manual classification required.")
+	elif content_on and verdict["genre"] == "receipt" and verdict["paid"] is not False:
+		# The document READS like a receipt (already-paid genre) even without a literal
+		# card/PAID marker — recognise it from the content itself (the real-world signal,
+		# not a filename convention). A receipt explicitly marked unpaid is excluded.
+		capture.document_type = DOCUMENT_TYPE_ALREADY_PAID
+		capture.classified_stream = CLASSIFIED_STREAM_R
+		content_decided = True
 	else:
 		capture.document_type = DOCUMENT_TYPE_UNPAID_BILL
 		capture.classified_stream = CLASSIFIED_STREAM_I
+		content_decided = content_on and verdict["genre"] == "invoice"
 
-	capture.classification_source = CLASSIFICATION_SOURCE_DEFAULT
+	if content_decided:
+		capture.classification_source = (
+			CLASSIFICATION_SOURCE_CONTENT_LLM
+			if verdict.get("provider") == "anthropic"
+			else CLASSIFICATION_SOURCE_CONTENT
+		)
+	else:
+		capture.classification_source = CLASSIFICATION_SOURCE_DEFAULT
 
 	# Confirm/revise the intake stream tag (spec 02). A disagreement → review.
 	if capture.document_type != DOCUMENT_TYPE_MANUAL_REVIEW:

@@ -101,6 +101,8 @@
   "classified_at",
   "classified_by",
   "classification_source",
+  "classification_confidence",
+  "classification_rationale",
   "validation_gates_section",
   "three_way_match_status",
   "three_way_match_result",
@@ -831,6 +833,22 @@
    "read_only": 1
   },
   {
+   "fieldname": "classification_confidence",
+   "fieldtype": "Float",
+   "label": "Classification Confidence",
+   "read_only": 1,
+   "precision": "3",
+   "description": "Content classifier confidence (0–1): the normalised winning margin between receipt-genre and invoice-genre signals. Recorded even when the classifier is OFF (visibility)."
+  },
+  {
+   "fieldname": "classification_rationale",
+   "fieldtype": "Small Text",
+   "label": "Classification Rationale",
+   "read_only": 1,
+   "depends_on": "eval:doc.classification_rationale",
+   "description": "Why Step-6 classified the document this way — genre, payment read, confidence, and the matched content signals (content classifier, Phase 1)."
+  },
+  {
    "description": "Validation gates (spec 08): three-way match, amount-anomaly, and vendor bank-change detection. On Stream I a failure blocks the capture into the review queue; on Stream R these are recorded but never blocking.",
    "fieldname": "validation_gates_section",
    "fieldtype": "Section Break",
@@ -1141,7 +1159,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-02 22:10:00",
+ "modified": "2026-06-03 10:05:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Invoice Capture",

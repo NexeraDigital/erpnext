@@ -3,7 +3,7 @@
 > Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-06-02 (T-015 auto-confirm).
+> Last derived from code: 2026-06-02 (default-coding reflection §33 + company-scoped mock payment §30).
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
@@ -95,7 +95,7 @@ sequenceDiagram
         PI-->>Cap: invoice + payment legs in one voucher —<br/>SKIPS approval/payment, CASCADE STOPS
     end
 
-    opt coding configured (supplier profile or Stream-R catch-all, spec 06)
+    opt coding configured (supplier profile · history · Stream-R catch-all, spec 06)
         Note over Q,Set: Step 2b — GL coding · cost center · tax
         Q->>Cap: apply_coding_profile()
         Cap->>Set: get_coding_settings()
@@ -103,6 +103,7 @@ sequenceDiagram
             Cap-->>Clerk: coding_status=Ambiguous/Flagged — ⏸ Coding Review, STOPS
         end
     end
+    Note over Q,Cap: unconfigured → coding hop SKIPPED (graceful degrade),<br/>coding_status stays Pending → reflected at Promote (§33)
     Note over Cap,Clerk: ⏸ PAUSE — manual Promote (needs company / item defaults)
 
     Clerk->>Cap: promote_to_purchase_invoice(defaults)
@@ -117,6 +118,9 @@ sequenceDiagram
         Cap-->>Clerk: CapturePromotionError — STOPS (no PI)
     end
     Cap->>PI: create Purchase Invoice (one item per line / header fallback)
+    alt coding engine never ran (unconfigured) — PI posted on ERPNext native defaults
+        Cap->>Cap: _reflect_default_coding(): coding_status=Flagged ·<br/>coding_source=native-default · backfill applied_* from PI ·<br/>action_required=1 → Coding Review queue<br/>(MARK-AND-CONTINUE — cascade NOT blocked, §33)
+    end
     Cap->>Q: _kick_next_step()
 
     Note over Q,Set: Step 3 — confidence-based routing (spec 09 · Already-Paid skips)
@@ -142,7 +146,7 @@ sequenceDiagram
 
     Note over Q,PE: Step 4 — payment (MOCK — no real banking)
     Q->>Cap: issue_mock_payment()
-    Cap->>PE: create mock Payment Entry
+    Cap->>PE: create mock Payment Entry<br/>(paid_from resolved company-scoped — never a wrong-company account, §30)
     PE-->>Cap: payment_lifecycle=Closed
     Cap-->>Clerk: Closed (mock paid)
 ```
@@ -187,6 +191,21 @@ sequenceDiagram
   coding profile (or the Stream-R catch-all account) is configured; an ambiguous
   cost center or tax mismatch parks at **Coding Review**. Unconfigured sites skip
   straight to the Promote seam (graceful degrade).
+- **Default-coding reflection (§33 — mark-and-continue).** When the coding engine
+  never ran (unconfigured → skipped) and the capture is promoted, the PI posts on
+  ERPNext native defaults. `promote_to_purchase_invoice` now **reflects** that via
+  `_reflect_default_coding`: `coding_status=Flagged`, `coding_source=native-default`,
+  the `applied_*` fields backfilled from the PI, a `coding_review_reason`, and
+  `action_required=1` so it surfaces in the **Coding Review queue**. This is
+  *mark-and-continue* — the cascade gates on promotion/approval status, **not**
+  `coding_status`/`action_required`, so the capture keeps advancing to approval/payment
+  while a human reviews the defaulted coding after the fact (vs the *park* variant,
+  which would block). Genuinely-coded captures and the already-paid stream are untouched.
+- **Company-scoped mock payment (§30).** `issue_mock_payment` resolves the disbursing
+  `paid_from` account scoped to the PI's company (explicit override → legacy default
+  only if it belongs to this company → company default bank/cash → company's single
+  Bank/Cash account), so a multi-company capture never fails with *"Account … does not
+  belong to Company …"*.
 - **Pause / park seams** are deliberate (no silent posting): OCR review, Coding
   Review (when ambiguous), manual Promote, **Needs Review** (low confidence / open
   flag), manager approval — plus the Manual Review park for classification.
