@@ -1,0 +1,17 @@
+{
+  "id": "real_016_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_016_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Morgan-Brown",
+  "currency": "EUR",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Morgan-Brown\n66764 David Manors Suite 970\nSouth Sarahhaven, 61862\n2026-05-24\nEmpower Bricks-And-Clicks  \u20ac384.79\nInnovate Killer Infrastruc \u20ac466.45\nSubtotal \u20ac851.24\nTax \u20ac170.25\nTOTAL \u20ac1021.49\nVISA ****0023"
+}

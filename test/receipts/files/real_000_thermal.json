@@ -1,0 +1,17 @@
+{
+  "id": "real_000_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_000_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Gould-Foster",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Gould-Foster\n91390 Williams Forges Apt. 824\nThomasville, 75331\nSALES RECEIPT #KD-2199-35181\n2025-09-23\nStreamline Intuitive Users \u00a3139.63\nTransform Bricks-And-Click \u00a3470.52\nStreamline Killer Paradigm \u00a358.44\nEvolve User-Centric E-Mark \u00a3201.86\nOptimize Web-Enabled Infra \u00a3363.91\nSubtotal \u00a31234.36\nTax \u00a361.72\nTOTAL \u00a31296.08\nVISA ****9378\nApproval Code 65797\nChange Due 0.00\nThank you for your purchase"
+}

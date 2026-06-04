@@ -1,0 +1,15 @@
+{
+  "id": "adv_statement_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_statement_01.pdf",
+  "format": "pdf",
+  "vendor": "First National Bank",
+  "currency": "USD",
+  "label": {
+    "genre": "other",
+    "paid": null,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "ACCOUNT STATEMENT\nFirst National Bank\nOpening balance 1,000.00\nDeposits 500.00  Withdrawals 300.00\nClosing balance 1,200.00\nStatement period April 2026"
+}

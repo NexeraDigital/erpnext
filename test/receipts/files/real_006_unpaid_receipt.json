@@ -1,0 +1,17 @@
+{
+  "id": "real_006_unpaid_receipt",
+  "source": "synthetic-realistic",
+  "difficulty": "adversarial",
+  "file": "real_006_unpaid_receipt.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "unpaid_receipt",
+  "vendor": "Brown Ltd",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Brown Ltd\n022 Thomas Stream\nNew Bryanhaven, 70064\nSALES RECEIPT #CJ-1803-34018\n2025-12-23\nSeize Ubiquitous Web Servi \u00a3293.49\nBenchmark Next-Generation  \u00a3154.30\nEnable B2C Deliverables \u00a361.98\nDeliver Vertical Systems \u00a3412.70\nSubtotal \u00a3922.47\nTax \u00a30.00\nTOTAL \u00a3922.47\nBalance Due \u00a3922.47\nPLEASE PAY AT COUNTER"
+}

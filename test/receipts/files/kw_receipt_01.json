@@ -1,0 +1,15 @@
+{
+  "id": "kw_receipt_01",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_receipt_01.png",
+  "format": "png",
+  "vendor": "Blue Bottle Coffee",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "SALES RECEIPT\nBlue Bottle Coffee  Store #042\nLatte 5.50\nCroissant 4.00\nSubtotal 9.50  Tax 0.76  Total 10.26\nVISA ending in 4242  Approval Code 88213\nChange Due 0.00\nThank you for your purchase!"
+}

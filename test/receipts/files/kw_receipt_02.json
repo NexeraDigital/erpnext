@@ -1,0 +1,15 @@
+{
+  "id": "kw_receipt_02",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_receipt_02.png",
+  "format": "png",
+  "vendor": "QuickMart",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "QuickMart  Terminal 7  Cashier: Dana\nMerchant ID 5523\nGroceries 33.18\nTotal 33.18\nCard Present  Auth Code 41122\nCash Tendered 40.00  Change Due 6.82\nThank you for shopping QuickMart"
+}

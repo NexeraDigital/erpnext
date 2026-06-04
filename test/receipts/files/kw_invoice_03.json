@@ -1,0 +1,15 @@
+{
+  "id": "kw_invoice_03",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_invoice_03.jpg",
+  "format": "jpg",
+  "vendor": "Stark Industrial",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Stark Industrial \u2014 TAX INVOICE 5589\nServices rendered Q1\nSubtotal 9800.00 Tax 980.00\nAmount Due 10780.00\nNet 45  Outstanding balance due on receipt\nRemit to: AP@stark"
+}

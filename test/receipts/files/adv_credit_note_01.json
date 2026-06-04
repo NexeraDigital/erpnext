@@ -1,0 +1,15 @@
+{
+  "id": "adv_credit_note_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_credit_note_01.pdf",
+  "format": "pdf",
+  "vendor": "Globex Supplies",
+  "currency": "USD",
+  "label": {
+    "genre": "other",
+    "paid": null,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "CREDIT NOTE CN-220\nGlobex Supplies\nAgainst Invoice 7781\nReturned widgets -100.00\nCredit total -100.00\nApplied to your account"
+}

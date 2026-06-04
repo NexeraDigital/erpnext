@@ -1,0 +1,15 @@
+{
+  "id": "adv_receipt_looks_invoice_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_receipt_looks_invoice_01.png",
+  "format": "png",
+  "vendor": "PrintWorks",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "PrintWorks\nINVOICE / RECEIPT 4410\nBusiness cards 45.00\nTotal 45.00\nStatus: PAID \u2014 Visa ****3321\nThank you, balance 0.00"
+}

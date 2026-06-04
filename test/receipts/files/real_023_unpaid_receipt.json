@@ -1,0 +1,17 @@
+{
+  "id": "real_023_unpaid_receipt",
+  "source": "synthetic-realistic",
+  "difficulty": "adversarial",
+  "file": "real_023_unpaid_receipt.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "unpaid_receipt",
+  "vendor": "Sullivan, Mcmahon and Hamilton",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Sullivan, Mcmahon and Hamilton\n619 Mclaughlin Extension\nWest Justin, 68810\n2025-08-04\nLeverage Cutting-Edge Init $157.64\nTransition E-Business Inte $467.27\nMaximize Bricks-And-Clicks $291.73\nRevolutionize Granular Cha $97.31\nImplement Scalable Schemas $134.49\nSubtotal $1148.44\nTax $229.69\nTOTAL $1378.13\nBalance Due $1378.13"
+}

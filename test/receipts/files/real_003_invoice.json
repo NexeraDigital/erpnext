@@ -1,0 +1,17 @@
+{
+  "id": "real_003_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_003_invoice.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "invoice",
+  "vendor": "Olson Group",
+  "currency": "EUR",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Olson Group\n09281 Austin Cliffs\nINVOICE No ET-5957-11777\n2025-09-03\nBill To: Acme Holdings\nStreamline Dynamic Partner \u20ac294.02\nArchitect Visionary Commun \u20ac237.99\nEmbrace Cross-Platform Met \u20ac106.30\nSubtotal \u20ac638.31\nTax \u20ac51.06\nTotal \u20ac689.37\nAmount Due \u20ac689.37  Payment Terms Net 30  Please remit"
+}

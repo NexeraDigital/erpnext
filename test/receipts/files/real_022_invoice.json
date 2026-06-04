@@ -1,0 +1,17 @@
+{
+  "id": "real_022_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_022_invoice.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "invoice",
+  "vendor": "Hunt-Thompson",
+  "currency": "GBP",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Hunt-Thompson\n93056 Lopez Inlet Apt. 307\nINVOICE No AD-2812-64644\n2026-02-01\nBill To: Acme Holdings\nExpedite Back-End Web Serv \u00a3376.88\nImplement Sticky Functiona \u00a352.72\nExpedite Cross-Media E-Tai \u00a3269.82\nIntegrate Out-Of-The-Box S \u00a3120.78\nOrchestrate Revolutionary  \u00a3134.37\nSubtotal \u00a3954.57\nTax \u00a30.00\nTotal \u00a3954.57\nAmount Due \u00a3954.57  Payment Terms Net 30  Please remit"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "sem_receipt_01",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_receipt_01.png",
+  "format": "png",
+  "vendor": "Corner Cafe",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Corner Cafe\n14 Elm St\n2026-05-01 10:32\nCappuccino 4.25\nMuffin 3.10\nTotal 7.35\nVisa 4242\nServer: Lee"
+}

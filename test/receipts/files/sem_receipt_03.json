@@ -1,0 +1,15 @@
+{
+  "id": "sem_receipt_03",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_receipt_03.pdf",
+  "format": "pdf",
+  "vendor": "RideShare",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "RideShare trip summary\nWed, May 3\nFare 12.40\nTip 2.00\nTotal 14.40\nCharged to Amex 0007\nHave a great day"
+}

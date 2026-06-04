@@ -1,0 +1,17 @@
+{
+  "id": "real_013_unpaid_receipt",
+  "source": "synthetic-realistic",
+  "difficulty": "adversarial",
+  "file": "real_013_unpaid_receipt.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "unpaid_receipt",
+  "vendor": "Marshall-Owens",
+  "currency": "EUR",
+  "label": {
+    "genre": "receipt",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Marshall-Owens\n1874 Clark Fords Apt. 912\nStephanieberg, 79585\nSALES RECEIPT #KA-8415-37760\n2026-03-30\nEmbrace 24/365 Content \u20ac475.03\nEvolve Collaborative Web-R \u20ac379.67\nSubtotal \u20ac854.70\nTax \u20ac170.94\nTOTAL \u20ac1025.64\nBalance Due \u20ac1025.64\nPLEASE PAY AT COUNTER"
+}

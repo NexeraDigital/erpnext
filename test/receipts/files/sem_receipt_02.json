@@ -1,0 +1,15 @@
+{
+  "id": "sem_receipt_02",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_receipt_02.png",
+  "format": "png",
+  "vendor": "Hardware Depot",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Hardware Depot #19\nScrews 2.40\nPaint 18.00\nBrush 5.50\nTotal 25.90\nMastercard 1188\nRef 553201  04/12/26 15:04"
+}

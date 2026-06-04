@@ -1,0 +1,10 @@
+# Track A — real public datasets (licence / PII): never committed.
+external/
+
+# Regenerable manifest — the per-file JSONs in files/ are the source of truth.
+realistic_corpus.json
+
+__pycache__/
+
+# NOTE: the synthetic receipts under files/ (Track B + seed) ARE committed — they are
+# fixtures (like test/invoices/ocr-extraction/), reproducible via the generator scripts.

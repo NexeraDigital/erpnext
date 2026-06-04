@@ -1,0 +1,15 @@
+{
+  "id": "adv_paid_invoice_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_paid_invoice_01.pdf",
+  "format": "pdf",
+  "vendor": "Beacon Systems",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "TAX INVOICE\nBeacon Systems  Invoice No BS-2031\nLicense renewal 500.00\nTotal 500.00\nPAID IN FULL \u2014 thank you, no further action required\nReceipt of payment 2026-05-02"
+}

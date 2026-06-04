@@ -1,0 +1,17 @@
+{
+  "id": "real_001_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_001_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Evans-Bauer",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Evans-Bauer\n52760 Kathy Ports Suite 559\nRileymouth, 09513\n2026-04-06\nScale Interactive Infrastr $164.58\nMaximize Seamless Delivera $169.39\nSynthesize Cross-Platform  $239.41\nEnvisioneer Intuitive Init $382.91\nSubtotal $956.29\nTax $0.00\nTOTAL $956.29\nVISA ****0752"
+}

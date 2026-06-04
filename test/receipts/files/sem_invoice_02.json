@@ -1,0 +1,15 @@
+{
+  "id": "sem_invoice_02",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_invoice_02.png",
+  "format": "png",
+  "vendor": "Atlas Freight",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Atlas Freight\nShipment 8841-A\nHaulage 640.00\nFuel surcharge 60.00\nTotal 700.00\nTerms 30 days from date\nQuestions: billing@atlas"
+}

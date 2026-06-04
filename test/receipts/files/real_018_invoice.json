@@ -1,0 +1,17 @@
+{
+  "id": "real_018_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_018_invoice.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "invoice",
+  "vendor": "Bruce, Jones and Simpson",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Bruce, Jones and Simpson\n1979 Peggy Oval Suite 092\nStatement of charges VM-0026-75112\n2025-07-24\nFor: Acme Holdings\nAggregate Extensible Solut $8.81\nEnhance Plug-And-Play E-Se $466.09\nSubtotal $474.90\nTax $0.00\nTotal $474.90\nDue 2025-07-24  Bank transfer to acct 2870"
+}

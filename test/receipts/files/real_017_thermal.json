@@ -1,0 +1,17 @@
+{
+  "id": "real_017_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_017_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Fields, Hale and Rodriguez",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Fields, Hale and Rodriguez\n84745 Thomas Freeway\nNorth Susan, 92861\nSALES RECEIPT #XO-0037-61436\n2026-01-26\nOptimize Seamless Delivera $15.17\nBenchmark Dynamic Architec $284.41\nMorph Magnetic Metrics $224.44\nSubtotal $524.02\nTax $26.20\nTOTAL $550.22\nVISA ****7056\nApproval Code 56304\nChange Due 0.00\nThank you for your purchase"
+}

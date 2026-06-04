@@ -1,0 +1,15 @@
+{
+  "id": "kw_invoice_01",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_invoice_01.pdf",
+  "format": "pdf",
+  "vendor": "Northwind Traders Ltd.",
+  "currency": "EUR",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "TAX INVOICE\nNorthwind Traders Ltd.  Invoice No NW-2026-00417\nBill To: Acme Co\nConsulting services  1274.81\nTotal EUR 1274.81\nPayment Terms: Net 30\nAmount Due 1274.81  Due Date 2026-04-17\nPlease remit to IBAN DE..."
+}

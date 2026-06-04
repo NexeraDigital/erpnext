@@ -1,0 +1,17 @@
+{
+  "id": "real_004_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_004_invoice.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "invoice",
+  "vendor": "Tapia PLC",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Tapia PLC\n53888 Fields Ridge Apt. 363\nINVOICE No XF-0474-39575\n2025-06-13\nBill To: Acme Holdings\nDisintermediate B2B Users $216.71\nRedefine Proactive Deliver $264.63\nMonetize E-Business Portal $424.26\nSubtotal $905.60\nTax $181.12\nTotal $1086.72\nAmount Due $1086.72  Payment Terms Net 30  Please remit"
+}

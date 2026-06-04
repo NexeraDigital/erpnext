@@ -1,0 +1,15 @@
+{
+  "id": "kw_receipt_03",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_receipt_03.pdf",
+  "format": "pdf",
+  "vendor": "CityParking",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "PARKING RECEIPT\nCityParking Ltd  Transaction ID 90431\nDuration 2h  Total GBP 6.40\nPaid by card ****1199  Approval Code 7781\nThank you for your purchase"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "real_020_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_020_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Mckenzie Inc",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Mckenzie Inc\n429 Mark Island\nCoxland, 67594\nSALES RECEIPT #KB-2361-07885\n2025-08-14\nSyndicate Plug-And-Play Ar $431.10\nGenerate Dot-Com E-Commerc $318.66\nTransition Rich Channels $391.59\nRe-Contextualize Rich Roi $249.01\nSubtotal $1390.36\nTax $69.52\nTOTAL $1459.88\nVISA ****1149\nApproval Code 13167\nChange Due 0.00\nThank you for your purchase"
+}

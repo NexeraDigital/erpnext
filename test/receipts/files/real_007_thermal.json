@@ -1,0 +1,17 @@
+{
+  "id": "real_007_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_007_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Ramirez, Romero and Aguirre",
+  "currency": "EUR",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Ramirez, Romero and Aguirre\n361 Elizabeth Tunnel\nPort Ericstad, 19241\nSALES RECEIPT #TB-2731-67232\n2025-09-03\nDeliver Interactive Delive \u20ac31.75\nMatrix Back-End Schemas \u20ac34.19\nProductize 24/365 Systems \u20ac101.79\nEnable Next-Generation Ini \u20ac79.58\nStrategize Visionary Vorta \u20ac164.55\nSubtotal \u20ac411.86\nTax \u20ac0.00\nTOTAL \u20ac411.86\nVISA ****8656\nApproval Code 35515\nChange Due 0.00\nThank you for your purchase"
+}

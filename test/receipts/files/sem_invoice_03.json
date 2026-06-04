@@ -1,0 +1,15 @@
+{
+  "id": "sem_invoice_03",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_invoice_03.jpg",
+  "format": "jpg",
+  "vendor": "Lumen Design",
+  "currency": "EUR",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Lumen Design Studio\nProject Riverside \u2014 phase 2\nDesign hours 40 x 95.00 = 3800.00\nTotal EUR 3800.00\nKindly settle by end of month\nIBAN FR76..."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "adv_ambiguous_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_ambiguous_01.png",
+  "format": "png",
+  "vendor": "Unknown Vendor",
+  "currency": "USD",
+  "label": {
+    "genre": "other",
+    "paid": null,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Vendor X\nTotal 100.00\nDate 2026-01-01\nRef 9"
+}

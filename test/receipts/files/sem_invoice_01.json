@@ -1,0 +1,15 @@
+{
+  "id": "sem_invoice_01",
+  "source": "seed",
+  "difficulty": "semantic",
+  "file": "sem_invoice_01.pdf",
+  "format": "pdf",
+  "vendor": "Greentree Consulting",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Greentree Consulting\nReference 4471\nFor: advisory services, April\nProfessional fees 1200.00\nTotal 1200.00\nDue 2026-06-30\nBank transfer to acct 0099 sort 11-22-33"
+}

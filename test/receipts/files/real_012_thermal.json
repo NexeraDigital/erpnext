@@ -1,0 +1,17 @@
+{
+  "id": "real_012_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_012_thermal.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "thermal",
+  "vendor": "Schmidt, Sanchez and Baker",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Schmidt, Sanchez and Baker\n337 Bruce Club\nLozanoport, 06628\nSALES RECEIPT #IA-3192-54499\n2026-01-14\nTarget Innovative Mindshar \u00a3306.22\nProductize E-Business Web  \u00a3295.12\nMesh Innovative Info-Media \u00a3378.85\nMorph Intuitive Portals \u00a3364.48\nSubtotal \u00a31344.67\nTax \u00a367.23\nTOTAL \u00a31411.90\nVISA ****7074\nApproval Code 13748\nChange Due 0.00\nThank you for your purchase"
+}

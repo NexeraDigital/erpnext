@@ -1,0 +1,17 @@
+{
+  "id": "real_021_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_021_invoice.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "invoice",
+  "vendor": "Stanton, Thompson and Anderson",
+  "currency": "EUR",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Stanton, Thompson and Anderson\n4437 Jacob Freeway Apt. 493\nStatement of charges XC-3170-10737\n2025-12-05\nFor: Acme Holdings\nTarget Web-Enabled Users \u20ac292.89\nIterate 24/7 Technologies \u20ac372.95\nEnvisioneer Efficient Netw \u20ac73.61\nSubtotal \u20ac739.45\nTax \u20ac36.97\nTotal \u20ac776.42\nDue 2025-12-05  Bank transfer to acct 4310"
+}

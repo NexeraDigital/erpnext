@@ -1,0 +1,17 @@
+{
+  "id": "real_010_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_010_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Parker, Lewis and Hall",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Parker, Lewis and Hall\n16849 Heather Cape\nLopezview, 58936\n2025-06-04\nAggregate Global Interface \u00a3355.89\nSeize Scalable Channels \u00a3230.78\nImplement Intuitive Functi \u00a3332.80\nExtend Dot-Com E-Commerce \u00a3248.81\nSubtotal \u00a31168.28\nTax \u00a358.41\nTOTAL \u00a31226.69\nVISA ****5617"
+}

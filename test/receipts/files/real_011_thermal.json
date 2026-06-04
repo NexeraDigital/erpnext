@@ -1,0 +1,17 @@
+{
+  "id": "real_011_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_011_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Davis Inc",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Davis Inc\n965 Hernandez Stream\nNorth Mallory, 94218\n2026-04-25\nOrchestrate Wireless Appli $469.72\nIntegrate Impactful Web-Re $414.67\nMonetize Seamless Function $334.78\nEnhance Strategic Applicat $126.81\nSubtotal $1345.98\nTax $107.68\nTOTAL $1453.66\nVISA ****0251"
+}

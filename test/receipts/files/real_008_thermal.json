@@ -1,0 +1,17 @@
+{
+  "id": "real_008_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_008_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Morgan Group",
+  "currency": "EUR",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Morgan Group\n31144 Rebecca Falls\nKatelynchester, 89102\n2026-03-29\nGrow Vertical Architecture \u20ac35.61\nFacilitate Distributed Min \u20ac101.40\nSubtotal \u20ac137.01\nTax \u20ac27.40\nTOTAL \u20ac164.41\nVISA ****2614"
+}

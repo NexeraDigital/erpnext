@@ -1,0 +1,15 @@
+{
+  "id": "kw_invoice_02",
+  "source": "seed",
+  "difficulty": "keyword",
+  "file": "kw_invoice_02.png",
+  "format": "png",
+  "vendor": "Globex Supplies",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "INVOICE\nGlobex Supplies  PO Number 7781\nLine 1 Widgets 400.00\nLine 2 Freight 50.00\nTotal 450.00\nBalance Due 450.00  Payment Due 2026-05-30\nPlease pay within terms. Remit to lockbox 8841."
+}

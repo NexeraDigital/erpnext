@@ -1,0 +1,17 @@
+{
+  "id": "real_009_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_009_thermal.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "thermal",
+  "vendor": "Jones Inc",
+  "currency": "EUR",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Jones Inc\n83124 Howard Inlet\nAmandaborough, 38506\n2025-11-13\nTarget Value-Added Supply- \u20ac57.14\nEngage Next-Generation Nic \u20ac235.30\nSubtotal \u20ac292.44\nTax \u20ac58.49\nTOTAL \u20ac350.93\nVISA ****8737"
+}

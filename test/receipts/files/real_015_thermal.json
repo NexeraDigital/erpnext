@@ -1,0 +1,17 @@
+{
+  "id": "real_015_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_015_thermal.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "thermal",
+  "vendor": "Perry-Campbell",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Perry-Campbell\n612 Charles Parkway Suite 837\nWendymouth, 56524\n2025-07-24\nMorph Back-End Interfaces $436.87\nVisualize Web-Enabled Cont $375.94\nSubtotal $812.81\nTax $40.64\nTOTAL $853.45\nVISA ****9306"
+}

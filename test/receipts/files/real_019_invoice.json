@@ -1,0 +1,17 @@
+{
+  "id": "real_019_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_019_invoice.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "invoice",
+  "vendor": "Rodriguez Inc",
+  "currency": "USD",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Rodriguez Inc\n6107 Nathan Mission Apt. 557\nINVOICE No RV-7104-31955\n2025-10-18\nBill To: Acme Holdings\nEmpower Strategic Converge $15.38\nDeploy 24/7 Schemas $103.71\nEngineer Best-Of-Breed Arc $241.56\nSubtotal $360.65\nTax $28.85\nTotal $389.50\nAmount Due $389.50  Payment Terms Net 30  Please remit"
+}

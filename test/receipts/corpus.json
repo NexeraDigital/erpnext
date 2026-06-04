@@ -1,0 +1,97 @@
+{
+  "_about": "Labeled receipt/invoice corpus for the content classifier (specs 02/07, content-classifier Phase 1 rule scorer + Phase 2 LLM). Each entry's `text` is the document body the classifier reads (_classification_text). `label` is the two-axis ground truth (genre + paid) plus the document_type the full Step-6 cascade should reach. `difficulty`: keyword = obvious phrases the rule scorer catches; semantic = no trigger phrases (LLM only); adversarial = paid invoices / unpaid receipts / non-bills that expose a naive classifier. See README.md.",
+  "entries": [
+    {
+      "id": "kw_receipt_01", "difficulty": "keyword", "format": "png", "vendor": "Blue Bottle Coffee", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "SALES RECEIPT\nBlue Bottle Coffee  Store #042\nLatte 5.50\nCroissant 4.00\nSubtotal 9.50  Tax 0.76  Total 10.26\nVISA ending in 4242  Approval Code 88213\nChange Due 0.00\nThank you for your purchase!"
+    },
+    {
+      "id": "kw_receipt_02", "difficulty": "keyword", "format": "png", "vendor": "QuickMart", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "QuickMart  Terminal 7  Cashier: Dana\nMerchant ID 5523\nGroceries 33.18\nTotal 33.18\nCard Present  Auth Code 41122\nCash Tendered 40.00  Change Due 6.82\nThank you for shopping QuickMart"
+    },
+    {
+      "id": "kw_receipt_03", "difficulty": "keyword", "format": "pdf", "vendor": "CityParking", "currency": "GBP",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "PARKING RECEIPT\nCityParking Ltd  Transaction ID 90431\nDuration 2h  Total GBP 6.40\nPaid by card ****1199  Approval Code 7781\nThank you for your purchase"
+    },
+    {
+      "id": "kw_invoice_01", "difficulty": "keyword", "format": "pdf", "vendor": "Northwind Traders Ltd.", "currency": "EUR",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "TAX INVOICE\nNorthwind Traders Ltd.  Invoice No NW-2026-00417\nBill To: Acme Co\nConsulting services  1274.81\nTotal EUR 1274.81\nPayment Terms: Net 30\nAmount Due 1274.81  Due Date 2026-04-17\nPlease remit to IBAN DE..."
+    },
+    {
+      "id": "kw_invoice_02", "difficulty": "keyword", "format": "png", "vendor": "Globex Supplies", "currency": "USD",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "INVOICE\nGlobex Supplies  PO Number 7781\nLine 1 Widgets 400.00\nLine 2 Freight 50.00\nTotal 450.00\nBalance Due 450.00  Payment Due 2026-05-30\nPlease pay within terms. Remit to lockbox 8841."
+    },
+    {
+      "id": "kw_invoice_03", "difficulty": "keyword", "format": "jpg", "vendor": "Stark Industrial", "currency": "USD",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "Stark Industrial — TAX INVOICE 5589\nServices rendered Q1\nSubtotal 9800.00 Tax 980.00\nAmount Due 10780.00\nNet 45  Outstanding balance due on receipt\nRemit to: AP@stark"
+    },
+
+    {
+      "id": "sem_receipt_01", "difficulty": "semantic", "format": "png", "vendor": "Corner Cafe", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "Corner Cafe\n14 Elm St\n2026-05-01 10:32\nCappuccino 4.25\nMuffin 3.10\nTotal 7.35\nVisa 4242\nServer: Lee"
+    },
+    {
+      "id": "sem_receipt_02", "difficulty": "semantic", "format": "png", "vendor": "Hardware Depot", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "Hardware Depot #19\nScrews 2.40\nPaint 18.00\nBrush 5.50\nTotal 25.90\nMastercard 1188\nRef 553201  04/12/26 15:04"
+    },
+    {
+      "id": "sem_receipt_03", "difficulty": "semantic", "format": "pdf", "vendor": "RideShare", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "RideShare trip summary\nWed, May 3\nFare 12.40\nTip 2.00\nTotal 14.40\nCharged to Amex 0007\nHave a great day"
+    },
+    {
+      "id": "sem_invoice_01", "difficulty": "semantic", "format": "pdf", "vendor": "Greentree Consulting", "currency": "USD",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "Greentree Consulting\nReference 4471\nFor: advisory services, April\nProfessional fees 1200.00\nTotal 1200.00\nDue 2026-06-30\nBank transfer to acct 0099 sort 11-22-33"
+    },
+    {
+      "id": "sem_invoice_02", "difficulty": "semantic", "format": "png", "vendor": "Atlas Freight", "currency": "USD",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "Atlas Freight\nShipment 8841-A\nHaulage 640.00\nFuel surcharge 60.00\nTotal 700.00\nTerms 30 days from date\nQuestions: billing@atlas"
+    },
+    {
+      "id": "sem_invoice_03", "difficulty": "semantic", "format": "jpg", "vendor": "Lumen Design", "currency": "EUR",
+      "label": {"genre": "invoice", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "Lumen Design Studio\nProject Riverside — phase 2\nDesign hours 40 x 95.00 = 3800.00\nTotal EUR 3800.00\nKindly settle by end of month\nIBAN FR76..."
+    },
+
+    {
+      "id": "adv_paid_invoice_01", "difficulty": "adversarial", "format": "pdf", "vendor": "Beacon Systems", "currency": "USD",
+      "label": {"genre": "invoice", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "TAX INVOICE\nBeacon Systems  Invoice No BS-2031\nLicense renewal 500.00\nTotal 500.00\nPAID IN FULL — thank you, no further action required\nReceipt of payment 2026-05-02"
+    },
+    {
+      "id": "adv_unpaid_receipt_01", "difficulty": "adversarial", "format": "png", "vendor": "Bistro Verde", "currency": "USD",
+      "label": {"genre": "receipt", "paid": false, "expected_document_type": "Unpaid Bill"},
+      "text": "SALES RECEIPT — ORDER #55\nBistro Verde (dine-in)\nItems 20.00\nTotal 20.00\nBalance Due 20.00 — please pay at the counter\nNot yet settled"
+    },
+    {
+      "id": "adv_statement_01", "difficulty": "adversarial", "format": "pdf", "vendor": "First National Bank", "currency": "USD",
+      "label": {"genre": "other", "paid": null, "expected_document_type": "Unpaid Bill"},
+      "text": "ACCOUNT STATEMENT\nFirst National Bank\nOpening balance 1,000.00\nDeposits 500.00  Withdrawals 300.00\nClosing balance 1,200.00\nStatement period April 2026"
+    },
+    {
+      "id": "adv_credit_note_01", "difficulty": "adversarial", "format": "pdf", "vendor": "Globex Supplies", "currency": "USD",
+      "label": {"genre": "other", "paid": null, "expected_document_type": "Unpaid Bill"},
+      "text": "CREDIT NOTE CN-220\nGlobex Supplies\nAgainst Invoice 7781\nReturned widgets -100.00\nCredit total -100.00\nApplied to your account"
+    },
+    {
+      "id": "adv_receipt_looks_invoice_01", "difficulty": "adversarial", "format": "png", "vendor": "PrintWorks", "currency": "USD",
+      "label": {"genre": "receipt", "paid": true, "expected_document_type": "Already Paid"},
+      "text": "PrintWorks\nINVOICE / RECEIPT 4410\nBusiness cards 45.00\nTotal 45.00\nStatus: PAID — Visa ****3321\nThank you, balance 0.00"
+    },
+    {
+      "id": "adv_ambiguous_01", "difficulty": "adversarial", "format": "png", "vendor": "Unknown Vendor", "currency": "USD",
+      "label": {"genre": "other", "paid": null, "expected_document_type": "Unpaid Bill"},
+      "text": "Vendor X\nTotal 100.00\nDate 2026-01-01\nRef 9"
+    }
+  ]
+}

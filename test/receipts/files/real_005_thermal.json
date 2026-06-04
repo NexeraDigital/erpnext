@@ -1,0 +1,17 @@
+{
+  "id": "real_005_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_005_thermal.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "thermal",
+  "vendor": "Pittman, Mendoza and Delgado",
+  "currency": "GBP",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Pittman, Mendoza and Delgado\n122 Anthony Ramp Suite 299\nSandovalstad, 20936\nSALES RECEIPT #BQ-2001-82633\n2025-12-20\nExploit Strategic Web Serv \u00a3459.80\nEmbrace Integrated Solutio \u00a374.14\nSyndicate Virtual E-Commer \u00a386.23\nGenerate Open-Source Infra \u00a3112.88\nExploit Impactful Bandwidt \u00a3113.53\nSubtotal \u00a3846.58\nTax \u00a3169.32\nTOTAL \u00a31015.90\nVISA ****3483\nApproval Code 95486\nChange Due 0.00\nThank you for your purchase"
+}

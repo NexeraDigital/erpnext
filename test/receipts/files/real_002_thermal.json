@@ -1,0 +1,17 @@
+{
+  "id": "real_002_thermal",
+  "source": "synthetic-realistic",
+  "difficulty": "semantic",
+  "file": "real_002_thermal.jpg",
+  "format": "jpg",
+  "augmented": true,
+  "layout": "thermal",
+  "vendor": "Anderson-Wright",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": true,
+    "expected_document_type": "Already Paid"
+  },
+  "text": "Anderson-Wright\n68465 Rosario Drive Apt. 223\nNorth Todd, 77718\n2025-08-08\nStrategize Rich Infrastruc $351.49\nLeverage Customized Interf $149.99\nSubtotal $501.48\nTax $100.30\nTOTAL $601.78\nVISA ****8907"
+}

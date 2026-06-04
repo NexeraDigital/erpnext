@@ -1,0 +1,15 @@
+{
+  "id": "adv_unpaid_receipt_01",
+  "source": "seed",
+  "difficulty": "adversarial",
+  "file": "adv_unpaid_receipt_01.png",
+  "format": "png",
+  "vendor": "Bistro Verde",
+  "currency": "USD",
+  "label": {
+    "genre": "receipt",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "SALES RECEIPT \u2014 ORDER #55\nBistro Verde (dine-in)\nItems 20.00\nTotal 20.00\nBalance Due 20.00 \u2014 please pay at the counter\nNot yet settled"
+}

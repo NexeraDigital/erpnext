@@ -1,0 +1,17 @@
+{
+  "id": "real_014_invoice",
+  "source": "synthetic-realistic",
+  "difficulty": "keyword",
+  "file": "real_014_invoice.png",
+  "format": "png",
+  "augmented": false,
+  "layout": "invoice",
+  "vendor": "Larsen Inc",
+  "currency": "EUR",
+  "label": {
+    "genre": "invoice",
+    "paid": false,
+    "expected_document_type": "Unpaid Bill"
+  },
+  "text": "Larsen Inc\n156 Dickerson Harbors Apt. 042\nINVOICE No UA-5606-88310\n2025-08-11\nBill To: Acme Holdings\nHarness Cross-Platform Int \u20ac40.50\nEmbrace 24/365 Synergies \u20ac50.83\nProductize Distributed Por \u20ac226.70\nDisintermediate Innovative \u20ac163.44\nSubtotal \u20ac481.47\nTax \u20ac96.29\nTotal \u20ac577.76\nAmount Due \u20ac577.76  Payment Terms Net 30  Please remit"
+}
