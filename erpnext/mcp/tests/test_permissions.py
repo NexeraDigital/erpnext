@@ -107,6 +107,28 @@ class TestUserPermissionScoping(IntegrationTestCase):
 		# Restrict this user to supplier_a only.
 		add_user_permission("Supplier", cls.supplier_a, cls.SCOPED_USER, ignore_permissions=True)
 
+	@classmethod
+	def tearDownClass(cls):
+		# setUpClass commits the seeded Suppliers to disk (see cleanup_seeded_docs),
+		# so they survive the class rollback — delete our seeds explicitly. The User
+		# Permission references supplier_a, so it must go before the Supplier.
+		from erpnext.mcp.tests._helpers import cleanup_seeded_docs
+
+		up = frappe.db.get_value(
+			"User Permission",
+			{"user": cls.SCOPED_USER, "allow": "Supplier", "for_value": cls.supplier_a},
+		)
+		cleanup_seeded_docs(
+			[
+				("User Permission", up),
+				("Purchase Invoice", getattr(getattr(cls, "pi_a", None), "name", None)),
+				("Purchase Invoice", getattr(getattr(cls, "pi_b", None), "name", None)),
+				("Supplier", getattr(cls, "supplier_a", None)),
+				("Supplier", getattr(cls, "supplier_b", None)),
+			]
+		)
+		super().tearDownClass()
+
 	def tearDown(self):
 		frappe.set_user("Administrator")
 

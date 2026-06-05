@@ -13,7 +13,7 @@ import uuid
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from erpnext.mcp.tests._helpers import make_submitted_pi, make_supplier
+from erpnext.mcp.tests._helpers import cleanup_seeded_docs, make_submitted_pi, make_supplier
 from erpnext.mcp.tools.ap_invoices import GetAPInvoice, ListAPInvoices
 from erpnext.mcp.tools.schema import GetDoctypeMeta
 from erpnext.mcp.tools.vendors import GetVendorBalance, ListVendors
@@ -31,6 +31,19 @@ class TestToolsIntegration(IntegrationTestCase):
 		cls.supplier = make_supplier(f"_MCP Vendor {uuid.uuid4().hex[:6]}")
 		cls.pi1 = make_submitted_pi(cls.supplier, rate=100, qty=1)
 		cls.pi2 = make_submitted_pi(cls.supplier, rate=150, qty=1)
+
+	@classmethod
+	def tearDownClass(cls):
+		# setUpClass commits the seeded Supplier to disk (see cleanup_seeded_docs),
+		# so the class rollback can't reclaim it — delete our seed explicitly.
+		cleanup_seeded_docs(
+			[
+				("Purchase Invoice", getattr(getattr(cls, "pi1", None), "name", None)),
+				("Purchase Invoice", getattr(getattr(cls, "pi2", None), "name", None)),
+				("Supplier", getattr(cls, "supplier", None)),
+			]
+		)
+		super().tearDownClass()
 
 	def test_list_ap_invoices_returns_our_invoices(self):
 		out = ListAPInvoices().run({"supplier": self.supplier, "limit": 50})

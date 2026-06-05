@@ -82,6 +82,35 @@ def body(response) -> dict:
 	return json.loads(response.get_data(as_text=True))
 
 
+def cleanup_seeded_docs(records: list[tuple[str, str | None]]) -> None:
+	"""Best-effort delete of docs seeded in ``setUpClass``.
+
+	``IntegrationTestCase`` rolls back per-test and at class teardown, but our
+	``make_submitted_pi`` path calls ``make_test_records(commit=True)`` mid-setup
+	(see ``_ensure_erpnext_test_masters``), and that explicit commit flushes the
+	seeded ``_MCP`` Supplier to disk — past the reach of the class rollback. So
+	those rows persist across runs unless we delete them ourselves. Submitted
+	docs are cancelled first; ``force=True`` bypasses link-existence checks
+	(frappe ``delete_doc`` arg) so a Supplier deletes despite its PIs/GL entries.
+
+	``records`` is ``(doctype, name)`` pairs in deletion order (children before
+	parents). ``None``/missing names are skipped. A final commit makes the
+	deletions durable past the class-cleanup rollback.
+	"""
+	frappe.set_user("Administrator")
+	for doctype, name in records:
+		if not name or not frappe.db.exists(doctype, name):
+			continue
+		try:
+			doc = frappe.get_doc(doctype, name)
+			if getattr(doc, "docstatus", 0) == 1:
+				doc.cancel()
+			frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+		except Exception:  # pragma: no cover - best-effort teardown
+			pass
+	frappe.db.commit()
+
+
 def make_supplier(name: str) -> str:
 	if not frappe.db.exists("Supplier", name):
 		doc = frappe.new_doc("Supplier")
