@@ -1,0 +1,1000 @@
+- generic [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]:
+      - img [ref=e8]
+      - generic [ref=e9]:
+        - generic [ref=e10]: Invoicing
+        - generic [ref=e11]: ERPNext
+      - button [ref=e12]:
+        - img [ref=e13]
+    - generic [ref=e15]:
+      - generic "Search" [ref=e16]:
+        - generic [ref=e18] [cursor=pointer]:
+          - img [ref=e20]
+          - generic [ref=e21]: Search
+          - generic [ref=e22]: Ctrl+K
+      - generic "Notification" [ref=e23]:
+        - generic [ref=e25] [cursor=pointer]:
+          - img [ref=e27]
+          - generic [ref=e28]: Notification
+    - generic [ref=e30]:
+      - generic "Home" [ref=e31]:
+        - link "Home" [ref=e33] [cursor=pointer]:
+          - /url: /desk/invoicing
+          - img [ref=e35]
+          - generic [ref=e36]: Home
+      - generic "Dashboard" [ref=e37]:
+        - link "Dashboard" [ref=e39] [cursor=pointer]:
+          - /url: /desk/dashboard-view/Accounts
+          - img [ref=e41]
+          - generic [ref=e42]: Dashboard
+      - generic "Chart of Accounts" [ref=e43]:
+        - link "Chart of Accounts" [ref=e45] [cursor=pointer]:
+          - /url: /desk/account
+          - img [ref=e47]
+          - generic [ref=e48]: Chart of Accounts
+      - generic "Receivables" [ref=e49]:
+        - generic [ref=e51] [cursor=pointer]:
+          - img [ref=e53]
+          - generic [ref=e54]: Receivables
+          - button [ref=e56]:
+            - img [ref=e57]
+        - generic [ref=e58]:
+          - generic "Customer" [ref=e59]:
+            - link "Customer" [ref=e61] [cursor=pointer]:
+              - /url: /desk/customer
+              - generic [ref=e63]: Customer
+          - generic "Sales Invoice" [ref=e64]:
+            - link "Sales Invoice" [ref=e66] [cursor=pointer]:
+              - /url: /desk/sales-invoice
+              - generic [ref=e68]: Sales Invoice
+          - generic "Credit Note" [ref=e69]:
+            - link "Credit Note" [ref=e71] [cursor=pointer]:
+              - /url: /desk/sales-invoice/view/list?is_return=1
+              - generic [ref=e73]: Credit Note
+          - generic "Accounts Receivable" [ref=e74]:
+            - link "Accounts Receivable" [ref=e76] [cursor=pointer]:
+              - /url: /desk/query-report/Accounts Receivable
+              - generic [ref=e78]: Accounts Receivable
+      - generic "Payables" [ref=e79]:
+        - generic [ref=e81] [cursor=pointer]:
+          - img [ref=e83]
+          - generic [ref=e84]: Payables
+          - button [ref=e86]:
+            - img [ref=e87]
+        - generic [ref=e88]:
+          - generic "Invoice Capture" [ref=e89]:
+            - link "Invoice Capture" [ref=e91] [cursor=pointer]:
+              - /url: /desk/ap-invoice-capture
+              - generic [ref=e93]: Invoice Capture
+          - generic "Supplier" [ref=e94]:
+            - link "Supplier" [ref=e96] [cursor=pointer]:
+              - /url: /desk/supplier
+              - generic [ref=e98]: Supplier
+          - generic "Purchase Invoice" [ref=e99]:
+            - link "Purchase Invoice" [ref=e101] [cursor=pointer]:
+              - /url: /desk/purchase-invoice
+              - generic [ref=e103]: Purchase Invoice
+          - generic "Debit Note" [ref=e104]:
+            - link "Debit Note" [ref=e106] [cursor=pointer]:
+              - /url: /desk/purchase-invoice/view/list?is_return=1
+              - generic [ref=e108]: Debit Note
+          - generic "Accounts Payable" [ref=e109]:
+            - link "Accounts Payable" [ref=e111] [cursor=pointer]:
+              - /url: /desk/query-report/Accounts Payable
+              - generic [ref=e113]: Accounts Payable
+      - generic "Payments" [ref=e114]:
+        - generic [ref=e116] [cursor=pointer]:
+          - img [ref=e118]
+          - generic [ref=e119]: Payments
+          - button [ref=e121]:
+            - img [ref=e122]
+        - generic [ref=e123]:
+          - generic "Payment Entry" [ref=e124]:
+            - link "Payment Entry" [ref=e126] [cursor=pointer]:
+              - /url: /desk/payment-entry
+              - generic [ref=e128]: Payment Entry
+          - generic "Journal Entry" [ref=e129]:
+            - link "Journal Entry" [ref=e131] [cursor=pointer]:
+              - /url: /desk/journal-entry
+              - generic [ref=e133]: Journal Entry
+          - generic "Payment Request" [ref=e134]:
+            - link "Payment Request" [ref=e136] [cursor=pointer]:
+              - /url: /desk/payment-request
+              - generic [ref=e138]: Payment Request
+          - generic "Payment Order" [ref=e139]:
+            - link "Payment Order" [ref=e141] [cursor=pointer]:
+              - /url: /desk/payment-order
+              - generic [ref=e143]: Payment Order
+          - generic "Payment Reconciliaition" [ref=e144]:
+            - link "Payment Reconciliaition" [ref=e146] [cursor=pointer]:
+              - /url: /desk/payment-reconciliation/Payment Reconciliation
+              - generic [ref=e148]: Payment Reconciliaition
+          - generic "Unreconcile Payment" [ref=e149]:
+            - link "Unreconcile Payment" [ref=e151] [cursor=pointer]:
+              - /url: /desk/unreconcile-payment
+              - generic [ref=e153]: Unreconcile Payment
+          - generic "Process Payment Reconciliation" [ref=e154]:
+            - link "Process Payment Reconciliation" [ref=e156] [cursor=pointer]:
+              - /url: /desk/process-payment-reconciliation
+              - generic [ref=e158]: Process Payment Reconciliation
+          - generic "Repost Accounting Ledger" [ref=e159]:
+            - link "Repost Accounting Ledger" [ref=e161] [cursor=pointer]:
+              - /url: /desk/repost-accounting-ledger
+              - generic [ref=e163]: Repost Accounting Ledger
+          - generic "Repost Payment Ledger" [ref=e164]:
+            - link "Repost Payment Ledger" [ref=e166] [cursor=pointer]:
+              - /url: /desk/repost-payment-ledger
+              - generic [ref=e168]: Repost Payment Ledger
+      - generic "Reports" [ref=e169]:
+        - generic [ref=e171] [cursor=pointer]:
+          - img [ref=e173]
+          - generic [ref=e174]: Reports
+          - button [ref=e176]:
+            - img [ref=e177]
+        - generic [ref=e178]:
+          - generic "General Ledger" [ref=e179]:
+            - link "General Ledger" [ref=e181] [cursor=pointer]:
+              - /url: /desk/query-report/General Ledger
+              - generic [ref=e183]: General Ledger
+          - generic "Trial Balance" [ref=e184]:
+            - link "Trial Balance" [ref=e186] [cursor=pointer]:
+              - /url: /desk/query-report/Trial Balance
+              - generic [ref=e188]: Trial Balance
+          - generic "Financial Reports" [ref=e189]:
+            - link "Financial Reports" [ref=e191] [cursor=pointer]:
+              - /url: /desk/financial-reports
+              - generic [ref=e193]: Financial Reports
+      - generic "Settings" [ref=e194]:
+        - link "Settings" [ref=e196] [cursor=pointer]:
+          - /url: /desk/accounts-settings/Accounts Settings
+          - img [ref=e198]
+          - generic [ref=e199]: Settings
+      - generic "AP Closed Loop Settings" [ref=e200]:
+        - link "AP Closed Loop Settings" [ref=e202] [cursor=pointer]:
+          - /url: /desk/ap-closed-loop-settings/AP Closed Loop Settings
+          - img [ref=e204]
+          - generic [ref=e205]: AP Closed Loop Settings
+    - generic [ref=e206]:
+      - paragraph
+      - generic "User Menu" [ref=e208] [cursor=pointer]:
+        - generic "Administrator" [ref=e210]:
+          - generic "Administrator" [ref=e211]: A
+        - generic [ref=e212]:
+          - generic [ref=e213]: Administrator
+          - generic [ref=e214]: admin@example.com
+  - generic [ref=e216]:
+    - banner
+    - generic [ref=e218]:
+      - generic [ref=e221]:
+        - generic [ref=e223]:
+          - list [ref=e224]:
+            - listitem [ref=e225]:
+              - link [ref=e226] [cursor=pointer]:
+                - /url: /desk
+                - img [ref=e227]
+            - listitem [ref=e228]:
+              - link "/ Invoicing" [ref=e229] [cursor=pointer]:
+                - /url: /desk/invoicing
+            - listitem [ref=e230]:
+              - link "/ AP Invoice Capture" [ref=e231] [cursor=pointer]:
+                - /url: /desk/ap-invoice-capture
+            - listitem [ref=e232]:
+              - link "/ clean_doc_b.png":
+                - /url: /desk/ap-invoice-capture/APIC-2026-00074
+          - generic [ref=e234]: Proposed
+        - generic [ref=e237]:
+          - generic [ref=e238]:
+            - button [ref=e239] [cursor=pointer]:
+              - img [ref=e240]
+            - button [ref=e241] [cursor=pointer]:
+              - img [ref=e242]
+          - button "Menu" [ref=e244] [cursor=pointer]:
+            - img [ref=e247]
+          - button "Save" [ref=e248] [cursor=pointer]:
+            - generic [ref=e249]: Save
+      - generic [ref=e253]:
+        - generic [ref=e254]:
+          - generic [ref=e258]:
+            - generic [ref=e260]:
+              - generic [ref=e261]: ⚠ AP review of OCR proposal required
+              - img [ref=e263] [cursor=pointer]
+            - generic [ref=e264]:
+              - generic [ref=e266]:
+                - generic [ref=e267] [cursor=pointer]:
+                  - text: Stats
+                  - img [ref=e269]
+                - generic [ref=e273]: Action Required
+              - generic [ref=e274]:
+                - generic [ref=e275]: Source
+                - generic [ref=e277]:
+                  - link "View source invoice" [ref=e278] [cursor=pointer]:
+                    - /url: /private/files/demo_default_coding.png
+                  - generic [ref=e279]: clean_doc_b.png
+                - generic [ref=e280]:
+                  - generic [ref=e282]:
+                    - generic [ref=e283]:
+                      - generic [ref=e284]:
+                        - generic [ref=e286]: Source Filename *
+                        - generic [ref=e287]:
+                          - textbox [ref=e289]: clean_doc_b.png
+                          - generic [ref=e290]: Original filename as uploaded.
+                      - generic: source_filename
+                    - generic [ref=e291]:
+                      - generic [ref=e292]:
+                        - generic [ref=e294]: Intake Channel *
+                        - generic [ref=e295]:
+                          - generic [ref=e296]:
+                            - combobox [ref=e297]:
+                              - option "Manual ERPNext Upload" [selected]
+                              - option "Email Inbound"
+                              - option "Mobile Upload"
+                              - option "Vendor Portal Pull"
+                            - generic:
+                              - img
+                          - generic [ref=e298]: "Intake channel that originated this capture: manual ERPNext upload, inbound email, mobile upload, or vendor portal pull."
+                      - generic: intake_channel
+                  - generic [ref=e301]:
+                    - generic [ref=e302]:
+                      - generic [ref=e304]: Received At *
+                      - generic [ref=e305]:
+                        - textbox [ref=e307]: 06-04-2026 16:28:24
+                        - generic [ref=e308]:
+                          - text: Time the source artifact was received for intake.
+                          - text: America/Chicago
+                    - generic: received_at
+              - generic [ref=e309]:
+                - generic [ref=e310]: Intake Classification
+                - generic [ref=e313]:
+                  - generic [ref=e314]:
+                    - generic [ref=e315]:
+                      - generic [ref=e317]: Stream *
+                      - generic [ref=e318]:
+                        - generic [ref=e319]: Unclassified
+                        - generic [ref=e320]: "Provisional Receipt-vs-Invoice stream set at intake (spec 02). Step-6 classification may revise it. System-owned: to override, use Classification Override (audited), not this field."
+                    - generic: stream
+                  - generic [ref=e321]:
+                    - generic [ref=e322]:
+                      - generic [ref=e324]: Stream Provisional Source
+                      - generic [ref=e325]:
+                        - generic [ref=e326]: default
+                        - generic [ref=e327]: Which signal fired the provisional stream tag (e.g. filename:receipt_*, sender_domain, body:PAID, default).
+                    - generic: stream_provisional_source
+              - text: "*"
+              - generic [ref=e328]:
+                - generic [ref=e329]: Context
+                - generic [ref=e333]:
+                  - generic [ref=e334]:
+                    - generic [ref=e336]: Source Context
+                    - generic [ref=e337]:
+                      - generic [ref=e338]: TAX INVOICE Northwind Ltd Invoice No INV-200 Consulting services 1200.00 Total 1200.00 Amount Due 1200.00 Payment Terms Net 30 Please remit to bank account
+                      - generic [ref=e339]: Optional human-readable context about where this source came from.
+                  - generic: source_context
+              - generic [ref=e340]:
+                - generic [ref=e341]: AI / OCR Proposal (Non-Authoritative)
+                - button "Confirm Fields" [ref=e344] [cursor=pointer]
+                - generic [ref=e345]: Assistive AI/OCR proposal. NON-AUTHORITATIVE — values here are suggestions only and require AP review before any downstream use.
+                - generic [ref=e346]:
+                  - generic [ref=e348]:
+                    - generic [ref=e349]:
+                      - generic [ref=e350]:
+                        - generic [ref=e352]: Proposed Supplier
+                        - generic [ref=e353]:
+                          - generic [ref=e354]: Umbrella Holdings
+                          - generic [ref=e355]: Proposed supplier name (assistive). Not authoritative until AP review.
+                      - generic: proposed_supplier
+                    - generic [ref=e356]:
+                      - generic [ref=e357]:
+                        - generic [ref=e359]: Proposed Supplier Confidence
+                        - generic [ref=e360]:
+                          - generic [ref=e361]: "0.95"
+                          - generic [ref=e362]: Extractor's supplier_name confidence (0-1) at extract time; feeds the Tier-3 gated-creation gate (spec 05). Derived from the field_confidences child table (spec 04).
+                      - generic: proposed_supplier_confidence
+                    - generic [ref=e363]:
+                      - generic [ref=e364]:
+                        - generic [ref=e366]: Proposed Supplier Invoice No
+                        - generic [ref=e367]:
+                          - generic [ref=e368]: INV-0FF3B740
+                          - generic [ref=e369]: Proposed supplier invoice / receipt number (assistive).
+                      - generic: proposed_supplier_invoice_no
+                    - generic [ref=e370]:
+                      - generic [ref=e371]:
+                        - generic [ref=e373]: Proposed Invoice Date
+                        - generic [ref=e374]:
+                          - generic [ref=e375]: 04-29-2025
+                          - generic [ref=e376]: Proposed invoice date (assistive).
+                      - generic: proposed_invoice_date
+                    - generic [ref=e377]:
+                      - generic [ref=e378]:
+                        - generic [ref=e380]: Proposed Total Amount
+                        - generic [ref=e381]:
+                          - generic [ref=e382]: 9,657.29
+                          - generic [ref=e383]: Proposed total amount (assistive).
+                      - generic: proposed_total_amount
+                  - generic [ref=e386]:
+                    - generic [ref=e387]:
+                      - generic [ref=e389]: Proposed Currency
+                      - generic [ref=e390]:
+                        - generic [ref=e391]: CAD
+                        - generic [ref=e392]: Proposed ISO-4217 currency code (assistive).
+                    - generic: proposed_currency
+              - generic [ref=e393]:
+                - generic [ref=e394]: Extraction Detail (Lines & Confidence)
+                - generic [ref=e395]: Extracted line items + numeric per-field confidence (spec 04). Non-authoritative, like the OCR proposal above; the authoritative header values live in AP Review below.
+                - generic [ref=e398]:
+                  - generic [ref=e399]:
+                    - generic [ref=e400]:
+                      - generic [ref=e402]: Subtotal Amount
+                      - generic [ref=e403]:
+                        - generic [ref=e404]: CAD 0.00
+                        - generic [ref=e405]: Extracted pre-tax subtotal. Feeds tax-template selection (spec 06). Displayed in the extracted (proposed) currency, like the line items, since this is a non-authoritative extraction artifact set before AP review.
+                    - generic: subtotal_amount
+                  - generic [ref=e406]:
+                    - generic [ref=e407]:
+                      - generic [ref=e409]: Tax Amount
+                      - generic [ref=e410]:
+                        - generic [ref=e411]: CAD 0.00
+                        - generic [ref=e412]: Extracted total tax. Feeds tax-template selection (spec 06). Displayed in the extracted (proposed) currency, like the line items, since this is a non-authoritative extraction artifact set before AP review.
+                    - generic: tax_amount
+                  - generic [ref=e413]:
+                    - generic: field_confidences
+                    - generic [ref=e414]:
+                      - generic [ref=e415]: Field Confidences
+                      - paragraph [ref=e416]: Numeric per-field confidence (header + per-line), the routing/query index for confidence routing (spec 09). The same numbers are mirrored in OCR Raw Response as the audit-of-record.
+                      - generic [ref=e418]:
+                        - generic [ref=e421]:
+                          - generic [ref=e422]:
+                            - checkbox [disabled]
+                          - generic [ref=e424]: No.
+                          - generic "Field Name" [ref=e425]:
+                            - generic [ref=e426]: Field Name *
+                          - generic "Confidence" [ref=e427]:
+                            - generic [ref=e428]: Confidence
+                          - generic "Above Threshold" [ref=e429]:
+                            - generic [ref=e430]: Above Threshold
+                          - generic "Score Source" [ref=e431]:
+                            - generic [ref=e432]: Score Source
+                          - img [ref=e435] [cursor=pointer]
+                        - generic [ref=e437]:
+                          - generic [ref=e439] [cursor=pointer]:
+                            - generic [ref=e440]:
+                              - checkbox [disabled]
+                            - generic [ref=e442]: "1"
+                            - generic [ref=e444]: supplier
+                            - generic [ref=e447]: "0.950"
+                            - generic [ref=e449]:
+                              - checkbox [disabled]
+                            - generic [ref=e451]: Derived-Mapping
+                            - img [ref=e455]
+                          - generic [ref=e457] [cursor=pointer]:
+                            - generic [ref=e458]:
+                              - checkbox [disabled]
+                            - generic [ref=e460]: "2"
+                            - generic [ref=e462]: supplier_invoice_no
+                            - generic [ref=e465]: "0.950"
+                            - generic [ref=e467]:
+                              - checkbox [disabled]
+                            - generic [ref=e469]: Derived-Mapping
+                            - img [ref=e473]
+                          - generic [ref=e475] [cursor=pointer]:
+                            - generic [ref=e476]:
+                              - checkbox [disabled]
+                            - generic [ref=e478]: "3"
+                            - generic [ref=e480]: invoice_date
+                            - generic [ref=e483]: "0.950"
+                            - generic [ref=e485]:
+                              - checkbox [disabled]
+                            - generic [ref=e487]: Derived-Mapping
+                            - img [ref=e491]
+                          - generic [ref=e493] [cursor=pointer]:
+                            - generic [ref=e494]:
+                              - checkbox [disabled]
+                            - generic [ref=e496]: "4"
+                            - generic [ref=e498]: total_amount
+                            - generic [ref=e501]: "0.950"
+                            - generic [ref=e503]:
+                              - checkbox [disabled]
+                            - generic [ref=e505]: Derived-Mapping
+                            - img [ref=e509]
+                          - generic [ref=e511] [cursor=pointer]:
+                            - generic [ref=e512]:
+                              - checkbox [disabled]
+                            - generic [ref=e514]: "5"
+                            - generic [ref=e516]: currency
+                            - generic [ref=e519]: "0.950"
+                            - generic [ref=e521]:
+                              - checkbox [disabled]
+                            - generic [ref=e523]: Derived-Mapping
+                            - img [ref=e527]
+              - generic [ref=e528]:
+                - generic [ref=e529]: AP Review (Authoritative)
+                - generic [ref=e530]: AP-reviewed values. These are the authoritative header values intended for downstream use; remain empty until AP review confirms or corrects the proposal.
+                - generic [ref=e531]:
+                  - generic [ref=e533]:
+                    - generic [ref=e534]:
+                      - generic [ref=e535]:
+                        - generic [ref=e537]: Supplier (Reviewed)
+                        - generic [ref=e538]:
+                          - textbox [ref=e540]
+                          - generic [ref=e541]: AP-reviewed supplier name. Authoritative.
+                      - generic: final_supplier
+                    - generic [ref=e542]:
+                      - generic [ref=e543]:
+                        - generic [ref=e545]: Supplier Invoice No (Reviewed)
+                        - generic [ref=e546]:
+                          - textbox [ref=e548]
+                          - generic [ref=e549]: AP-reviewed supplier invoice / receipt number. Authoritative.
+                      - generic: final_supplier_invoice_no
+                    - generic [ref=e550]:
+                      - generic [ref=e551]:
+                        - generic [ref=e553]: Invoice Date (Reviewed)
+                        - generic [ref=e554]:
+                          - textbox [ref=e556]
+                          - generic [ref=e557]: AP-reviewed invoice date. Authoritative.
+                      - generic: final_invoice_date
+                    - generic [ref=e558]:
+                      - generic [ref=e559]:
+                        - generic [ref=e561]: Total Amount (Reviewed)
+                        - generic [ref=e562]:
+                          - textbox [ref=e564]: "0.00"
+                          - generic [ref=e565]: AP-reviewed total amount. Authoritative.
+                      - generic: final_total_amount
+                    - generic [ref=e566]:
+                      - generic [ref=e567]:
+                        - generic [ref=e569]: Currency (Reviewed)
+                        - generic [ref=e570]:
+                          - textbox [ref=e572]
+                          - generic [ref=e573]: AP-reviewed currency. Authoritative.
+                      - generic: final_currency
+                  - generic [ref=e576]:
+                    - generic [ref=e577]:
+                      - generic [ref=e579]: Review Notes
+                      - generic [ref=e580]:
+                        - textbox [ref=e582]
+                        - generic [ref=e583]: Optional notes left by the AP reviewer (e.g. corrections rationale).
+                    - generic: review_notes
+              - generic [ref=e584]:
+                - generic [ref=e585]: Validation & Match
+                - generic [ref=e586]: Validation outcome of the AP-reviewed capture against existing ERPNext records prior to Purchase Invoice promotion.
+                - generic [ref=e587]:
+                  - generic [ref=e589]:
+                    - generic [ref=e590]:
+                      - generic [ref=e591]:
+                        - generic [ref=e593]: Supplier Match Status
+                        - generic [ref=e594]:
+                          - generic [ref=e595]: Not Validated
+                          - generic [ref=e596]: Outcome of the supplier match step.
+                      - generic: supplier_match_status
+                    - generic [ref=e597]:
+                      - generic [ref=e598]:
+                        - generic [ref=e600]: Supplier Match Tier
+                        - generic [ref=e601]:
+                          - generic [ref=e602]: None
+                          - generic [ref=e603]: Which resolver tier produced the match (audit + observability).
+                      - generic: supplier_match_tier
+                    - generic [ref=e604]:
+                      - generic [ref=e605]:
+                        - generic [ref=e607]: Supplier Match Confidence
+                        - generic [ref=e608]:
+                          - generic [ref=e609]: "0"
+                          - generic [ref=e610]: The Tier-2 fuzzy score (0-100) that drove the match; 100 for a Tier-1 alias / exact hit; best score seen for an Unknown.
+                      - generic: supplier_match_confidence
+                    - generic [ref=e611]:
+                      - generic [ref=e612]:
+                        - generic [ref=e614]: Purchase Order Reference
+                        - generic [ref=e615]:
+                          - generic [ref=e618]:
+                            - combobox [ref=e619]
+                            - status [ref=e620]: Begin typing for results.
+                          - generic [ref=e621]: Optional explicit reference to an existing Purchase Order.
+                      - generic: purchase_order_reference
+                    - generic [ref=e622]:
+                      - generic [ref=e623]:
+                        - generic [ref=e625]: Purchase Receipt Reference
+                        - generic [ref=e626]:
+                          - generic [ref=e629]:
+                            - combobox [ref=e630]
+                            - status [ref=e631]: Begin typing for results.
+                          - generic [ref=e632]: Optional explicit reference to an existing Purchase Receipt.
+                      - generic: purchase_receipt_reference
+                  - generic [ref=e634]:
+                    - generic [ref=e635]:
+                      - generic [ref=e636]:
+                        - generic [ref=e638]: Purchase Reference Status
+                        - generic [ref=e639]:
+                          - generic [ref=e640]: Not Validated
+                          - generic [ref=e641]: Explicit classification of how the capture references prior purchasing documents.
+                      - generic: purchase_reference_status
+                    - generic [ref=e642]:
+                      - generic [ref=e643]:
+                        - generic [ref=e645]: Validation Status
+                        - generic [ref=e646]:
+                          - generic [ref=e647]: Not Validated
+                          - generic [ref=e648]: Overall validation outcome. 'Validated' is required before promotion to Purchase Invoice.
+                      - generic: validation_status
+              - generic [ref=e649]:
+                - generic [ref=e650]: GL Coding
+                - generic [ref=e651]: "GL coding (spec 06): per-supplier expense / cost center / tax applied to the draft PI. Ambiguous or flagged coding routes the capture to the coding-review queue."
+                - generic [ref=e652]:
+                  - generic [ref=e655]:
+                    - generic [ref=e656]:
+                      - generic [ref=e658]: Coding Status
+                      - generic [ref=e659]:
+                        - generic [ref=e660]: Pending
+                        - generic [ref=e661]: Coding lifecycle, distinct from validation. 'Coded' lets the cascade advance; 'Ambiguous'/'Flagged' park the capture in the coding-review queue.
+                    - generic: coding_status
+                  - generic [ref=e663]:
+                    - generic [ref=e664]:
+                      - generic [ref=e665]:
+                        - generic [ref=e667]: Card Last 4
+                        - generic [ref=e668]:
+                          - textbox [ref=e670]
+                          - generic [ref=e671]: Last 4 digits of the card used to pay (cost-center inference signal). Optional.
+                      - generic: card_last4
+                    - generic [ref=e672]:
+                      - generic [ref=e673]:
+                        - generic [ref=e675]: Receipt Location
+                        - generic [ref=e676]:
+                          - textbox [ref=e678]
+                          - generic [ref=e679]: Location the receipt came from (cost-center inference signal). Data field (the Location doctype is not installed on this bench).
+                      - generic: receipt_location
+              - generic [ref=e680]:
+                - generic [ref=e681]: Document-Type Classification
+                - generic [ref=e682]: "Step-6 document-type classification (spec 07): routes the capture to the right posting doctype. Unpaid Bill -> Purchase Invoice; Already Paid -> PI with is_paid=1; Employee Reimbursement / Manual Review -> review queue."
+                - generic [ref=e683]:
+                  - generic [ref=e685]:
+                    - generic [ref=e686]:
+                      - generic [ref=e687]:
+                        - generic [ref=e689]: Stream Tag Agreement
+                        - generic [ref=e690]:
+                          - generic [ref=e691]: Unconfirmed
+                          - generic [ref=e692]: Does the classifier agree with the intake stream tag? 'Disagree' forces Manual Review (tuning signal for spec 10).
+                      - generic: stream_tag_agreement
+                    - generic [ref=e693]:
+                      - generic [ref=e694]:
+                        - generic [ref=e696]: Classification Override
+                        - generic [ref=e697]:
+                          - generic [ref=e698]:
+                            - combobox [ref=e699]:
+                              - option [selected]
+                              - option "Unpaid Bill"
+                              - option "Already Paid"
+                              - option "Employee Reimbursement"
+                              - option "Manual Review"
+                            - generic:
+                              - img
+                          - generic [ref=e700]: Clerk override of the classification — always wins over the heuristics.
+                      - generic: classification_override
+                  - generic [ref=e702]:
+                    - generic [ref=e703]:
+                      - generic [ref=e704]:
+                        - generic [ref=e706]: Classification Source
+                        - generic [ref=e707]:
+                          - generic [ref=e708]: ap-classify-v1
+                          - generic [ref=e709]: Provenance tag for the classification routine.
+                      - generic: classification_source
+                    - generic [ref=e710]:
+                      - generic [ref=e711]:
+                        - generic [ref=e713]: Classification Confidence
+                        - generic [ref=e714]:
+                          - generic [ref=e715]: "0"
+                          - generic [ref=e716]: "Content classifier confidence (0–1): the normalised winning margin between receipt-genre and invoice-genre signals. Recorded even when the classifier is OFF (visibility)."
+                      - generic: classification_confidence
+              - generic [ref=e717]:
+                - generic [ref=e718]: Validation Gates
+                - generic [ref=e719]: "Validation gates (spec 08): three-way match, amount-anomaly, and vendor bank-change detection. On Stream I a failure blocks the capture into the review queue; on Stream R these are recorded but never blocking."
+                - generic [ref=e720]:
+                  - generic [ref=e723]:
+                    - generic [ref=e724]:
+                      - generic [ref=e726]: Three-Way Match Status
+                      - generic [ref=e727]:
+                        - generic [ref=e728]: Not Checked
+                        - generic [ref=e729]: Three-way match (invoice vs Purchase Order vs received qty). Not Applicable on receipts / no-PO; Exception blocks (Stream I).
+                    - generic: three_way_match_status
+                  - generic [ref=e731]:
+                    - generic [ref=e732]:
+                      - generic [ref=e733]:
+                        - generic [ref=e735]: Anomaly Status
+                        - generic [ref=e736]:
+                          - generic [ref=e737]: Not Checked
+                          - generic [ref=e738]: Amount-anomaly outcome vs the supplier's rolling history. Anomalous blocks (Stream I); Insufficient History never blocks.
+                      - generic: anomaly_status
+                    - generic [ref=e739]:
+                      - generic [ref=e740]:
+                        - generic [ref=e741]:
+                          - generic [ref=e742]:
+                            - checkbox "Vendor Bank Change Detected" [disabled]
+                          - generic [ref=e743]: Vendor Bank Change Detected
+                        - paragraph [ref=e744]: 1 = a watched vendor bank field changed since the last submitted Payment Entry (social-engineering-fraud defence). Blocks promotion (Stream I) until an approved Update-Bank-Details request exists.
+                      - generic: vendor_bank_change_detected
+              - generic [ref=e745]:
+                - generic [ref=e746]: Purchase Invoice Promotion
+                - generic [ref=e747]: Promotion of the validated capture into the native Purchase Invoice lifecycle.
+                - generic [ref=e751]:
+                  - generic [ref=e752]:
+                    - generic [ref=e754]: Promotion Status
+                    - generic [ref=e755]:
+                      - generic [ref=e756]: Not Promoted
+                      - generic [ref=e757]: Whether this capture has been promoted into the native Purchase Invoice lifecycle.
+                  - generic: promotion_status
+              - generic [ref=e758]:
+                - generic [ref=e759]: Approval & Routing
+                - generic [ref=e760]: "Approval routing and decision audit. Phase 1: manager approval also authorizes mock payment release; no separate payment-release authority."
+                - generic [ref=e761]:
+                  - generic [ref=e763]:
+                    - generic [ref=e764]:
+                      - generic [ref=e765]:
+                        - generic [ref=e767]: Approval Status
+                        - generic [ref=e768]:
+                          - generic [ref=e769]: Not Required
+                          - generic [ref=e770]: Approval routing outcome. Captures that are not yet routed remain at Not Required.
+                      - generic: approval_status
+                    - generic [ref=e771]:
+                      - generic [ref=e772]:
+                        - generic [ref=e774]: Approval Threshold
+                        - generic [ref=e775]:
+                          - generic [ref=e776]: "0"
+                          - generic [ref=e777]: Auto-approval threshold used for this routing decision.
+                      - generic: approval_threshold
+                  - generic [ref=e779]:
+                    - generic [ref=e780]:
+                      - generic [ref=e781]:
+                        - generic [ref=e783]: Decision Notes
+                        - generic [ref=e784]:
+                          - textbox [ref=e786]
+                          - generic [ref=e787]: Optional notes left by the approver or rejector.
+                      - generic: decision_notes
+                    - generic [ref=e788]:
+                      - generic [ref=e789]:
+                        - generic [ref=e791]: Payment Readiness
+                        - generic [ref=e792]:
+                          - generic [ref=e793]: Not Ready
+                          - generic [ref=e794]: "Whether this capture may proceed to the later mock payment slice. Phase 1 only: no Payment Entry or Bank Transaction is created here."
+                      - generic: payment_readiness
+              - generic [ref=e795]:
+                - generic [ref=e796]: Mock Payment
+                - generic [ref=e797]: Deterministic mock payment writeback. This section uses native Payment Entry and must never imply real funds or bank reconciliation.
+                - generic [ref=e798]:
+                  - generic [ref=e801]:
+                    - generic [ref=e802]:
+                      - generic [ref=e804]: Payment Lifecycle Status
+                      - generic [ref=e805]:
+                        - generic [ref=e806]: Not Requested
+                        - generic [ref=e807]: Derived payment lifecycle status for the pilot.
+                    - generic: payment_lifecycle_status
+                  - generic [ref=e810]:
+                    - generic [ref=e811]:
+                      - generic [ref=e813]: Mock Payment Amount
+                      - generic [ref=e814]:
+                        - generic [ref=e815]: "0"
+                        - generic [ref=e816]: Amount confirmed by the deterministic mock provider.
+                    - generic: mock_payment_amount
+              - generic [ref=e817]:
+                - generic [ref=e818]: Bank-Feed Reconciliation
+                - generic [ref=e819]: "Bank-feed reconciliation (spec 13): the EXTERNAL close signal. The native Bank Reconciliation engine matches the bank line to this capture's Payment Entry (Stream I) or Journal Entry (Stream R); a match sets bank_cleared. Closure (spec 14) requires BOTH settled (internal) AND bank_cleared (external)."
+                - generic [ref=e823]:
+                  - generic [ref=e824]:
+                    - generic [ref=e825]:
+                      - generic [ref=e826]:
+                        - checkbox "Bank Cleared" [disabled]
+                      - generic [ref=e827]: Bank Cleared
+                    - paragraph [ref=e828]: "The external half of closure: 1 = the bank feed has matched a Bank Transaction to this capture's disbursing voucher (the money actually moved). Set by reconcile_bank_for; read-only."
+                  - generic: bank_cleared
+              - text: "*"
+          - generic [ref=e830]:
+            - generic [ref=e831]:
+              - generic [ref=e833]:
+                - generic [ref=e835]: Comments
+                - generic [ref=e836]:
+                  - generic "Administrator" [ref=e837]:
+                    - generic "Administrator" [ref=e838]: A
+                  - generic [ref=e839]:
+                    - generic: comment
+                    - generic [ref=e840]:
+                      - generic [ref=e841]:
+                        - text: Type a reply / comment
+                        - paragraph [ref=e842]
+                      - text: ×
+              - generic [ref=e843]:
+                - generic [ref=e844]:
+                  - heading "Activity" [level=4] [ref=e845]
+                  - button "New Email" [ref=e849] [cursor=pointer]:
+                    - img [ref=e850]
+                    - text: New Email
+                - generic [ref=e851]:
+                  - generic [ref=e854]:
+                    - link "You changed the value of Status from Pending Review to Proposed, Action Required Reason from Pending AP review to AP review of OCR proposal required, Proposed Supplier from null to Umbrella Holdings" [ref=e855] [cursor=pointer]:
+                      - /url: /desk/version/iti9ng10qc
+                    - generic [ref=e856]: · 2 minutes ago
+                  - generic [ref=e859]:
+                    - link "You added 5 rows to Field Confidences" [ref=e860] [cursor=pointer]:
+                      - /url: /desk/version/iti9ng10qc
+                    - generic [ref=e861]: · 2 minutes ago
+                  - generic [ref=e864]:
+                    - text: You last edited this
+                    - generic [ref=e865]: · 2 minutes ago
+                  - generic [ref=e868]:
+                    - text: You created this
+                    - generic [ref=e869]: · 2 minutes ago
+            - button [ref=e870] [cursor=pointer]:
+              - img [ref=e871]
+        - generic [ref=e874]:
+          - generic [ref=e876]:
+            - generic [ref=e877]:
+              - generic [ref=e879]: clean_doc_b.png
+              - generic [ref=e881]: APIC-2026-00074
+            - generic [ref=e882]:
+              - button [ref=e884] [cursor=pointer]:
+                - img [ref=e885]
+              - button [ref=e887] [cursor=pointer]:
+                - img [ref=e888]
+              - img [ref=e890] [cursor=pointer]
+          - generic [ref=e894]:
+            - generic [ref=e895]:
+              - img [ref=e896]
+              - generic [ref=e897]: Assign
+            - button [ref=e898] [cursor=pointer]:
+              - img [ref=e899]
+          - generic [ref=e903]:
+            - generic [ref=e905] [cursor=pointer]:
+              - img [ref=e906]
+              - text: Attachments
+            - button [ref=e907] [cursor=pointer]:
+              - img [ref=e908]
+          - generic [ref=e912]:
+            - generic [ref=e913]:
+              - img [ref=e914]
+              - generic [ref=e915]: Tags
+            - button [ref=e916] [cursor=pointer]:
+              - img [ref=e917]
+          - generic [ref=e921]:
+            - generic [ref=e922]:
+              - img [ref=e923]
+              - generic [ref=e924]: Share
+            - button [ref=e925] [cursor=pointer]:
+              - img [ref=e926]
+          - list [ref=e929]:
+            - listitem [ref=e930]:
+              - text: Last Edited By You
+              - generic "06-04-2026 16:28:24" [ref=e931]: 2 minutes ago
+            - listitem [ref=e932]:
+              - text: Created By You
+              - generic "06-04-2026 16:28:24" [ref=e933]: 2 minutes ago
+            - listitem
+    - contentinfo
+  - button "Open AI chat" [ref=e934] [cursor=pointer]:
+    - img [ref=e935]
+  - generic:
+    - generic [ref=e937]:
+      - navigation [ref=e939]:
+        - img [ref=e941] [cursor=pointer]
+        - generic [ref=e943] [cursor=pointer]:
+          - text: June,
+          - generic [ref=e944]: "2026"
+        - img [ref=e946] [cursor=pointer]
+      - generic [ref=e949]:
+        - generic [ref=e950]:
+          - generic [ref=e951]: Su
+          - generic [ref=e952]: Mo
+          - generic [ref=e953]: Tu
+          - generic [ref=e954]: We
+          - generic [ref=e955]: Th
+          - generic [ref=e956]: Fr
+          - generic [ref=e957]: Sa
+        - generic [ref=e958]:
+          - generic [ref=e959] [cursor=pointer]: "31"
+          - generic [ref=e960] [cursor=pointer]: "1"
+          - generic [ref=e961] [cursor=pointer]: "2"
+          - generic [ref=e962] [cursor=pointer]: "3"
+          - generic [ref=e963] [cursor=pointer]: "4"
+          - generic [ref=e964] [cursor=pointer]: "5"
+          - generic [ref=e965] [cursor=pointer]: "6"
+          - generic [ref=e966] [cursor=pointer]: "7"
+          - generic [ref=e967] [cursor=pointer]: "8"
+          - generic [ref=e968] [cursor=pointer]: "9"
+          - generic [ref=e969] [cursor=pointer]: "10"
+          - generic [ref=e970] [cursor=pointer]: "11"
+          - generic [ref=e971] [cursor=pointer]: "12"
+          - generic [ref=e972] [cursor=pointer]: "13"
+          - generic [ref=e973] [cursor=pointer]: "14"
+          - generic [ref=e974] [cursor=pointer]: "15"
+          - generic [ref=e975] [cursor=pointer]: "16"
+          - generic [ref=e976] [cursor=pointer]: "17"
+          - generic [ref=e977] [cursor=pointer]: "18"
+          - generic [ref=e978] [cursor=pointer]: "19"
+          - generic [ref=e979] [cursor=pointer]: "20"
+          - generic [ref=e980] [cursor=pointer]: "21"
+          - generic [ref=e981] [cursor=pointer]: "22"
+          - generic [ref=e982] [cursor=pointer]: "23"
+          - generic [ref=e983] [cursor=pointer]: "24"
+          - generic [ref=e984] [cursor=pointer]: "25"
+          - generic [ref=e985] [cursor=pointer]: "26"
+          - generic [ref=e986] [cursor=pointer]: "27"
+          - generic [ref=e987] [cursor=pointer]: "28"
+          - generic [ref=e988] [cursor=pointer]: "29"
+          - generic [ref=e989] [cursor=pointer]: "30"
+          - generic [ref=e990] [cursor=pointer]: "1"
+          - generic [ref=e991] [cursor=pointer]: "2"
+          - generic [ref=e992] [cursor=pointer]: "3"
+          - generic [ref=e993] [cursor=pointer]: "4"
+      - generic [ref=e994]:
+        - generic [ref=e995]:
+          - generic [ref=e996]: "16"
+          - generic [ref=e997]: ":"
+          - generic [ref=e998]: "28"
+          - generic [ref=e999]: ":"
+          - generic [ref=e1000]: "24"
+        - generic [ref=e1001]:
+          - slider [ref=e1003] [cursor=pointer]: "16"
+          - slider [ref=e1005] [cursor=pointer]: "28"
+          - slider [ref=e1007] [cursor=pointer]: "24"
+      - generic [ref=e1009] [cursor=pointer]: Today
+    - generic [ref=e1010]:
+      - navigation [ref=e1012]:
+        - img [ref=e1014] [cursor=pointer]
+        - generic [ref=e1016] [cursor=pointer]:
+          - text: June,
+          - generic [ref=e1017]: "2026"
+        - img [ref=e1019] [cursor=pointer]
+      - generic [ref=e1022]:
+        - generic [ref=e1023]:
+          - generic [ref=e1024]: Su
+          - generic [ref=e1025]: Mo
+          - generic [ref=e1026]: Tu
+          - generic [ref=e1027]: We
+          - generic [ref=e1028]: Th
+          - generic [ref=e1029]: Fr
+          - generic [ref=e1030]: Sa
+        - generic [ref=e1031]:
+          - generic [ref=e1032] [cursor=pointer]: "31"
+          - generic [ref=e1033] [cursor=pointer]: "1"
+          - generic [ref=e1034] [cursor=pointer]: "2"
+          - generic [ref=e1035] [cursor=pointer]: "3"
+          - generic [ref=e1036] [cursor=pointer]: "4"
+          - generic [ref=e1037] [cursor=pointer]: "5"
+          - generic [ref=e1038] [cursor=pointer]: "6"
+          - generic [ref=e1039] [cursor=pointer]: "7"
+          - generic [ref=e1040] [cursor=pointer]: "8"
+          - generic [ref=e1041] [cursor=pointer]: "9"
+          - generic [ref=e1042] [cursor=pointer]: "10"
+          - generic [ref=e1043] [cursor=pointer]: "11"
+          - generic [ref=e1044] [cursor=pointer]: "12"
+          - generic [ref=e1045] [cursor=pointer]: "13"
+          - generic [ref=e1046] [cursor=pointer]: "14"
+          - generic [ref=e1047] [cursor=pointer]: "15"
+          - generic [ref=e1048] [cursor=pointer]: "16"
+          - generic [ref=e1049] [cursor=pointer]: "17"
+          - generic [ref=e1050] [cursor=pointer]: "18"
+          - generic [ref=e1051] [cursor=pointer]: "19"
+          - generic [ref=e1052] [cursor=pointer]: "20"
+          - generic [ref=e1053] [cursor=pointer]: "21"
+          - generic [ref=e1054] [cursor=pointer]: "22"
+          - generic [ref=e1055] [cursor=pointer]: "23"
+          - generic [ref=e1056] [cursor=pointer]: "24"
+          - generic [ref=e1057] [cursor=pointer]: "25"
+          - generic [ref=e1058] [cursor=pointer]: "26"
+          - generic [ref=e1059] [cursor=pointer]: "27"
+          - generic [ref=e1060] [cursor=pointer]: "28"
+          - generic [ref=e1061] [cursor=pointer]: "29"
+          - generic [ref=e1062] [cursor=pointer]: "30"
+          - generic [ref=e1063] [cursor=pointer]: "1"
+          - generic [ref=e1064] [cursor=pointer]: "2"
+          - generic [ref=e1065] [cursor=pointer]: "3"
+          - generic [ref=e1066] [cursor=pointer]: "4"
+      - generic [ref=e1068] [cursor=pointer]: Today
+    - generic [ref=e1069]:
+      - navigation [ref=e1071]:
+        - img [ref=e1073] [cursor=pointer]
+        - generic [ref=e1075] [cursor=pointer]:
+          - text: April,
+          - generic [ref=e1076]: "2025"
+        - img [ref=e1078] [cursor=pointer]
+      - generic [ref=e1081]:
+        - generic [ref=e1082]:
+          - generic [ref=e1083]: Su
+          - generic [ref=e1084]: Mo
+          - generic [ref=e1085]: Tu
+          - generic [ref=e1086]: We
+          - generic [ref=e1087]: Th
+          - generic [ref=e1088]: Fr
+          - generic [ref=e1089]: Sa
+        - generic [ref=e1090]:
+          - generic [ref=e1091] [cursor=pointer]: "30"
+          - generic [ref=e1092] [cursor=pointer]: "31"
+          - generic [ref=e1093] [cursor=pointer]: "1"
+          - generic [ref=e1094] [cursor=pointer]: "2"
+          - generic [ref=e1095] [cursor=pointer]: "3"
+          - generic [ref=e1096] [cursor=pointer]: "4"
+          - generic [ref=e1097] [cursor=pointer]: "5"
+          - generic [ref=e1098] [cursor=pointer]: "6"
+          - generic [ref=e1099] [cursor=pointer]: "7"
+          - generic [ref=e1100] [cursor=pointer]: "8"
+          - generic [ref=e1101] [cursor=pointer]: "9"
+          - generic [ref=e1102] [cursor=pointer]: "10"
+          - generic [ref=e1103] [cursor=pointer]: "11"
+          - generic [ref=e1104] [cursor=pointer]: "12"
+          - generic [ref=e1105] [cursor=pointer]: "13"
+          - generic [ref=e1106] [cursor=pointer]: "14"
+          - generic [ref=e1107] [cursor=pointer]: "15"
+          - generic [ref=e1108] [cursor=pointer]: "16"
+          - generic [ref=e1109] [cursor=pointer]: "17"
+          - generic [ref=e1110] [cursor=pointer]: "18"
+          - generic [ref=e1111] [cursor=pointer]: "19"
+          - generic [ref=e1112] [cursor=pointer]: "20"
+          - generic [ref=e1113] [cursor=pointer]: "21"
+          - generic [ref=e1114] [cursor=pointer]: "22"
+          - generic [ref=e1115] [cursor=pointer]: "23"
+          - generic [ref=e1116] [cursor=pointer]: "24"
+          - generic [ref=e1117] [cursor=pointer]: "25"
+          - generic [ref=e1118] [cursor=pointer]: "26"
+          - generic [ref=e1119] [cursor=pointer]: "27"
+          - generic [ref=e1120] [cursor=pointer]: "28"
+          - generic [ref=e1121] [cursor=pointer]: "29"
+          - generic [ref=e1122] [cursor=pointer]: "30"
+          - generic [ref=e1123] [cursor=pointer]: "1"
+          - generic [ref=e1124] [cursor=pointer]: "2"
+          - generic [ref=e1125] [cursor=pointer]: "3"
+      - generic [ref=e1127] [cursor=pointer]: Today
+  - dialog [active] [ref=e1129]:
+    - generic [ref=e1130]:
+      - generic [ref=e1131]:
+        - heading "Confirm OCR-proposed fields" [level=4] [ref=e1133]
+        - button [ref=e1135] [cursor=pointer]:
+          - img [ref=e1136]
+      - generic [ref=e1140]:
+        - generic [ref=e1145]:
+          - generic [ref=e1146]: Review what OCR proposed below. Edit any field that needs correction, then click Confirm. The cascade will auto-validate from there.
+          - generic [ref=e1147]:
+            - link "View source invoice" [ref=e1148] [cursor=pointer]:
+              - /url: /private/files/demo_default_coding.png
+              - img [ref=e1149]
+              - text: View source invoice
+            - text: clean_doc_b.png
+        - generic [ref=e1151]:
+          - generic [ref=e1153]:
+            - generic [ref=e1154]:
+              - generic [ref=e1155]:
+                - generic [ref=e1157]: Supplier
+                - generic [ref=e1158]:
+                  - generic [ref=e1161]:
+                    - combobox [ref=e1162]: Umbrella Holdings
+                    - status [ref=e1163]: Begin typing for results.
+                  - generic [ref=e1164]: "OCR proposed: Umbrella Holdings"
+              - generic: supplier
+            - generic [ref=e1165]:
+              - generic [ref=e1166]:
+                - generic [ref=e1168]: Supplier Invoice No
+                - generic [ref=e1169]:
+                  - textbox [ref=e1171]: INV-0FF3B740
+                  - generic [ref=e1172]: "OCR proposed: INV-0FF3B740"
+              - generic: supplier_invoice_no
+          - generic [ref=e1174]:
+            - generic [ref=e1175]:
+              - generic [ref=e1176]:
+                - generic [ref=e1178]: Invoice Date
+                - generic [ref=e1179]:
+                  - textbox [ref=e1181]: 04-29-2025
+                  - generic [ref=e1182]: "OCR proposed: 2025-04-29"
+              - generic: invoice_date
+            - generic [ref=e1183]:
+              - generic [ref=e1184]:
+                - generic [ref=e1186]: Total Amount
+                - generic [ref=e1187]:
+                  - textbox [ref=e1189]: 9,657.29
+                  - generic [ref=e1190]: "OCR proposed: 9657.29"
+              - generic: total_amount
+            - generic [ref=e1191]:
+              - generic [ref=e1192]:
+                - generic [ref=e1194]: Currency
+                - generic [ref=e1195]:
+                  - generic [ref=e1198]:
+                    - combobox [ref=e1199]: CAD
+                    - status [ref=e1200]: Begin typing for results.
+                  - generic [ref=e1201]: "OCR proposed: CAD"
+              - generic: currency
+        - generic [ref=e1206]:
+          - generic [ref=e1207]:
+            - generic [ref=e1209]: Review notes (optional)
+            - textbox [ref=e1212]
+          - generic: review_notes
+      - button "Confirm" [ref=e1215] [cursor=pointer]
