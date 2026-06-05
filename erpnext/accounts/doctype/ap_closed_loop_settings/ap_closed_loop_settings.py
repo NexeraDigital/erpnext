@@ -27,6 +27,7 @@ from frappe.model.document import Document
 OCR_PROVIDER_REGISTRY_KEY = {
 	"Fake (Deterministic)": "fake",
 	"Anthropic Claude": "anthropic",
+	"BAML (Cheap Vision)": "baml",
 }
 DEFAULT_OCR_CONFIDENCE_THRESHOLD = 0.70
 DEFAULT_AUTO_POST_THRESHOLD = 1000.0
@@ -66,7 +67,7 @@ class APClosedLoopSettings(Document):
 		default_item_code: DF.Link | None
 		default_uom: DF.Link | None
 		default_warehouse: DF.Link | None
-		ocr_provider: DF.Literal["Fake (Deterministic)", "Anthropic Claude"]
+		ocr_provider: DF.Literal["Fake (Deterministic)", "Anthropic Claude", "BAML (Cheap Vision)"]
 		ocr_model: DF.Literal["claude-haiku-4-5-20251001", "claude-sonnet-4-6"]
 		ocr_fallback_model: DF.Literal["", "claude-sonnet-4-6"]
 		ocr_confidence_threshold: DF.Float
@@ -104,7 +105,8 @@ class APClosedLoopSettings(Document):
 		AI Provider Settings. We check via the credentials helper so the error
 		message points the operator at the right form and never echoes a key."""
 
-		if self.ocr_provider != "Anthropic Claude":
+		# Both real providers (Anthropic + BAML cheap-vision) call Claude under the hood.
+		if self.ocr_provider not in ("Anthropic Claude", "BAML (Cheap Vision)"):
 			return
 		from erpnext.ai.credentials import AICredentialsNotConfigured, get_ai_credentials
 
@@ -113,10 +115,10 @@ class APClosedLoopSettings(Document):
 		except AICredentialsNotConfigured:
 			frappe.throw(
 				_(
-					"OCR Provider is set to Anthropic Claude, but no Anthropic API key "
-					"is configured. Set it in AI Provider Settings "
+					"OCR Provider {0} needs an Anthropic API key, but none is "
+					"configured. Set it in AI Provider Settings "
 					"(/app/ai-provider-settings) as a System Manager, then save again."
-				)
+				).format(self.ocr_provider)
 			)
 
 	def _validate_confidence_threshold(self) -> None:

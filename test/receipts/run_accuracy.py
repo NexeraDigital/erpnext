@@ -67,7 +67,45 @@ def _load_entries():
     return entries
 
 
-def _verdict(text, provider):
+_GENRE_FROM_KIND = {"Receipt": "receipt", "Invoice": "invoice",
+                    "Statement": "other", "CreditNote": "other", "Other": "other"}
+_PAID_FROM_STATE = {"Paid": True, "Unpaid": False, "Unknown": None}
+
+
+def _baml_verdict(entry):
+    """Read the entry's IMAGE with the BAML cheap-vision provider (real call)."""
+    import base64
+    import os as _os
+
+    from baml_py import Image, Pdf
+
+    from erpnext.accounts.ap_closed_loop.baml_client.sync_client import b
+
+    fname = entry.get("file") or _os.path.basename(entry.get("image", ""))
+    path = _os.path.join(_DIR, "files", fname)
+    if not _os.path.exists(path) and entry.get("image"):
+        path = _os.path.join(_DIR, entry["image"])
+    data = base64.standard_b64encode(open(path, "rb").read()).decode()
+    ext = fname.rsplit(".", 1)[-1].lower()
+    media = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+             "pdf": "application/pdf"}.get(ext, "image/png")
+    r = b.ReadReceiptPdf(Pdf.from_base64(data)) if media == "application/pdf" \
+        else b.ReadReceipt(Image.from_base64(media, data))
+    kind = getattr(r.kind, "value", str(r.kind))
+    pay = getattr(r.payment_state, "value", str(r.payment_state))
+    return {"genre": _GENRE_FROM_KIND.get(kind, "unknown"),
+            "paid": _PAID_FROM_STATE.get(pay), "confidence": float(r.confidence or 0),
+            "signals": [], "provider": "baml"}
+
+
+def _verdict(entry, provider):
+    text = entry.get("text", "")
+    if provider == "baml":
+        try:
+            return _baml_verdict(entry)
+        except Exception as exc:
+            print(f"  [warn] baml failed for {entry.get('id')} ({exc}); counting as unknown")
+            return {"genre": "unknown", "paid": None, "confidence": 0.0, "signals": [], "provider": "error"}
     if provider == "anthropic":
         try:
             return _classify_text_anthropic(text)
@@ -88,6 +126,14 @@ def _predicted_document_type(text, verdict):
 
 def run(provider="rule"):
     corpus = _load_entries()
+    # BAML / anthropic need the key in env; fetch it from AI Provider Settings.
+    if provider in ("baml", "anthropic"):
+        from frappe.utils.password import get_decrypted_password
+
+        key = get_decrypted_password("AI Provider Settings", "AI Provider Settings",
+                                     "anthropic_api_key", raise_exception=False)
+        if key:
+            os.environ["ANTHROPIC_API_KEY"] = key
     tiers = {}
     sources = {}
     confusion = {}  # (true_genre, pred_genre) -> count
@@ -95,7 +141,7 @@ def run(provider="rule"):
 
     for e in corpus:
         text, label = e["text"], e["label"]
-        v = _verdict(text, provider)
+        v = _verdict(e, provider)
         pred_genre = v["genre"]
         pred_paid = v["paid"]
         pred_dt = _predicted_document_type(text, v)

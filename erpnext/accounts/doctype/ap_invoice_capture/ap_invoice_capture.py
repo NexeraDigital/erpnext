@@ -1322,6 +1322,14 @@ def run_extraction(
 			"model": provider_raw.get("model"),
 			"outcome": provider_raw.get("outcome"),
 			"usage": provider_raw.get("usage"),
+			# Provider-specific extras preserved in the audit record (no credentials):
+			# e.g. the BAML reader's kind / payment_state / document_type, which a
+			# downstream consolidation can use to classify without a second model call.
+			"provider_extra": {
+				k: v
+				for k, v in provider_raw.items()
+				if k not in ("model", "outcome", "usage")
+			},
 		},
 		default=str,
 		sort_keys=True,

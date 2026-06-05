@@ -133,7 +133,7 @@
    "fieldname": "ocr_provider",
    "fieldtype": "Select",
    "label": "OCR Provider",
-   "options": "Fake (Deterministic)\nAnthropic Claude",
+   "options": "Fake (Deterministic)\nAnthropic Claude\nBAML (Cheap Vision)",
    "reqd": 1
   },
   {
@@ -485,7 +485,7 @@
  ],
  "issingle": 1,
  "links": [],
- "modified": "2026-06-04 09:00:00",
+ "modified": "2026-06-04 23:00:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Closed Loop Settings",
