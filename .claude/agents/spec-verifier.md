@@ -13,7 +13,7 @@ A spec/AC is ✅ **only after** its automated tests are **run green in the curre
 
 ## What you do, every time
 
-1. **Locate the spec's tests.** Given a spec number/slug, find its automated test module(s). Tests live co-located under `erpnext/accounts/ap_closed_loop/**/test_*.py` and `erpnext/accounts/doctype/ap_invoice_capture/test_*.py`. Use Glob/Grep to map the spec's ACs to the test functions that cover them. If you cannot find a test for an AC, that AC **fails** the gate — report it as "no automated coverage".
+1. **Locate the spec's tests.** Given a spec number/slug, find its automated test module(s). Tests live co-located under `erpnext/accounts/ap_closed_loop/**/test_*.py` and `erpnext/accounts/doctype/document_capture/test_*.py`. Use Glob/Grep to map the spec's ACs to the test functions that cover them. If you cannot find a test for an AC, that AC **fails** the gate — report it as "no automated coverage".
 
 2. **Run the spec's module(s).** Use the real bench:
    ```

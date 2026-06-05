@@ -4,11 +4,11 @@
 
 ## 1. Feature under test
 
-Before any billable OCR runs, every freshly-intaken `AP Invoice Capture` is checked against the last 90 days for a duplicate. Two checks: an **exact file-hash** match (re-upload of identical bytes → the capture is marked **`Duplicate`**, linked to the original via `duplicate_of`, and the cascade stops with **no OCR cost**) and a **perceptual near-duplicate** match (a re-scan/re-photo of the same document → the capture is **flagged** `action_required` "suspected near-duplicate" but stays `Pending Review` and still gets OCR'd — a human confirms). It is **stream-agnostic**. The check runs as a pre-OCR **Step-0** hop on the existing async cascade. Native ERPNext `check_supplier_invoice_uniqueness` is a complementary, post-OCR backstop (off by default) — see spec §3.1.
+Before any billable OCR runs, every freshly-intaken `Document Capture` is checked against the last 90 days for a duplicate. Two checks: an **exact file-hash** match (re-upload of identical bytes → the capture is marked **`Duplicate`**, linked to the original via `duplicate_of`, and the cascade stops with **no OCR cost**) and a **perceptual near-duplicate** match (a re-scan/re-photo of the same document → the capture is **flagged** `action_required` "suspected near-duplicate" but stays `Pending Review` and still gets OCR'd — a human confirms). It is **stream-agnostic**. The check runs as a pre-OCR **Step-0** hop on the existing async cascade. Native ERPNext `check_supplier_invoice_uniqueness` is a complementary, post-OCR backstop (off by default) — see spec §3.1.
 
 ## 2. Branch / commit
 
-- **Branch:** `russ/migrateToV16` · working tree (apply the spec-03 changes if not present). Verify `detect_duplicates_for` / `run_dedupe_for` exist in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` and the `Duplicate` status option exists on `AP Invoice Capture`.
+- **Branch:** `russ/migrateToV16` · working tree (apply the spec-03 changes if not present). Verify `detect_duplicates_for` / `run_dedupe_for` exist in `erpnext/accounts/doctype/document_capture/document_capture.py` and the `Duplicate` status option exists on `Document Capture`.
 
 ## 3. Environment setup
 
@@ -43,7 +43,7 @@ bench --site <test-site> migrate   # adds content_hash / perceptual_hash / dupli
 ### TC-1 — Automated suites (no poppler needed)
 - **Action:** (pin the Fake provider first)
   ```bash
-  bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
   ```
 - **Expected:** `79 OK` and `16 OK` respectively. The first includes `TestAPInvoiceCaptureDedup` (AC-03-1..10) + `TestAPInvoiceCaptureDedupCascade` (AC-03-12); the second includes `test_get_dedupe_config` (AC-03-11).
@@ -55,7 +55,7 @@ bench --site <test-site> migrate   # adds content_hash / perceptual_hash / dupli
 - **Expected (form, 2nd capture):** `Status = Duplicate`; a `Duplicate Of` link pointing to the first capture; `Action Required` checked with reason `Exact duplicate of APIC-…`. The OCR proposal section is empty (`OCR Status = Not Extracted`).
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT name, status, duplicate_of, ocr_status, content_hash FROM \`tabAP Invoice Capture\` WHERE source_filename='invoice_acme_001.pdf' ORDER BY creation\\G"
+  bench --site <test-site> mariadb -e "SELECT name, status, duplicate_of, ocr_status, content_hash FROM \`tabDocument Capture\` WHERE source_filename='invoice_acme_001.pdf' ORDER BY creation\\G"
   ```
   The two rows share `content_hash`; the **second** has `status='Duplicate'`, `duplicate_of` = the first's name, `ocr_status='Not Extracted'`.
 - **Also assert no OCR cost:** no Integration Request was written for the second capture (the Fake provider writes none anyway; under a real provider, confirm none exists):
@@ -77,7 +77,7 @@ bench --site <test-site> migrate   # adds content_hash / perceptual_hash / dupli
 - **Expected (form):** `Action Required` checked with reason `Suspected near-duplicate of APIC-… (visual match)`; `Status` is **NOT** `Duplicate` (stays in the normal lifecycle and still gets OCR'd → Proposed); `Duplicate Of` is **empty**.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT name, status, action_required, action_required_reason, perceptual_hash, duplicate_of FROM \`tabAP Invoice Capture\` WHERE source_filename='invoice_acme_001_rescan.pdf'\\G"
+  bench --site <test-site> mariadb -e "SELECT name, status, action_required, action_required_reason, perceptual_hash, duplicate_of FROM \`tabDocument Capture\` WHERE source_filename='invoice_acme_001_rescan.pdf'\\G"
   ```
   `action_required=1`, reason mentions "near-duplicate", `status != 'Duplicate'`, `duplicate_of` NULL, `perceptual_hash` populated.
 - **Pass/fail:** PASS iff flagged-but-not-blocked, no `duplicate_of`. **If poppler is absent:** mark N/A and confirm the capture instead flowed normally (exact-only degradation) with `perceptual_hash` empty.
@@ -88,7 +88,7 @@ bench --site <test-site> migrate   # adds content_hash / perceptual_hash / dupli
   bench --site <test-site> console
   >>> import frappe
   >>> from frappe.utils import add_to_date, now_datetime
-  >>> frappe.db.set_value("AP Invoice Capture", "<TC-2 original name>", "received_at", add_to_date(now_datetime(), days=-5))
+  >>> frappe.db.set_value("Document Capture", "<TC-2 original name>", "received_at", add_to_date(now_datetime(), days=-5))
   >>> frappe.db.commit()
   ```
   Then upload `invoice_acme_001.pdf` again via the UI.
@@ -102,7 +102,7 @@ bench --site <test-site> migrate   # adds content_hash / perceptual_hash / dupli
 
 ## 6. Cleanup / rollback
 
-- The automated suites (TC-1) roll back per test. Delete every `AP Invoice Capture` created through the UI in TC-2..6 (`/app/ap-invoice-capture`) **and** the uploaded `File` records (`/app/file`).
+- The automated suites (TC-1) roll back per test. Delete every `Document Capture` created through the UI in TC-2..6 (`/app/ap-invoice-capture`) **and** the uploaded `File` records (`/app/file`).
 - Restore `ocr_provider` to its pre-test value; restore `Dedupe Window (Days)` to 90 and re-check `Enable Deduplication` if TC-5/TC-6 changed them.
 - Leave poppler/imagehash/pdf2image installed if you want the perceptual path live; otherwise no rollback is needed for them.
 

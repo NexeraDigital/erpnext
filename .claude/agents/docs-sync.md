@@ -19,7 +19,7 @@ to discover what changed (staged + unstaged). Then map each changed path to its 
 
 Evaluate the changed paths against each trigger and emit the obligations that fire:
 
-1. **AP closed-loop scope** — any change under `erpnext/accounts/ap_closed_loop/` or `erpnext/accounts/doctype/ap_invoice_capture/`
+1. **AP closed-loop scope** — any change under `erpnext/accounts/ap_closed_loop/` or `erpnext/accounts/doctype/document_capture/`
    ⇒ `docs/architecture/FORK-CHANGES.md` **and** `docs/architecture/FORK-CHANGES-PLAIN.md` must both be updated (they are kept paired — update one, update both).
 
 2. **Navigation surfaces** — any change under `erpnext/workspace_sidebar/`, `erpnext/*/workspace/`, `erpnext/*/page/`, `erpnext/*/dashboard*/`, or `website_route_rules` in `erpnext/hooks.py`

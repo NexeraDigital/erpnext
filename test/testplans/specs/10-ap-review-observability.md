@@ -46,7 +46,7 @@ events first (correct a field, reject one capture) so `tabAP Review Event` has r
 - **Action:** run `TestAPReviewGate` programmatically (bench-runner summary is swallowed on WSL):
   ```python
   import unittest
-  from erpnext.accounts.doctype.ap_invoice_capture import test_ap_invoice_capture as m
+  from erpnext.accounts.doctype.document_capture import test_document_capture as m
   r = unittest.TextTestRunner(verbosity=2).run(
       unittest.TestLoader().loadTestsFromTestCase(m.TestAPReviewGate))
   print(r.testsRun, len(r.failures), len(r.errors))
@@ -58,7 +58,7 @@ events first (correct a field, reject one capture) so `tabAP Review Event` has r
 - **Expected:** `Ran 4 tests … OK` (AC-10-9…11).
 
 **A-3. Full-module regression.**
-- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`.
+- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture`.
 - **Expected:** `Ran 185 tests … OK` (skipped=1). Proves the instrumentation wiring adds no regressions.
 
 ### B. Manual UI / behavioral cases
@@ -69,7 +69,7 @@ events first (correct a field, reject one capture) so `tabAP Review Event` has r
   (or the desk Reject action).
 - **Expected:** `status = Rejected`, `action_required = 0`, one `rejection_log` row (`action=Rejected`,
   `from_status=Proposed`), and one `AP Review Event` with `action_taken=rejected`.
-- **DB assert:** `SELECT status FROM \`tabAP Invoice Capture\`` → `Rejected`; one row in
+- **DB assert:** `SELECT status FROM \`tabDocument Capture\`` → `Rejected`; one row in
   `tabAP Capture Rejection Log`; one `tabAP Review Event`.
 
 **B-2. Reject blocked when promoted (negative).**

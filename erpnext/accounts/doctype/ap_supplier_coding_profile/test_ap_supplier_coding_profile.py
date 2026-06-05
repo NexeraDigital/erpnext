@@ -8,7 +8,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
 	_resolve_supplier_coding,
 )
 

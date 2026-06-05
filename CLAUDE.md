@@ -15,7 +15,7 @@ Before doing non-trivial work, read the doc that matches your task.
   3. `https://docs.frappe.io/erpnext/user/manual/en/` — ERPNext manual (no version segment; site serves current). Append the module path, e.g. `.../accounts`, `.../buying`. The bare `/erpnext` URL is a landing page — skip it.
   4. `https://github.com/frappe/erpnext` (v16 branch) — source of truth for ERPNext behavior when the manual is vague, out of date, or silent.
 - **How to apply:** before writing or editing code, ground against the matching source above and quote the specific URL **or `path:line`** in your plan/response. For anything version-sensitive (signatures, hooks, field types, bench commands), verify against the **v16 source** (item 1) — do not rely on the v15 docs or training memory. If a v15 doc contradicts the v16 source, trust the v16 source.
-- **Scope:** applies to all server code (`*.py`), client scripts (`*.js`), DocType JSON, `hooks.py`, fixtures, and bench/migration commands. Trivial edits inside fork-only files (under `erpnext/accounts/ap_closed_loop/` or `erpnext/accounts/doctype/ap_invoice_capture/`) that don't touch a framework surface are exempt — but anything that calls into `frappe.*` is not.
+- **Scope:** applies to all server code (`*.py`), client scripts (`*.js`), DocType JSON, `hooks.py`, fixtures, and bench/migration commands. Trivial edits inside fork-only files (under `erpnext/accounts/ap_closed_loop/` or `erpnext/accounts/doctype/document_capture/`) that don't touch a framework surface are exempt — but anything that calls into `frappe.*` is not.
 - **When the upstream behavior is itself the bug or limitation** (i.e. the reason for the fork change), still cite the upstream doc/source so the delta is explicit.
 
 ## Documentation index
@@ -27,7 +27,7 @@ Before doing non-trivial work, read the doc that matches your task.
 | `docs/architecture/FORK-CHANGES.md` | Authoritative list of files added/modified by this fork vs upstream | Files are added, removed, or significantly changed within the AP closed-loop scope |
 | `docs/architecture/FORK-CHANGES-PLAIN.md` | Plain-English explainer of the fork's scope for non-engineers | Same triggers as `FORK-CHANGES.md`, kept in sync |
 | `docs/architecture/UI-SITEMAP.md` | Every place a user can land in the desk UI — sidebar items, classic workspaces, Frappe pages, portal routes, dashboards | Any change under `erpnext/workspace_sidebar/`, `erpnext/*/workspace/`, `erpnext/*/page/`, `erpnext/*/dashboard*/`, or `website_route_rules` in `erpnext/hooks.py` |
-| `docs/architecture/AP-CAPTURE-SEQUENCE.md` **+ `.png`** | Sequence diagram of the **as-implemented** AP Invoice Capture cascade (intake → dedupe → OCR → validate → promote → approve → mock-pay). The `.md` holds the Mermaid source; the `.png` is its render. | The cascade / state machine changes — see the AP-sequence rule under "Working rules". **The `.md` and `.png` MUST stay in sync.** |
+| `docs/architecture/AP-CAPTURE-SEQUENCE.md` **+ `.png`** | Sequence diagram of the **as-implemented** Document Capture cascade (intake → dedupe → OCR → validate → promote → approve → mock-pay). The `.md` holds the Mermaid source; the `.png` is its render. | The cascade / state machine changes — see the AP-sequence rule under "Working rules". **The `.md` and `.png` MUST stay in sync.** |
 | `docs/changes/NewUpdates.md` | The 13-step AP workflow design (ambition spec, broader than what's shipped) | Workflow design changes — distinct from current implementation |
 | `docs/changes/GAP-ANALYSIS.md` | Gap between current ERPNext capability and pilot target | Pilot scope or upstream capability changes |
 | `docs/changes/IMPLEMENTATION-PLAN.md` | Build sequence and milestones for the pilot | Pilot milestones move or new tasks are added |
@@ -40,7 +40,7 @@ Before doing non-trivial work, read the doc that matches your task.
 ## Working rules
 
 - **For "where in the UI does X go?" questions:** consult `docs/architecture/UI-SITEMAP.md` first. Verify against the current repo before recommending placement — the sitemap is dated, not live.
-- **For changes inside the AP closed-loop scope** (`erpnext/accounts/ap_closed_loop/`, `erpnext/accounts/doctype/ap_invoice_capture/`): update `docs/architecture/FORK-CHANGES.md` in the same commit so the fork delta stays accurate.
+- **For changes inside the AP closed-loop scope** (`erpnext/accounts/ap_closed_loop/`, `erpnext/accounts/doctype/document_capture/`): update `docs/architecture/FORK-CHANGES.md` in the same commit so the fork delta stays accurate.
 - **For navigation changes** (any file under the UI-SITEMAP update triggers): refresh `docs/architecture/UI-SITEMAP.md` in the same commit. Update the "Last verified against repo" date at the top.
 - **For changes to the AP capture cascade / workflow** — any edit that changes the flow the sequence diagram depicts. **Read this trigger broadly:** it fires not only on a new/removed/reordered cascade hop, a renamed step function, or a new actor/participant, but on **any new or changed branch, gate, guard, pause seam, park, STOP, or block reason inside an existing step** — even when `_determine_next_step` and the async routing are untouched. Concretely, this includes:
   - edits to `_determine_next_step`, `after_insert` / `_kick_next_step`, or the async runner's step routing;

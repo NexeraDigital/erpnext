@@ -66,7 +66,7 @@ The fork's 36 commits include 10 merge commits from `upstream/develop` (e.g. `8b
 
 ### Why selective port works
 
-The fork is 95% additive (net-new files under `erpnext/accounts/ap_closed_loop/`, `erpnext/accounts/doctype/ap_invoice_capture/`, `erpnext/accounts/doctype/ap_closed_loop_settings/`, `docs/`, `.tmp/`, `AGENTS.md`, `CLAUDE.md`). Those files can be copied across without modification because nothing on v16 has anything with the same names. The 3 modified upstream files are small and patches apply cleanly (verified above).
+The fork is 95% additive (net-new files under `erpnext/accounts/ap_closed_loop/`, `erpnext/accounts/doctype/document_capture/`, `erpnext/accounts/doctype/ap_closed_loop_settings/`, `docs/`, `.tmp/`, `AGENTS.md`, `CLAUDE.md`). Those files can be copied across without modification because nothing on v16 has anything with the same names. The 3 modified upstream files are small and patches apply cleanly (verified above).
 
 We will produce one or a small number of clean commits on the new branch rather than preserving the fork's noisy history.
 
@@ -129,7 +129,7 @@ cd /home/rsmith/frappe-bench/apps/erpnext
 # AP closed-loop scope (the actual pilot code)
 git checkout pre-v16-migration -- \
   erpnext/accounts/ap_closed_loop/ \
-  erpnext/accounts/doctype/ap_invoice_capture/ \
+  erpnext/accounts/doctype/document_capture/ \
   erpnext/accounts/doctype/ap_closed_loop_settings/
 
 # Documentation and project meta
@@ -201,7 +201,7 @@ string 17.0.0-dev) onto upstream/version-16 for deployment compatibility with
 the customer UAT box.
 
 Net-new files (no conflicts): AP closed-loop python/json/JS under
-erpnext/accounts/ap_closed_loop/, erpnext/accounts/doctype/ap_invoice_capture/,
+erpnext/accounts/ap_closed_loop/, erpnext/accounts/doctype/document_capture/,
 erpnext/accounts/doctype/ap_closed_loop_settings/, plus docs/, AGENTS.md,
 CLAUDE.md, .tmp/, .claude/settings.json.
 
@@ -232,7 +232,7 @@ bench restart   # if running via bench start; otherwise supervisorctl
 
 **Verify:**
 - `bench version` shows `erpnext` on a v16-ish version string (likely `16.x.x` post-migrate; the fork's `erpnext/__init__.py` will inherit v16's version unless we deliberately edit it).
-- `bench --site erpnext.localhost console` → `frappe.get_all("DocType", filters={"name": "AP Invoice Capture"}, pluck="name")` returns `["AP Invoice Capture"]`.
+- `bench --site erpnext.localhost console` → `frappe.get_all("DocType", filters={"name": "Document Capture"}, pluck="name")` returns `["Document Capture"]`.
 - Visit `http://erpnext.localhost:8000/app/ap-invoice-capture/view/list` in the browser — the list renders.
 
 ### Step 7 — Run tests
@@ -240,7 +240,7 @@ bench restart   # if running via bench start; otherwise supervisorctl
 ```
 cd /home/rsmith/frappe-bench
 bench --site erpnext.localhost run-tests --app erpnext --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
-bench --site erpnext.localhost run-tests --app erpnext --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site erpnext.localhost run-tests --app erpnext --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 
 **Verify:** Both modules pass green. `IntegrationTestCase` exists on `frappe/version-16` (verified at `frappe/tests/classes/integration_test_case.py`), so the imports work.
@@ -251,7 +251,7 @@ Use the browser against the local site:
 
 1. Log in as Administrator.
 2. Navigate to **Invoicing → Invoice Capture** (sidebar link added by the fork).
-3. Create a new AP Invoice Capture document.
+3. Create a new Document Capture document.
 4. Walk through the auto-progression cascade buttons and confirm each step transitions state correctly.
 5. Hit the inline Mock Payment button and confirm the payment writeback succeeds.
 

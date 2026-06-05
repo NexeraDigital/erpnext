@@ -119,7 +119,7 @@ class TestSettingsValidation(IntegrationTestCase):
 
 class TestRunExtractionDispatch(IntegrationTestCase):
 	def _capture(self):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = "dispatch.pdf"
 		c.file_extension = "pdf"
 		c.intake_channel = "Manual ERPNext Upload"
@@ -129,7 +129,7 @@ class TestRunExtractionDispatch(IntegrationTestCase):
 		return c
 
 	def test_dispatches_to_configured_provider(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			run_extraction,
 		)
 
@@ -174,7 +174,7 @@ class TestRunExtractionDispatch(IntegrationTestCase):
 		self.assertEqual(doc.proposed_supplier, "ACME")
 
 	def test_default_dispatches_to_fake(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			run_extraction,
 		)
 
@@ -212,7 +212,7 @@ class TestFoundationGetters(IntegrationTestCase):
 
 	# AC-01-12
 	def test_resolve_approval_threshold_uses_settings(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			_resolve_approval_threshold,
 		)
 

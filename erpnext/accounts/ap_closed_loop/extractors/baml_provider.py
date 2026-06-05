@@ -9,7 +9,7 @@ cascade can read receipts with a cheap-model BAML call selected via
 header fields, line items (with per-line tax), AND the document kind + payment
 state — so this provider both extracts and (via the stashed kind/payment in
 ``raw_response``) feeds classification. The state machine / field-writing in
-``ap_invoice_capture.py`` is unchanged; it consumes the ``ExtractionResult``.
+``document_capture.py`` is unchanged; it consumes the ``ExtractionResult``.
 
 The Anthropic key is fetched lazily from AI Provider Settings (never logged) and
 exported as ``ANTHROPIC_API_KEY`` for the BAML client's ``env`` reference.
@@ -26,8 +26,8 @@ import frappe
 from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult, OCRProvider
 
 if TYPE_CHECKING:
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
-		APInvoiceCapture,
+	from erpnext.accounts.doctype.document_capture.document_capture import (
+		DocumentCapture,
 	)
 
 PROVIDER_NAME = "baml-receipt-v1"
@@ -58,8 +58,8 @@ class BamlReceiptProvider(OCRProvider):
 		return PROVIDER_NAME
 
 	# -- source bytes ------------------------------------------------------
-	def _read_source(self, capture: "APInvoiceCapture") -> tuple[bytes, str]:
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+	def _read_source(self, capture: "DocumentCapture") -> tuple[bytes, str]:
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			AmbiguousSourceError,
 			OCRExtractionError,
 		)
@@ -107,7 +107,7 @@ class BamlReceiptProvider(OCRProvider):
 	# -- public API --------------------------------------------------------
 	def extract(
 		self,
-		capture: "APInvoiceCapture",
+		capture: "DocumentCapture",
 		*,
 		simulate_missing=None,  # noqa: ARG002 — real provider ignores test affordances
 		simulate_ambiguous=None,  # noqa: ARG002

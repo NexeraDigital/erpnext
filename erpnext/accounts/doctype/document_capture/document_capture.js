@@ -1,7 +1,7 @@
 // Copyright (c) 2026, Nexera and Contributors
 // License: GNU General Public License v3. See license.txt
 
-frappe.ui.form.on("AP Invoice Capture", {
+frappe.ui.form.on("Document Capture", {
 	refresh(frm) {
 		render_status_display(frm);
 		clear_inline_actions(frm);
@@ -37,7 +37,7 @@ function render_inline_issue_payment_button(frm) {
 				on_click: async () => {
 					try {
 						await frappe.call({
-							method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.issue_mock_payment_for",
+							method: "erpnext.accounts.doctype.document_capture.document_capture.issue_mock_payment_for",
 							args: { capture: frm.doc.name },
 							freeze: true,
 							freeze_message: __("Issuing mock payment…"),
@@ -107,7 +107,7 @@ function open_change_currency_dialog(frm) {
 				await frappe.call({
 					method: "frappe.client.set_value",
 					args: {
-						doctype: "AP Invoice Capture",
+						doctype: "Document Capture",
 						name: frm.doc.name,
 						fieldname: "final_currency",
 						value: values.currency,
@@ -194,7 +194,7 @@ function render_inline_view_source_link(frm) {
 	const $row = $('<div class="ap-inline-actions row" style="margin: 0 0 12px 0;"></div>');
 	const $col = $('<div class="col-sm-12" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;"></div>');
 	const $link = $(
-		`<a href="${frm.doc.source_file_url}" target="_blank" rel="noopener" class="btn btn-sm btn-default">${__("View source invoice")}</a>`,
+		`<a href="${frm.doc.source_file_url}" target="_blank" rel="noopener" class="btn btn-sm btn-default">${__("View Source Document")}</a>`,
 	);
 	const $filename = $(
 		`<span class="text-muted small">${frappe.utils.escape_html(frm.doc.source_filename || "")}</span>`,
@@ -225,13 +225,13 @@ function open_confirm_dialog(frm) {
 	const proposed_label = (val) =>
 		__("OCR proposed: {0}", [val !== undefined && val !== null && val !== "" ? val : __("(none)")]);
 
-	// Build a "View source invoice" link so the clerk can open the original
+	// Build a "View Source Document" link so the clerk can open the original
 	// artifact (PDF / PNG / JPG) in a new tab while reviewing the proposal.
 	const source_link_html = frm.doc.source_file_url
 		? `<div class="mb-3">
 				<a href="${frm.doc.source_file_url}" target="_blank" rel="noopener" class="btn btn-sm btn-default">
 					${frappe.utils.icon ? frappe.utils.icon("link-url", "sm") : ""}
-					${__("View source invoice")}
+					${__("View Source Document")}
 				</a>
 				<span class="text-muted small" style="margin-left: 8px;">${frappe.utils.escape_html(frm.doc.source_filename || "")}</span>
 			</div>`
@@ -314,7 +314,7 @@ function open_confirm_dialog(frm) {
 				currency: values.currency,
 			};
 			frappe.call({
-				method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.confirm_extracted_fields_for",
+				method: "erpnext.accounts.doctype.document_capture.document_capture.confirm_extracted_fields_for",
 				args: {
 					capture: frm.doc.name,
 					corrections: JSON.stringify(corrections),
@@ -365,7 +365,7 @@ function render_inline_validation_actions(frm) {
 
 function rerun_validation(frm) {
 	frappe.call({
-		method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.validate_for_purchase_invoice_for",
+		method: "erpnext.accounts.doctype.document_capture.document_capture.validate_for_purchase_invoice_for",
 		args: { capture: frm.doc.name },
 		freeze: true,
 		freeze_message: __("Re-running validation…"),
@@ -620,7 +620,7 @@ async function open_promote_dialog(frm) {
 			};
 			try {
 				await frappe.call({
-					method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.promote_to_purchase_invoice_for",
+					method: "erpnext.accounts.doctype.document_capture.document_capture.promote_to_purchase_invoice_for",
 					args: {
 						capture: frm.doc.name,
 						defaults: JSON.stringify(defaults),
@@ -681,7 +681,7 @@ function prompt_manager_decision(frm, approve) {
 		},
 		(values) => {
 			frappe.call({
-				method: "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.record_manager_decision_for",
+				method: "erpnext.accounts.doctype.document_capture.document_capture.record_manager_decision_for",
 				args: {
 					capture: frm.doc.name,
 					approve: approve ? 1 : 0,

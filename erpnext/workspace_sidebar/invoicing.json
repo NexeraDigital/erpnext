@@ -117,8 +117,8 @@
    "collapsible": 1,
    "indent": 0,
    "keep_closed": 0,
-   "label": "Invoice Capture",
-   "link_to": "AP Invoice Capture",
+   "label": "Document Capture",
+   "link_to": "Document Capture",
    "link_type": "DocType",
    "show_arrow": 0,
    "type": "Link"
@@ -347,7 +347,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-05-27 22:40:00.000000",
+ "modified": "2026-06-05 12:00:00",
  "modified_by": "Administrator",
  "module": "Accounts",
  "module_onboarding": "Accounting Onboarding",

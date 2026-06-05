@@ -24,7 +24,7 @@ except ImportError:
 # via pdf2image; gate those tests so the suite stays green on a bench without it.
 _POPPLER_AVAILABLE = _IMAGEHASH_AVAILABLE and shutil.which("pdftoppm") is not None
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
 	APPROVAL_SOURCE_DEFAULT,
 	APPROVAL_STATUS_AUTO_APPROVED,
 	APPROVAL_STATUS_MANAGER_APPROVED,
@@ -173,7 +173,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	CODING_SOURCE_DEFAULT,
 	get_coding_review_queue_for,
 )
-from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as _apic_mod
+from erpnext.accounts.doctype.document_capture import document_capture as _apic_mod
 
 EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]
 
@@ -242,7 +242,7 @@ def _make_file(filename: str, content: bytes | None = None) -> "frappe.Document"
 	return file_doc
 
 
-class TestAPInvoiceCapture(IntegrationTestCase):
+class TestDocumentCapture(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -348,7 +348,7 @@ class TestAPInvoiceCapture(IntegrationTestCase):
 		capture = create_capture_from_file(file_doc=f)
 
 		rows = frappe.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={"name": capture.name},
 			fields=[
 				"name",
@@ -369,7 +369,7 @@ class TestAPInvoiceCapture(IntegrationTestCase):
 		self.assertTrue(row.received_at)
 
 
-class TestAPInvoiceCaptureOCRReview(IntegrationTestCase):
+class TestDocumentCaptureOCRReview(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -593,7 +593,7 @@ class TestAPInvoiceCaptureOCRReview(IntegrationTestCase):
 		capture.reload()
 
 		row = frappe.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={"name": capture.name},
 			fields=[
 				"ocr_provider",
@@ -635,7 +635,7 @@ class TestAPInvoiceCaptureOCRReview(IntegrationTestCase):
 		)
 
 
-class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
+class TestDocumentCaptureValidationAndPromotion(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -849,7 +849,7 @@ class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
 		validate_for_purchase_invoice(capture)
 
 		rows = frappe.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={"name": capture.name},
 			fields=[
 				"name",
@@ -922,7 +922,7 @@ class TestAPInvoiceCaptureValidationAndPromotion(IntegrationTestCase):
 		self.assertIn("ambiguous", capture.validation_result.lower())
 
 
-class TestAPInvoiceCaptureApproval(IntegrationTestCase):
+class TestDocumentCaptureApproval(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -1120,7 +1120,7 @@ class TestAPInvoiceCaptureApproval(IntegrationTestCase):
 		capture.reload()
 
 		rows = frappe.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={"name": capture.name},
 			fields=[
 				"name",
@@ -1144,7 +1144,7 @@ class TestAPInvoiceCaptureApproval(IntegrationTestCase):
 		self.assertEqual(row.payment_readiness, PAYMENT_READINESS_READY)
 
 
-class TestAPInvoiceCaptureMockPayment(IntegrationTestCase):
+class TestDocumentCaptureMockPayment(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -1281,7 +1281,7 @@ class TestAPInvoiceCaptureMockPayment(IntegrationTestCase):
 		)
 
 
-class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
+class TestDocumentCaptureClosureEvidence(IntegrationTestCase):
 	def tearDown(self):
 		frappe.db.rollback()
 
@@ -1418,7 +1418,7 @@ class TestAPInvoiceCaptureClosureEvidence(IntegrationTestCase):
 # `frappe.flags.ap_auto_progress_enabled` opts each test into cascading;
 # without it, the single-step tests above behave as Brandon designed them.
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (  # noqa: E402
+from erpnext.accounts.doctype.document_capture.document_capture import (  # noqa: E402
 	confirm_extracted_fields_for,
 	issue_mock_payment_for,
 	promote_to_purchase_invoice_for,
@@ -1428,7 +1428,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (  # 
 )
 
 
-class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
+class TestDocumentCaptureAutoProgress(IntegrationTestCase):
 	def setUp(self):
 		# Opt this test class into cascade; reset between tests so flag
 		# leaks don't pollute other suites that run in the same process.
@@ -1652,10 +1652,10 @@ class TestAPInvoiceCaptureAutoProgress(IntegrationTestCase):
 			frappe.flags.skip_ap_auto_progress = False
 
 
-class TestAPInvoiceCaptureDedup(IntegrationTestCase):
+class TestDocumentCaptureDedup(IntegrationTestCase):
 	"""Spec 03 — pre-extraction deduplication, detection logic (AC-03-1..10).
 
-	Cascade integration (AC-03-12) lives in TestAPInvoiceCaptureDedupCascade.
+	Cascade integration (AC-03-12) lives in TestDocumentCaptureDedupCascade.
 	AC-03-11 (get_dedupe_config) lives in test_ap_closed_loop_settings.
 	AC-03-13 (fieldtype/index guard) is a post-migrate schema assertion
 	(DESCRIBE / SHOW INDEX), not a Python unit test.
@@ -1668,7 +1668,7 @@ class TestAPInvoiceCaptureDedup(IntegrationTestCase):
 	"""
 
 	def setUp(self):
-		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
+		from erpnext.accounts.doctype.document_capture import document_capture as mod
 
 		self.mod = mod
 		self._orig_phash = mod._compute_phash
@@ -1890,7 +1890,7 @@ class TestAPInvoiceCaptureDedup(IntegrationTestCase):
 		self.assertIsNone(self.mod._phash_distance("", ""))
 
 
-class TestAPInvoiceCaptureDedupCascade(IntegrationTestCase):
+class TestDocumentCaptureDedupCascade(IntegrationTestCase):
 	"""Spec 03 — AC-03-12: dedupe wired into the async cascade (Step 0, pre-OCR).
 
 	Opts into the cascade (ap_auto_progress flag) so the full intake -> dedupe ->
@@ -1964,14 +1964,14 @@ def _structured_png(variant: str, *, noise: float = 0.0) -> bytes:
 	return buf.getvalue()
 
 
-class TestAPInvoiceCaptureDedupPerceptualLive(IntegrationTestCase):
+class TestDocumentCaptureDedupPerceptualLive(IntegrationTestCase):
 	"""Spec 03 — the REAL perceptual pipeline, with NO _compute_phash monkeypatch.
 
 	Exercises the actual imagehash (and, for the PDF branch, pdf2image/poppler)
 	code path end-to-end. The image branch needs only imagehash+Pillow; the PDF
 	branch also needs the poppler binary — each test skips when its dep is absent
 	so the suite stays green on a bench without the optional perceptual deps.
-	(The mocked fuzzy-distance logic is covered by TestAPInvoiceCaptureDedup.)
+	(The mocked fuzzy-distance logic is covered by TestDocumentCaptureDedup.)
 	"""
 
 	def setUp(self):
@@ -2015,7 +2015,7 @@ class TestAPInvoiceCaptureDedupPerceptualLive(IntegrationTestCase):
 	@unittest.skipUnless(_POPPLER_AVAILABLE, "poppler/pdf2image not installed")
 	def test_real_phash_pdf_branch(self):
 		# Rasterize a committed PDF fixture through the real pdf2image/poppler path.
-		from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as mod
+		from erpnext.accounts.doctype.document_capture import document_capture as mod
 
 		fixture = os.path.join(
 			frappe.get_app_path("erpnext"), "..", "test", "invoices",
@@ -2029,11 +2029,11 @@ class TestAPInvoiceCaptureDedupPerceptualLive(IntegrationTestCase):
 		self.assertRegex(phash, r"^[0-9a-f]{16}$")
 
 
-class TestAPInvoiceCaptureResolveAbove(IntegrationTestCase):
+class TestDocumentCaptureResolveAbove(IntegrationTestCase):
 	"""Spec 04 — per-field threshold resolution (AC-04-8)."""
 
 	def test_resolution_order_and_line_base_field(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			_base_field,
 			_resolve_above,
 		)
@@ -2055,14 +2055,14 @@ class TestAPInvoiceCaptureResolveAbove(IntegrationTestCase):
 		self.assertEqual(_base_field("supplier"), "supplier")
 
 
-class TestAPInvoiceCaptureExtractionDetail(IntegrationTestCase):
+class TestDocumentCaptureExtractionDetail(IntegrationTestCase):
 	"""Spec 04 — run_extraction write-back of confidence rows + line items."""
 
 	def tearDown(self):
 		frappe.db.rollback()
 
 	def _inmem_capture(self):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = "extract_detail.pdf"
 		c.file_extension = "pdf"
 		c.intake_channel = INTAKE_MANUAL_UPLOAD
@@ -2075,7 +2075,7 @@ class TestAPInvoiceCaptureExtractionDetail(IntegrationTestCase):
 	# AC-04-6, AC-04-7, AC-04-10
 	def test_write_back_builds_confidence_and_line_rows(self):
 		from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			_write_extraction_detail,
 		)
 
@@ -2147,7 +2147,7 @@ class TestAPInvoiceCaptureExtractionDetail(IntegrationTestCase):
 		self.assertIn("lines", parsed)
 
 
-class TestAPInvoiceCapturePromoteLineAware(IntegrationTestCase):
+class TestDocumentCapturePromoteLineAware(IntegrationTestCase):
 	"""Spec 04 — promote builds one PI item per capture line (AC-04-11/12)."""
 
 	def tearDown(self):
@@ -2798,7 +2798,7 @@ class TestAPCodingProfile(IntegrationTestCase):
 			self.fail(f"_apply_dimensions_to_row raised on a missing dimension: {exc}")
 
 
-class TestAPInvoiceCaptureDocumentTypeBranching(IntegrationTestCase):
+class TestDocumentCaptureDocumentTypeBranching(IntegrationTestCase):
 	"""Spec 07 — Step-6 document-type classification + stream-aware doctype branching
 	(Already-Paid posts an is_paid Purchase Invoice, the locked Option C)."""
 
@@ -3005,13 +3005,13 @@ class TestAPInvoiceCaptureDocumentTypeBranching(IntegrationTestCase):
 
 	# --- AC-07-14: migrate safety ----------------------------------------
 	def test_ac_07_14_schema(self):
-		meta = frappe.get_meta("AP Invoice Capture")
+		meta = frappe.get_meta("Document Capture")
 		self.assertEqual(meta.get_field("document_type").fieldtype, "Select")
 		self.assertEqual(meta.get_field("expense_claim").fieldtype, "Data")  # NOT a Link
 		self.assertIn("Manual Review", (meta.get_field("status").options or "").split("\n"))
 
 
-class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
+class TestDocumentCaptureValidationGates(IntegrationTestCase):
 	"""Spec 08 — three-way match, amount anomaly, vendor bank-change gates.
 
 	Gates are stream-aware: blocking on Stream I, recorded-only on Stream R. Each
@@ -3494,7 +3494,7 @@ class TestAPInvoiceCaptureValidationGates(IntegrationTestCase):
 		self.assertEqual(int(cap.vendor_bank_change_detected), 0)
 
 
-class TestAPInvoiceCaptureConfidenceRouting(IntegrationTestCase):
+class TestDocumentCaptureConfidenceRouting(IntegrationTestCase):
 	"""Spec 09 — confidence-based routing (auto-advance vs Needs-Review queue)."""
 
 	def tearDown(self):
@@ -3788,7 +3788,7 @@ class TestAPReviewGate(IntegrationTestCase):
 		cap = self._proposed()
 		reject_capture(cap, reason="bad scan")
 		# Reload from DB and save again — validate() must not clobber Rejected.
-		fresh = frappe.get_doc("AP Invoice Capture", cap.name)
+		fresh = frappe.get_doc("Document Capture", cap.name)
 		self.assertEqual(fresh.status, STATUS_REJECTED)
 		fresh.save()
 		fresh.reload()
@@ -3799,7 +3799,7 @@ class TestAPReviewGate(IntegrationTestCase):
 		cap = self._proposed()
 		reject_capture(cap, reason="bad scan")
 		self.assertTrue(
-			frappe.db.exists("Version", {"ref_doctype": "AP Invoice Capture", "docname": cap.name})
+			frappe.db.exists("Version", {"ref_doctype": "Document Capture", "docname": cap.name})
 		)
 
 	# AC-10-6 (reopen positive — restores recorded from_status)
@@ -3930,7 +3930,7 @@ class TestAPReviewGate(IntegrationTestCase):
 		self.assertEqual(chart.group_by_based_on, "root_cause_tag")
 
 
-class TestAPInvoiceCaptureAutoConfirm(IntegrationTestCase):
+class TestDocumentCaptureAutoConfirm(IntegrationTestCase):
 	"""T-015 — confidence-gated auto-confirm (spec 04/09 §5.6).
 
 	The cascade auto-confirms the OCR proposal (skipping the human pause at Proposed)
@@ -4517,7 +4517,7 @@ class TestAPClosureAudit(IntegrationTestCase):
 		# lifecycle's own saves leave no Version in test mode. Write one tracked
 		# Version explicitly so the audit-history block is exercised deterministically
 		# (in production the lifecycle saves produce these versions on their own).
-		audit_doc = frappe.get_doc("AP Invoice Capture", cap.name)
+		audit_doc = frappe.get_doc("Document Capture", cap.name)
 		audit_doc.source_context = (audit_doc.source_context or "") + " [audit-review]"
 		audit_doc.save(ignore_version=False)
 		cap.reload()
@@ -4582,26 +4582,26 @@ class TestAPClosureAudit(IntegrationTestCase):
 		cap = self._settled("audit-old.pdf")
 		# Backdate beyond the 7-year IRS window.
 		old_date = add_to_date(today(), years=-8)
-		frappe.db.set_value("AP Invoice Capture", cap.name, "received_at", old_date)
+		frappe.db.set_value("Document Capture", cap.name, "received_at", old_date)
 
-		before = frappe.db.count("AP Invoice Capture")
+		before = frappe.db.count("Document Capture")
 		result = enforce_retention_policy()
-		after = frappe.db.count("AP Invoice Capture")
+		after = frappe.db.count("Document Capture")
 
 		self.assertEqual(result["cutoff"], add_to_date(today(), years=-7))
 		self.assertGreaterEqual(result["past_retention"], 1)
 		# NEVER deletes: the record still exists and the row count is unchanged.
 		self.assertEqual(before, after)
-		self.assertTrue(frappe.db.exists("AP Invoice Capture", cap.name))
+		self.assertTrue(frappe.db.exists("Document Capture", cap.name))
 
 	# AC-14: a recently-received capture is NOT past retention.
 	def test_retention_excludes_recent_capture(self):
 		cap = self._settled("audit-recent.pdf")
-		frappe.db.set_value("AP Invoice Capture", cap.name, "received_at", today())
+		frappe.db.set_value("Document Capture", cap.name, "received_at", today())
 		# Sweep all backdated captures so only the recent one is in scope for the delta check.
 		past_names = set(
 			frappe.get_all(
-				"AP Invoice Capture",
+				"Document Capture",
 				filters={"received_at": ["<", add_to_date(today(), years=-7)]},
 				pluck="name",
 			)

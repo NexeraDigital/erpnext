@@ -383,7 +383,7 @@ doc_events = {
 		"after_insert": [
 			"erpnext.crm.utils.link_communications_with_prospect",
 			"erpnext.crm.utils.update_modified_timestamp",
-			"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.handle_inbound_ap_communication",
+			"erpnext.accounts.doctype.document_capture.document_capture.handle_inbound_ap_communication",
 		],
 	},
 	"Event": {
@@ -468,7 +468,7 @@ scheduler_events = {
 	],
 	"daily": [
 		"erpnext.mcp.tasks.prune_audit_logs",
-		"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.refresh_anomaly_baselines",
+		"erpnext.accounts.doctype.document_capture.document_capture.refresh_anomaly_baselines",
 	],
 	"daily_long": [],
 	"daily_maintenance": [
@@ -506,7 +506,7 @@ scheduler_events = {
 		"erpnext.accounts.utils.auto_create_exchange_rate_revaluation_weekly",
 	],
 	"monthly": [
-		"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.enforce_retention_policy",
+		"erpnext.accounts.doctype.document_capture.document_capture.enforce_retention_policy",
 	],
 	"monthly_long": [
 		"erpnext.accounts.deferred_revenue.process_deferred_accounting",

@@ -65,7 +65,7 @@ def _upload_file(fname: str, content: bytes) -> str:
 
 
 def _capture_for(defn: dict, file_name: str):
-	cap = frappe.new_doc("AP Invoice Capture")
+	cap = frappe.new_doc("Document Capture")
 	cap.source_filename = defn["file"]
 	cap.file_extension = defn["format"]
 	cap.intake_channel = "Manual ERPNext Upload"
@@ -116,7 +116,7 @@ class TestOCRPipelineIntegration(IntegrationTestCase):
 	def test_anthropic_primary_path_end_to_end(self):
 		"""Settings -> run_extraction -> registry -> AnthropicExtractor ->
 		real PDF read + real image/doc block build -> field writes."""
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._store_key()
 		self._set(ocr_provider="Anthropic Claude", ocr_model="claude-haiku-4-5-20251001")
@@ -143,7 +143,7 @@ class TestOCRPipelineIntegration(IntegrationTestCase):
 	def test_fallback_path_end_to_end_via_settings(self):
 		"""ocr_fallback_model in settings drives a real second call through the
 		whole stack when the primary pass is low-confidence."""
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._store_key()
 		self._set(
@@ -171,7 +171,7 @@ class TestOCRPipelineIntegration(IntegrationTestCase):
 	def test_default_provider_makes_no_api_client(self):
 		"""With the default (fake) provider, run_extraction must not construct an
 		Anthropic client at all."""
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._set(ocr_provider="Fake (Deterministic)")
 		defn, content = _load_corpus("invoice_05")
@@ -203,7 +203,7 @@ class TestOCRPipelineLive(IntegrationTestCase):
 		"""A few representative corpus invoices through the full settings-driven
 		path against the real API, scored vs ground truth."""
 		from erpnext.accounts.ap_closed_loop.extractors.benchmark import score
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._set(ocr_provider="Anthropic Claude", ocr_model="claude-haiku-4-5-20251001", ocr_fallback_model="")
 		for basename in ("invoice_01", "invoice_08", "invoice_18"):  # clean / faxed / missing-currency
@@ -231,7 +231,7 @@ class TestOCRPipelineLive(IntegrationTestCase):
 		required field -> fallback fires. The fallback pass also can't read a
 		currency that isn't there, so currency stays missing, but the run must
 		record that the escalation happened."""
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._set(
 			ocr_provider="Anthropic Claude",

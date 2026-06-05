@@ -4,11 +4,11 @@
 
 ## 1. Feature under test
 
-Per-supplier GL **auto-coding**: an `AP Supplier Coding Profile` supplies the default expense account, cost center, purchase-tax template, payment terms, and accounting dimensions for a vendor, layered on top of native ERPNext vendor settings. `apply_coding_profile_for(capture)` merges three default layers (Settings → profile → caller), **infers a cost center** (routing conflicting signals to a Coding-Review queue instead of guessing), **validates tax** against the resolved template, and stages the coding onto the draft Purchase Invoice. `is_fully_coded(capture)` gates auto-posting. Stream-R receipts with no vendor fall back to an "Unmapped Card Spend" account. User-visible change: a new `AP Supplier Coding Profile` master, a GL-coding section on `AP Invoice Capture`, and a `default_purchase_tax_template` on `AP Closed Loop Settings`.
+Per-supplier GL **auto-coding**: an `AP Supplier Coding Profile` supplies the default expense account, cost center, purchase-tax template, payment terms, and accounting dimensions for a vendor, layered on top of native ERPNext vendor settings. `apply_coding_profile_for(capture)` merges three default layers (Settings → profile → caller), **infers a cost center** (routing conflicting signals to a Coding-Review queue instead of guessing), **validates tax** against the resolved template, and stages the coding onto the draft Purchase Invoice. `is_fully_coded(capture)` gates auto-posting. Stream-R receipts with no vendor fall back to an "Unmapped Card Spend" account. User-visible change: a new `AP Supplier Coding Profile` master, a GL-coding section on `Document Capture`, and a `default_purchase_tax_template` on `AP Closed Loop Settings`.
 
 ## 2. Branch / commit
 
-- **Branch:** `russ/migrateToV16` · working tree. Sanity: `erpnext/accounts/doctype/ap_supplier_coding_profile/` exists; `apply_coding_profile_for` / `is_fully_coded` are defined in `ap_invoice_capture.py`; `get_coding_settings` in `ap_closed_loop_settings.py`.
+- **Branch:** `russ/migrateToV16` · working tree. Sanity: `erpnext/accounts/doctype/ap_supplier_coding_profile/` exists; `apply_coding_profile_for` / `is_fully_coded` are defined in `document_capture.py`; `get_coding_settings` in `ap_closed_loop_settings.py`.
 
 ## 3. Environment setup
 
@@ -30,7 +30,7 @@ bench --site <test-site> migrate   # installs AP Supplier Coding Profile + Dimen
 - **Action:**
   ```bash
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_coding_profile.test_ap_supplier_coding_profile
-  bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** `5 OK` and `Ran 120 tests … OK (skipped=1)`.
 - **Pass/fail:** PASS iff both green.
@@ -38,7 +38,7 @@ bench --site <test-site> migrate   # installs AP Supplier Coding Profile + Dimen
 ### TC-2 — Profile auto-codes a capture (works)
 - **Action:** drive a capture for `Acme Coding Co` through OCR → Confirm → validate. With the cascade configured, the coding step runs; otherwise call `apply_coding_profile_for` (the form/coding action). 
 - **Expected (form, GL Coding section):** `Coding Status = Coded`, `Applied Expense Account` = the profile's account, `Applied Cost Center` = the profile's cost center, `Applied Tax Template` = the profile's template, no review reason.
-- **DB check:** `bench --site <site> mariadb -e "SELECT coding_status, applied_expense_account, applied_cost_center, applied_tax_template FROM \`tabAP Invoice Capture\` WHERE name='<APIC>'\\G"`
+- **DB check:** `bench --site <site> mariadb -e "SELECT coding_status, applied_expense_account, applied_cost_center, applied_tax_template FROM \`tabDocument Capture\` WHERE name='<APIC>'\\G"`
 - **Pass/fail:** PASS iff the profile's coding is applied and status is Coded.
 
 ### TC-3 — Cost-center conflict routes to review (guard)
@@ -69,7 +69,7 @@ bench --site <test-site> migrate   # installs AP Supplier Coding Profile + Dimen
 
 ## 6. Cleanup / rollback
 
-- Delete test `AP Supplier Coding Profile`, `AP Invoice Capture`, any `Purchase Invoice`/`Payment Entry`, `Purchase Taxes and Charges Template`, and Suppliers created.
+- Delete test `AP Supplier Coding Profile`, `Document Capture`, any `Purchase Invoice`/`Payment Entry`, `Purchase Taxes and Charges Template`, and Suppliers created.
 - Restore `AP Closed Loop Settings → OCR Provider` and clear any test `Unmapped Card Spend Account` / `Default Purchase Tax Template`.
 
 ## 7. Pass/fail summary template

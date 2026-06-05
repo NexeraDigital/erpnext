@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 0,
  "creation": "2026-06-01 00:00:00.000000",
- "description": "Reject / reopen audit trail for an AP Invoice Capture (spec 10). One row per transition; appended via doc.append (never raw SQL) so parent track_changes captures it.",
+ "description": "Reject / reopen audit trail for an Document Capture (spec 10). One row per transition; appended via doc.append (never raw SQL) so parent track_changes captures it.",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",

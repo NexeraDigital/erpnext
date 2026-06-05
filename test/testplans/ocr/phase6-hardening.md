@@ -130,7 +130,7 @@ for m in extractors.test_hardening extractors.test_anthropic extractors.test_ext
   bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.$m
 done
 bench --site <site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 **Expected:** 16 / 23 (1 skip) / 15 / 9 / 5 (2 skip) / 11, then 8, then 66 — all `OK`.
 

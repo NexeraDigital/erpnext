@@ -11,7 +11,7 @@ silently skipping intake.
 
 A concrete adapter would ``pull()`` a list of ``PulledDocument``s from a vendor
 portal and feed each through
-``ap_invoice_capture.create_capture_from_file(..., intake_channel="Vendor Portal Pull",
+``document_capture.create_capture_from_file(..., intake_channel="Vendor Portal Pull",
 received_at=<portal timestamp>)``.
 """
 

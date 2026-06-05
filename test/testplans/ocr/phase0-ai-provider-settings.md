@@ -21,7 +21,7 @@ What ships in Phase 0:
 
 **What does NOT ship in Phase 0** (intentional — those are later phases):
 - No `AnthropicExtractor`.
-- No changes to AP Invoice Capture.
+- No changes to Document Capture.
 - No call to the Anthropic API anywhere.
 - No new fields on `AP Closed Loop Settings`.
 
@@ -285,15 +285,15 @@ Each case: **Preconditions → Action → Expected → Pass/Fail criterion.**
 - **Expected:** Output contains `ANTHROPIC_MODULES_LOADED: []` (empty list).
 - **Pass:** No `anthropic.*` module loaded by importing `erpnext.ai.credentials`.
 
-### TC-11 — Negative: AP Invoice Capture behavior unchanged
+### TC-11 — Negative: Document Capture behavior unchanged
 
-- **Rationale:** Phase 0 explicitly says no AP-side behavior change. The fork's existing AP Invoice Capture tests should still pass.
+- **Rationale:** Phase 0 explicitly says no AP-side behavior change. The fork's existing Document Capture tests should still pass.
 - **Action:** Run the existing AP test suites unchanged:
   ```bash
   bench --site ai-test.localhost run-tests \
     --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
   bench --site ai-test.localhost run-tests \
-    --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+    --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** Both modules return `OK`. Exit code 0 from both.
 - **Pass:** Both modules pass.

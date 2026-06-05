@@ -1,7 +1,7 @@
 {
  "actions": [],
  "creation": "2026-05-27 19:30:00.000000",
- "description": "Site-wide defaults used by AP Invoice Capture when promoting a capture to a Purchase Invoice. These values are not on the invoice image — they are the buyer's internal accounting decisions about which Company is purchasing, which Item to bill against, and how the spend is GL-coded.",
+ "description": "Site-wide defaults used by Document Capture when promoting a capture to a Purchase Invoice. These values are not on the invoice image — they are the buyer's internal accounting decisions about which Company is purchasing, which Item to bill against, and how the spend is GL-coded.",
  "doctype": "DocType",
  "document_type": "System",
  "engine": "InnoDB",
@@ -75,7 +75,7 @@
    "label": "Promote Defaults"
   },
   {
-   "description": "Used as the Company on Purchase Invoices created when promoting AP Invoice Captures. Required by the Purchase Invoice schema.",
+   "description": "Used as the Company on Purchase Invoices created when promoting Document Captures. Required by the Purchase Invoice schema.",
    "fieldname": "default_company",
    "fieldtype": "Link",
    "label": "Default Company",

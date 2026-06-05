@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "format:APRE-{YYYY}-{#####}",
- "creation": "2026-06-01 00:00:00.000000",
+ "creation": "2026-06-01 00:00:00",
  "description": "Append-only step-9 instrumentation log (spec 10). One row per clerk/system review action, carrying a fixed-vocabulary root-cause tag for the weekly 'Top step-9 root causes' rollup. Written by emit_review_event; clerk-read-only.",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -27,7 +26,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Capture",
-   "options": "AP Invoice Capture",
+   "options": "Document Capture",
    "reqd": 1
   },
   {
@@ -40,7 +39,7 @@
    "reqd": 1
   },
   {
-   "description": "Fixed vocabulary (the plan's list) — drives the weekly report + auto-rate chart.",
+   "description": "Fixed vocabulary (the plan's list) \u2014 drives the weekly report + auto-rate chart.",
    "fieldname": "root_cause_tag",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -98,11 +97,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-01 00:00:00.000000",
+ "modified": "2026-06-05 21:36:42.209430",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Review Event",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {
@@ -128,6 +127,5 @@
  "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 0
+ "states": []
 }

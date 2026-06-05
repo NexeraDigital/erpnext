@@ -3,7 +3,7 @@
 
 """AP Closed Loop Settings.
 
-Single DocType holding site-wide defaults used by the AP Invoice Capture
+Single DocType holding site-wide defaults used by the Document Capture
 promote step. The four "required" defaults (company, item_code, expense_
 account, cost_center) fill in values that are not on the invoice image and
 that the Purchase Invoice schema requires to post. The two "optional"
@@ -238,7 +238,7 @@ def get_auto_post_threshold() -> float:
 
 	Falls back to DEFAULT_AUTO_POST_THRESHOLD (1000.0) when blank / non-positive
 	so empty-settings sites keep the pre-foundation behaviour. Replaces the
-	hard-coded AUTO_APPROVAL_THRESHOLD_DEFAULT in ap_invoice_capture."""
+	hard-coded AUTO_APPROVAL_THRESHOLD_DEFAULT in document_capture."""
 
 	raw = _settings().get("auto_post_amount_threshold")
 	try:

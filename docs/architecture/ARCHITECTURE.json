@@ -202,10 +202,10 @@
       "erpnext/accounts/ap_closed_loop/__init__.py",
       "erpnext/accounts/ap_closed_loop/walking_skeleton.py",
       "erpnext/accounts/ap_closed_loop/test_walking_skeleton.py",
-      "erpnext/accounts/doctype/ap_invoice_capture/__init__.py",
-      "erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json",
-      "erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py",
-      "erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py"
+      "erpnext/accounts/doctype/document_capture/__init__.py",
+      "erpnext/accounts/doctype/document_capture/document_capture.json",
+      "erpnext/accounts/doctype/document_capture/document_capture.py",
+      "erpnext/accounts/doctype/document_capture/test_document_capture.py"
     ],
     "modified_paths": [
       "erpnext/setup/utils.py (Role enumeration switched from frappe.db.get_values to frappe.get_all)"

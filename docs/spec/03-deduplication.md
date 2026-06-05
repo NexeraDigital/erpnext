@@ -15,7 +15,7 @@ related: [00-overview, 04-extraction-confidence-line-items, 08-validation-gates,
 > **Automation-first stance.** This spec saves both human attention and AI money with **no human in the loop on the common case**: an exact file-hash re-upload is **auto-blocked before a single OCR dollar is spent** — the capture short-circuits to `STATUS_DUPLICATE`, links its original, and never reaches the billable extractor, fully automatically. The design deliberately **escalates, but does not dead-end**: a fuzzy near-duplicate look-alike (a re-scan of the same artifact) is flagged for a human (`action_required` + a "suspected near-duplicate" reason) **yet still proceeds to OCR** (D1 recommended (b)), so the clerk has the extracted fields to confirm or dismiss and the document never falls out of the pipeline. That suspected-near-duplicate flag is the single escalation seam, and it is a soft flag layered on a still-advancing capture — not a stop. The doctrine table lists **no automation gap** for this spec; it is already automation-first, with the follow-on body-text fingerprint (D2) the only mechanism that gates a suspect's eventual auto-close.
 
 ## 1. Summary
-This spec builds the **firewall against double-booking**: before any OCR call is spent, every freshly-intaken `AP Invoice Capture` is checked against the last 90 days for an **exact file-hash match** (re-uploads of the same bytes) and a **fuzzy near-duplicate match** (re-scans of the same document). It implements **Step 2** of `workflow-v2-plan.md` and is **stream-agnostic** — a re-upload is a duplicate whether the artifact was tagged Stream R (receipt) or Stream I (invoice). Current-state delta: there is **no** `content_hash`, `perceptual_hash`, `duplicate_of`, or `STATUS_DUPLICATE` today, and no dedupe step exists in the cascade — this slots a new pre-OCR hop into the existing `after_insert → _kick_next_step → _determine_next_step` machine so a duplicate never reaches the billable extractor.
+This spec builds the **firewall against double-booking**: before any OCR call is spent, every freshly-intaken `Document Capture` is checked against the last 90 days for an **exact file-hash match** (re-uploads of the same bytes) and a **fuzzy near-duplicate match** (re-scans of the same document). It implements **Step 2** of `workflow-v2-plan.md` and is **stream-agnostic** — a re-upload is a duplicate whether the artifact was tagged Stream R (receipt) or Stream I (invoice). Current-state delta: there is **no** `content_hash`, `perceptual_hash`, `duplicate_of`, or `STATUS_DUPLICATE` today, and no dedupe step exists in the cascade — this slots a new pre-OCR hop into the existing `after_insert → _kick_next_step → _determine_next_step` machine so a duplicate never reaches the billable extractor.
 
 ## 2. Plan alignment
 
@@ -32,12 +32,12 @@ This spec builds the **firewall against double-booking**: before any OCR call is
 
 ## 3. Current state
 
-**Not implemented today.** Verified against `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (1759 lines) and its `.json` (running on Frappe **v16.18.3**, branch `version-16`). There are no `content_hash`/`perceptual_hash`/`duplicate_of` fields, no `STATUS_DUPLICATE` value, and no `detect_duplicates_for()`. The plumbing the dedupe step hooks into already exists:
+**Not implemented today.** Verified against `erpnext/accounts/doctype/document_capture/document_capture.py` (1759 lines) and its `.json` (running on Frappe **v16.18.3**, branch `version-16`). There are no `content_hash`/`perceptual_hash`/`duplicate_of` fields, no `STATUS_DUPLICATE` value, and no `detect_duplicates_for()`. The plumbing the dedupe step hooks into already exists:
 
-- **Lifecycle constants** — `ap_invoice_capture.py:36-41`: `STATUS_PENDING_REVIEW / UNSUPPORTED / REJECTED / PROPOSED / NEEDS_CORRECTION / CONFIRMED`. The `status` Select options string is `ap_invoice_capture.json:162` (`"Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed"`).
-- **`validate()`** — `ap_invoice_capture.py:237` calls `_hydrate_from_linked_file` (`:406`, currently `frappe.db.get_value("File", self.source_file, ["file_name", "file_url"], as_dict=True)`) then `_require_source_reference` (`:426`). This is where `content_hash` is populated from the linked File.
-- **`after_insert()`** — `ap_invoice_capture.py:281` → `self._kick_next_step()`. Entry point for auto-progression.
-- **`_determine_next_step()`** — `ap_invoice_capture.py:321` is the routing table. **Step 1** (`:330-336`) returns `("run_fake_extraction_for", "auto: post-intake OCR")` only when `status == STATUS_PENDING_REVIEW AND ocr_status in (None, "Not Extracted") AND is_supported_format AND source_file`. A capture in `STATUS_DUPLICATE` fails the `:331` status guard, so OCR is **never enqueued** — that is exactly how the firewall short-circuits.
+- **Lifecycle constants** — `document_capture.py:36-41`: `STATUS_PENDING_REVIEW / UNSUPPORTED / REJECTED / PROPOSED / NEEDS_CORRECTION / CONFIRMED`. The `status` Select options string is `document_capture.json:162` (`"Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed"`).
+- **`validate()`** — `document_capture.py:237` calls `_hydrate_from_linked_file` (`:406`, currently `frappe.db.get_value("File", self.source_file, ["file_name", "file_url"], as_dict=True)`) then `_require_source_reference` (`:426`). This is where `content_hash` is populated from the linked File.
+- **`after_insert()`** — `document_capture.py:281` → `self._kick_next_step()`. Entry point for auto-progression.
+- **`_determine_next_step()`** — `document_capture.py:321` is the routing table. **Step 1** (`:330-336`) returns `("run_fake_extraction_for", "auto: post-intake OCR")` only when `status == STATUS_PENDING_REVIEW AND ocr_status in (None, "Not Extracted") AND is_supported_format AND source_file`. A capture in `STATUS_DUPLICATE` fails the `:331` status guard, so OCR is **never enqueued** — that is exactly how the firewall short-circuits.
 - **`_enqueue_next()`** — `:368` → worker entry `_run_cascade_step` (`:439`): on any exception sets `action_required=1` + `action_required_reason` and logs an Error Log. The SUSPECTED-duplicate "needs human" surface reuses this same `action_required + reason` pattern (also used by the Unsupported path, `:249-259`).
 - **OCR billable boundary** — `run_extraction()` (`:671`, alias `run_fake_extraction` `:840`, whitelisted `run_fake_extraction_for` `:937`) reads `get_ocr_config()` at `:712`; for `provider != "fake"` (`:716`) it makes a paid API call + writes an Integration Request. **Dedupe must complete before `:712`** so a duplicate spends no OCR cost.
 
@@ -45,7 +45,7 @@ This spec builds the **firewall against double-booking**: before any OCR call is
 
 **Settings accessor pattern to mirror.** `erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py:111` `get_ocr_config()` reads `frappe.db.get_singles_dict("AP Closed Loop Settings")` and coerces stored-as-text values to int/float with sane defaults (the Singles text-coercion trap is handled at `:124-147` for `confidence_threshold` and `max_file_mb`). `get_dedupe_config()` follows this exactly.
 
-**Corrections to the brief.** The brief's file:line refs all verified except one cosmetic note: `received_at` is the field block at `ap_invoice_capture.json:139-147` (`fieldname` on `:141`), not a single "line 142". No behavioral impact. The brief is otherwise accurate about current state.
+**Corrections to the brief.** The brief's file:line refs all verified except one cosmetic note: `received_at` is the field block at `document_capture.json:139-147` (`fieldname` on `:141`), not a single "line 142". No behavioral impact. The brief is otherwise accurate about current state.
 
 ### 3.1 Relationship to native PI duplicate control
 
@@ -71,28 +71,28 @@ All citations verified against the local bench (Frappe v16.18.3) AND the upstrea
 | # | URL | What it confirms | Quoted signature / section |
 |---|---|---|---|
 | 1 | `https://github.com/frappe/frappe/blob/version-15/frappe/core/doctype/file/file.py` | The `File` DocType **already computes and stores** an exact-bytes hash in its `content_hash` field on save. `generate_content_hash()` reads the bytes and sets it; `validate_duplicate_entry()` (before_insert) filters existing Files on `{"content_hash": self.content_hash}`. ⇒ this spec **READS** `File.content_hash`, never recomputes it. | `def generate_content_hash(self):` … `with open(file_path, "rb") as f:` … `self.content_hash = get_content_hash(f.read())` |
-| 2 | `https://raw.githubusercontent.com/frappe/frappe/version-15/frappe/core/doctype/file/utils.py` (verified identical on the local bench at `frappe/core/doctype/file/utils.py:186-189`) | The exact algorithm behind `File.content_hash`: **MD5**, `usedforsecurity=False`, str→bytes. This is the exact-match dedupe key. ⇒ `AP Invoice Capture.content_hash` is a **copy** of this MD5 value — do NOT recompute as SHA-256. | `def get_content_hash(content: bytes \| str) -> str:` … `return hashlib.md5(content, usedforsecurity=False).hexdigest()` |
+| 2 | `https://raw.githubusercontent.com/frappe/frappe/version-15/frappe/core/doctype/file/utils.py` (verified identical on the local bench at `frappe/core/doctype/file/utils.py:186-189`) | The exact algorithm behind `File.content_hash`: **MD5**, `usedforsecurity=False`, str→bytes. This is the exact-match dedupe key. ⇒ `Document Capture.content_hash` is a **copy** of this MD5 value — do NOT recompute as SHA-256. | `def get_content_hash(content: bytes \| str) -> str:` … `return hashlib.md5(content, usedforsecurity=False).hexdigest()` |
 | 3 | `https://raw.githubusercontent.com/frappe/frappe/version-15/frappe/database/schema.py` | `DocField search_index=1` → a **real DB index** is emitted during `migrate`/`sync`. **Caveat:** the index is created only when the column type is NOT `text`/`longtext`. ⇒ `content_hash` / `perceptual_hash` MUST be fieldtype **Data** (varchar(140)), not Small/Long Text, or the `search_index` is silently dropped. (The docs.frappe.io v15 docfield page does NOT document `search_index`; this source is the authority.) | `elif (not current_def["index"] and self.set_index) and column_type not in ("text", "longtext"): self.table.add_index.append(self)` |
-| 4 | `https://docs.frappe.io/framework/v15/user/en/api/database` | `frappe.db.get_all(doctype, filters, …)` skips permission checks (unlike `get_list`); operator filters use list notation. ⇒ the 90-day lookback is `frappe.db.get_all("AP Invoice Capture", filters={"content_hash": h, "received_at": [">=", cutoff], "name": ["!=", self.name], "status": ["!=", STATUS_DUPLICATE]}, …)`. | Greater than: `'date': ['>', '2019-09-08']` ; Between: `'date','between',['2020-04-01','2021-03-31']` |
+| 4 | `https://docs.frappe.io/framework/v15/user/en/api/database` | `frappe.db.get_all(doctype, filters, …)` skips permission checks (unlike `get_list`); operator filters use list notation. ⇒ the 90-day lookback is `frappe.db.get_all("Document Capture", filters={"content_hash": h, "received_at": [">=", cutoff], "name": ["!=", self.name], "status": ["!=", STATUS_DUPLICATE]}, …)`. | Greater than: `'date': ['>', '2019-09-08']` ; Between: `'date','between',['2020-04-01','2021-03-31']` |
 | 5 | `https://docs.frappe.io/framework/v15/user/en/basics/doctypes/docfield` | **Verification gap (recorded, not fabricated):** this canonical v15 docfield page enumerates `label/fieldname/fieldtype/reqd/options/default/depends_on/…` but does **NOT** document `search_index` or `unique`. The `search_index` grounding therefore rests on `frappe/database/schema.py` (citation #3), not this page. | (Properties "Search Index" / "Unique" are not documented on this page.) |
 
-Supporting framework surfaces used by the design, grounded by the same sources: `frappe.enqueue` cascade semantics (the existing `_enqueue_next`, `ap_invoice_capture.py:368-404`, uses `enqueue_after_commit=True`, `deduplicate=True`, per-step `job_id`) and `frappe.db.get_singles_dict` for the Settings accessor (already in use at `ap_closed_loop_settings.py:99, 120`).
+Supporting framework surfaces used by the design, grounded by the same sources: `frappe.enqueue` cascade semantics (the existing `_enqueue_next`, `document_capture.py:368-404`, uses `enqueue_after_commit=True`, `deduplicate=True`, per-step `job_id`) and `frappe.db.get_singles_dict` for the Settings accessor (already in use at `ap_closed_loop_settings.py:99, 120`).
 
 ## 5. Design
 
 ### 5.1 Data model
 
-**New fields on `AP Invoice Capture`** (`erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json` + the `# begin: auto-generated types` block at `ap_invoice_capture.py:144-235`). Place them in a new `dedupe_section` Section Break after `context_section` and **before** `ocr_section` (dedupe precedes OCR conceptually and in the form flow).
+**New fields on `Document Capture`** (`erpnext/accounts/doctype/document_capture/document_capture.json` + the `# begin: auto-generated types` block at `document_capture.py:144-235`). Place them in a new `dedupe_section` Section Break after `context_section` and **before** `ocr_section` (dedupe precedes OCR conceptually and in the form flow).
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
 | `dedupe_section` | Section Break | label "Deduplication", `hidden: 1` | groups dedupe audit fields (hidden like `lifecycle_section`) |
 | `content_hash` | Data | `read_only: 1`, **`search_index: 1`**, **no `unique`** | MD5 exact-bytes hash, **copied** from `File.content_hash` (citation #2). NOT recomputed. Must be Data per citation #3. |
 | `perceptual_hash` | Data | `read_only: 1`, **`search_index: 1`** | pHash hex of the rasterized first page (`imagehash.phash` default → 64-bit → 16 hex chars; Data(140) is ample). Computed lazily in `detect_duplicates_for`, not `validate`. |
-| `duplicate_of` | Link | `options: "AP Invoice Capture"`, `read_only: 1` | the **oldest** original capture this one duplicates (set on an exact hit; on a *confirmed* perceptual hit only — never auto-set for a mere suspect). Self-referential Link (allowed in Frappe). |
+| `duplicate_of` | Link | `options: "Document Capture"`, `read_only: 1` | the **oldest** original capture this one duplicates (set on an exact hit; on a *confirmed* perceptual hit only — never auto-set for a mere suspect). Self-referential Link (allowed in Frappe). |
 | `duplicate_detected_at` | Datetime | `read_only: 1` | audit timestamp the dedupe verdict was recorded (optional; recommended over a separate status-reason field — see decision D3). |
 
-**Reuse, do NOT add new fields for:** the SUSPECTED-duplicate human-readable reason reuses the existing `action_required` (Check, `ap_invoice_capture.json:177-185`) + `action_required_reason` (Data, `:186-192`) pair, matching the Unsupported/OCR-fail convention (`ap_invoice_capture.py:249-259, 764-767`). No new reason field is introduced.
+**Reuse, do NOT add new fields for:** the SUSPECTED-duplicate human-readable reason reuses the existing `action_required` (Check, `document_capture.json:177-185`) + `action_required_reason` (Data, `:186-192`) pair, matching the Unsupported/OCR-fail convention (`document_capture.py:249-259, 764-767`). No new reason field is introduced.
 
 **Critical fieldtype constraints** (both are hard requirements):
 - `content_hash` / `perceptual_hash` **MUST be `Data`** (varchar 140), never Small Text / Long Text — per citation #3 the `search_index` DB index is silently dropped for `text`/`longtext` columns.
@@ -102,7 +102,7 @@ Supporting framework surfaces used by the design, grounded by the same sources: 
 
 | constant | value | semantics |
 |---|---|---|
-| `STATUS_DUPLICATE` | `"Duplicate"` | Terminal short-circuit state (like `STATUS_UNSUPPORTED`). Append `\nDuplicate` to `status` options at `ap_invoice_capture.json:162`. **No new branch in `_determine_next_step` is needed** — the `:331` guard already excludes any status `!= "Pending Review"`, so adding the value is sufficient to keep OCR from firing. Add `"Duplicate"` to the `DF.Literal[...]` status union in the auto-generated types block (`ap_invoice_capture.py:182-189`). |
+| `STATUS_DUPLICATE` | `"Duplicate"` | Terminal short-circuit state (like `STATUS_UNSUPPORTED`). Append `\nDuplicate` to `status` options at `document_capture.json:162`. **No new branch in `_determine_next_step` is needed** — the `:331` guard already excludes any status `!= "Pending Review"`, so adding the value is sufficient to keep OCR from firing. Add `"Duplicate"` to the `DF.Literal[...]` status union in the auto-generated types block (`document_capture.py:182-189`). |
 | `STATUS_DUPLICATE_SUSPECT` | `"Duplicate Suspect"` *(only if decision D1 resolves to option (a))* | See **D1**. Recommended default is **(b)** — let suspects proceed to OCR — in which case this constant is **NOT** added and the suspect stays `Pending Review` with `action_required=1`. |
 
 **New Settings fields** on `AP Closed Loop Settings` (`erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json` + `.py` types block), in a new `dedupe_section`, mirroring the OCR config block:
@@ -114,13 +114,13 @@ Supporting framework surfaces used by the design, grounded by the same sources: 
 | `dedupe_window_days` | Int | `90` | the plan's 90-day lookback (`workflow-v2-plan.md:29`) |
 | `dedupe_phash_max_distance` | Int | `6` | Hamming threshold for a SUSPECTED near-duplicate |
 
-**Permissions:** unchanged from the DocType's existing grants (`ap_invoice_capture.json:640-664`): `Accounts Manager` (full) and `Accounts User` (no delete). All new fields are `read_only`, so role write-grants don't expand. No new role is introduced by this spec. (New v2 roles `AP Clerk` / `Auditor (Read Only)` are owned by [[11-approval-sod-workflow]] and [[14-closure-audit-retention]] respectively; this spec does not gate on them.)
+**Permissions:** unchanged from the DocType's existing grants (`document_capture.json:640-664`): `Accounts Manager` (full) and `Accounts User` (no delete). All new fields are `read_only`, so role write-grants don't expand. No new role is introduced by this spec. (New v2 roles `AP Clerk` / `Auditor (Read Only)` are owned by [[11-approval-sod-workflow]] and [[14-closure-audit-retention]] respectively; this spec does not gate on them.)
 
-**Naming series:** unchanged — `AP Invoice Capture` keeps `APIC-{YYYY}-{#####}` (`ap_invoice_capture.json:3`). No new naming series.
+**Naming series:** unchanged — `Document Capture` keeps `APIC-{YYYY}-{#####}` (`document_capture.json:3`). No new naming series.
 
 ### 5.2 Endpoints
 
-All new module-level functions live in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`, matching the existing `run_*` / `validate_*` module-function style (NOT methods on the Document class) so they are unit-testable without a full save.
+All new module-level functions live in `erpnext/accounts/doctype/document_capture/document_capture.py`, matching the existing `run_*` / `validate_*` module-function style (NOT methods on the Document class) so they are unit-testable without a full save.
 
 ```python
 def detect_duplicates_for(
@@ -141,7 +141,7 @@ def detect_duplicates_for(
 def run_dedupe_for(capture: str) -> str:
     """Whitelisted cascade wrapper. Calls detect_duplicates_for(capture)
     then doc._kick_next_step() — same shape as run_fake_extraction_for
-    (ap_invoice_capture.py:937). Returns the capture name."""
+    (document_capture.py:937). Returns the capture name."""
 ```
 
 Internal helper (not whitelisted):
@@ -162,44 +162,44 @@ def get_dedupe_config() -> dict:
     used for confidence_threshold/max_file_mb (ap_closed_loop_settings.py:124-147)."""
 ```
 
-**Normalization conventions** (consistent with the existing controller): `capture` accepts either a `name` string or an `APInvoiceCapture` doc and resolves with `frappe.get_doc` (mirrors `run_extraction`, `ap_invoice_capture.py:701-702`). `get_dedupe_config` coerces Singles-stored text: a stored `"0"` / `""` `window_days` falls back to `90`, mirroring the `confidence_threshold`/`max_file_mb` coercion at `ap_closed_loop_settings.py:124-147`. The whitelisted wrapper takes only the `capture` name string (no dict args), so no JSON-string normalization is needed here.
+**Normalization conventions** (consistent with the existing controller): `capture` accepts either a `name` string or an `APInvoiceCapture` doc and resolves with `frappe.get_doc` (mirrors `run_extraction`, `document_capture.py:701-702`). `get_dedupe_config` coerces Singles-stored text: a stored `"0"` / `""` `window_days` falls back to `90`, mirroring the `confidence_threshold`/`max_file_mb` coercion at `ap_closed_loop_settings.py:124-147`. The whitelisted wrapper takes only the `capture` name string (no dict args), so no JSON-string normalization is needed here.
 
 ### 5.3 Logic
 
 **`get_dedupe_config()`** — reads `get_singles_dict`, returns `{"enabled": bool(stored.get("dedupe_enabled", 1)), "window_days": <coerced, default 90>, "phash_max_distance": <coerced, default 6>}`. Coercion: `int(raw) if raw not in (None, "") else default`, then `if value <= 0: value = default`.
 
-**`content_hash` population (in `validate()`):** Extend `_hydrate_from_linked_file` (`ap_invoice_capture.py:406`) to fetch `content_hash` alongside `file_name`/`file_url` in the existing `frappe.db.get_value("File", self.source_file, [...], as_dict=True)` call (add `"content_hash"` to the field list), and set `self.content_hash = file_row.content_hash` when present and currently blank. **Timing guard:** `File.content_hash` is set during `File.save_file`/`generate_content_hash` (before_insert on the File). If the capture is created in the same request before the File's hash is flushed, `content_hash` may be blank at `validate` time — that is acceptable; `detect_duplicates_for` re-reads it from the File at dedupe time (the cascade hop runs after commit). The spec MUST NOT assume `validate()` always sees a populated hash.
+**`content_hash` population (in `validate()`):** Extend `_hydrate_from_linked_file` (`document_capture.py:406`) to fetch `content_hash` alongside `file_name`/`file_url` in the existing `frappe.db.get_value("File", self.source_file, [...], as_dict=True)` call (add `"content_hash"` to the field list), and set `self.content_hash = file_row.content_hash` when present and currently blank. **Timing guard:** `File.content_hash` is set during `File.save_file`/`generate_content_hash` (before_insert on the File). If the capture is created in the same request before the File's hash is flushed, `content_hash` may be blank at `validate` time — that is acceptable; `detect_duplicates_for` re-reads it from the File at dedupe time (the cascade hop runs after commit). The spec MUST NOT assume `validate()` always sees a populated hash.
 
 **`detect_duplicates_for(capture, save=True)`** — numbered logic:
 
-1. Resolve `capture` (if `str` → `frappe.get_doc("AP Invoice Capture", capture)`).
+1. Resolve `capture` (if `str` → `frappe.get_doc("Document Capture", capture)`).
 2. `cfg = get_dedupe_config()`. If not `cfg["enabled"]` → return `{"status": "skipped"}` (kill switch; no mutation).
-3. `cutoff = add_to_date(now_datetime(), days=-cfg["window_days"])` using `frappe.utils.add_to_date` (window on `received_at`; `now_datetime`/`today` already imported at `ap_invoice_capture.py:32`).
+3. `cutoff = add_to_date(now_datetime(), days=-cfg["window_days"])` using `frappe.utils.add_to_date` (window on `received_at`; `now_datetime`/`today` already imported at `document_capture.py:32`).
 4. **EXACT pass.** `h = capture.content_hash or frappe.db.get_value("File", capture.source_file, "content_hash")` (re-read from File if the capture field is blank — the timing guard above). If `h`:
-   - `hits = frappe.db.get_all("AP Invoice Capture", filters={"content_hash": h, "received_at": [">=", cutoff], "name": ["!=", capture.name], "status": ["!=", STATUS_DUPLICATE]}, fields=["name"], order_by="received_at asc", limit=1)` (filter syntax grounded in citation #4; `order_by … asc` + `limit 1` deterministically surfaces the **oldest** original — the record to keep).
+   - `hits = frappe.db.get_all("Document Capture", filters={"content_hash": h, "received_at": [">=", cutoff], "name": ["!=", capture.name], "status": ["!=", STATUS_DUPLICATE]}, fields=["name"], order_by="received_at asc", limit=1)` (filter syntax grounded in citation #4; `order_by … asc` + `limit 1` deterministically surfaces the **oldest** original — the record to keep).
    - On hit: set `capture.status = STATUS_DUPLICATE`; `capture.duplicate_of = hits[0].name`; `capture.duplicate_detected_at = now_datetime()`; `capture.action_required = 1`; `capture.action_required_reason = _("Exact duplicate of {0}").format(hits[0].name)`. **SHORT-CIRCUIT** — skip the perceptual pass, persist (step 6), and return `{"status": "duplicate", "kind": "exact", "original": hits[0].name}`. No OCR is enqueued because `STATUS_DUPLICATE` fails the `_determine_next_step` `:331` guard.
 5. **PERCEPTUAL pass** (only if no exact hit AND the source is rasterizable):
    - `capture.perceptual_hash = _compute_phash(capture)`. If `None` (poppler missing / unreadable), skip the rest of the perceptual pass — dedupe **degrades to exact-only**, never blocks intake.
-   - Pull candidates: `frappe.db.get_all("AP Invoice Capture", filters={"received_at": [">=", cutoff], "name": ["!=", capture.name], "status": ["!=", STATUS_DUPLICATE], "perceptual_hash": ["is", "set"]}, fields=["name", "perceptual_hash"], order_by="received_at asc")`.
+   - Pull candidates: `frappe.db.get_all("Document Capture", filters={"received_at": [">=", cutoff], "name": ["!=", capture.name], "status": ["!=", STATUS_DUPLICATE], "perceptual_hash": ["is", "set"]}, fields=["name", "perceptual_hash"], order_by="received_at asc")`.
    - Compute Hamming distance in Python (`imagehash` supports `hash_a - hash_b`). Find the candidate with the **smallest** distance `<= cfg["phash_max_distance"]` (default 6). If found → **SUSPECTED** duplicate: set `capture.action_required = 1`; `capture.action_required_reason = _("Suspected near-duplicate of {0} (visual match)").format(candidate)`. **Do NOT** set `STATUS_DUPLICATE` and **do NOT** set `duplicate_of` automatically — a human confirms (mirrors the Unsupported/needs-attention pattern). Return `{"status": "suspected", "kind": "perceptual", "original": candidate}`. Per decision **D1 (recommended (b))**, the capture stays `status == "Pending Review"`, so the cascade still advances to OCR on the next hop; auto-close is gated downstream by the body-text fingerprint (see Cross-cutting / decision D2).
 6. If no hit and no suspect → return `{"status": "clean", "kind": None, "original": None}`.
 7. If `save`: `capture.save()` (persists `content_hash` if newly read, `perceptual_hash`, `status`/`duplicate_of`/`action_required` as set).
 
 **`_compute_phash(capture)`** — numbered logic:
 
-1. **Late-import** `pdf2image`, `PIL.Image`, `imagehash` inside the function (keeps the module load cycle-free and lets the app load on a host without these deps — same late-import discipline as `run_extraction`, `ap_invoice_capture.py:696`). Wrap the import in `try/except ImportError: return None`.
+1. **Late-import** `pdf2image`, `PIL.Image`, `imagehash` inside the function (keeps the module load cycle-free and lets the app load on a host without these deps — same late-import discipline as `run_extraction`, `document_capture.py:696`). Wrap the import in `try/except ImportError: return None`.
 2. Resolve the on-disk path from the File: prefer `frappe.get_doc("File", capture.source_file).get_full_path()`; fall back to `frappe.utils.get_files_path(file_name, is_private=...)`. If neither resolves → return `None`.
 3. Branch on extension (reuse `capture.file_extension`): for `pdf` → `pdf2image.convert_from_path(path, first_page=1, last_page=1, dpi=150)[0]`; for `png`/`jpg`/`jpeg` → `PIL.Image.open(path)`.
 4. `return str(imagehash.phash(image))`.
 5. **Any** exception (poppler binary absent, `PDFInfoNotInstalledError`, unreadable bytes) → `frappe.log_error(...)` (engineer signal only) and `return None`. **Never raise** out of `_compute_phash` — a failed pHash degrades to exact-only dedupe, it does not block intake.
 
-**Idempotency / retry.** The exact-pass filters `name != self.name` and `status != STATUS_DUPLICATE` so a capture cannot match itself or an already-flagged dupe; `order_by received_at asc, limit 1` deterministically returns the **oldest** original (so a third upload points `duplicate_of` at the original, not the middle dupe). Re-running `detect_duplicates_for` on an already-`Duplicate` capture is a no-op for the *verdict* (it would re-confirm the same `duplicate_of`); the cascade guard (5.4) prevents re-running it once a hash/verdict exists. Idempotency keys per [[01-foundations-settings-async-idempotency]] are NOT required here because dedupe creates no posting document (no Supplier/PI/PE/JE) — it only mutates the capture in place; the cascade's own `deduplicate=True` + per-step `job_id` (`ap_invoice_capture.py:400`) coalesces repeat triggers.
+**Idempotency / retry.** The exact-pass filters `name != self.name` and `status != STATUS_DUPLICATE` so a capture cannot match itself or an already-flagged dupe; `order_by received_at asc, limit 1` deterministically returns the **oldest** original (so a third upload points `duplicate_of` at the original, not the middle dupe). Re-running `detect_duplicates_for` on an already-`Duplicate` capture is a no-op for the *verdict* (it would re-confirm the same `duplicate_of`); the cascade guard (5.4) prevents re-running it once a hash/verdict exists. Idempotency keys per [[01-foundations-settings-async-idempotency]] are NOT required here because dedupe creates no posting document (no Supplier/PI/PE/JE) — it only mutates the capture in place; the cascade's own `deduplicate=True` + per-step `job_id` (`document_capture.py:400`) coalesces repeat triggers.
 
 **What gets persisted:** `content_hash` (MD5, copied from File), `perceptual_hash` (hex or None), `duplicate_of` (on exact hit / confirmed perceptual only), `status = STATUS_DUPLICATE` (exact hit only), `duplicate_detected_at`, `action_required` + `action_required_reason`. No external write, no posting document.
 
 ### 5.4 Cascade & stream-awareness
 
-**Placement = before OCR.** Add a **Step 0** to `_determine_next_step` (`ap_invoice_capture.py:321`), *before* the existing Step-1 OCR branch at `:330`:
+**Placement = before OCR.** Add a **Step 0** to `_determine_next_step` (`document_capture.py:321`), *before* the existing Step-1 OCR branch at `:330`:
 
 ```
 Step 0 (pre-extraction dedupe):
@@ -226,9 +226,9 @@ Step 0 (pre-extraction dedupe):
 
 - **Permissions / SoD:** none added; all new fields `read_only`. No new role gate. SoD is owned by [[11-approval-sod-workflow]].
 - **Idempotency:** see 5.3 — no [[01-foundations-settings-async-idempotency]] posting-idempotency key needed (no posting doc created); the cascade's `deduplicate=True` job dedup + the Step-0 `_dedupe_checked` guard provide retry-safety.
-- **Async / enqueue:** dedupe runs as a cascade hop via the existing `frappe.enqueue` machinery (`enqueue_after_commit=True`, `now=in_test`; `ap_invoice_capture.py:368-404`). The perceptual pass (rasterization) is the heaviest step in the AP cascade — keeping it on the `short` queue worker (not the request thread) is the reason for the Step-0 design.
+- **Async / enqueue:** dedupe runs as a cascade hop via the existing `frappe.enqueue` machinery (`enqueue_after_commit=True`, `now=in_test`; `document_capture.py:368-404`). The perceptual pass (rasterization) is the heaviest step in the AP cascade — keeping it on the `short` queue worker (not the request thread) is the reason for the Step-0 design.
 - **Observability ([[10-ap-review-observability]]):** when a perceptual **suspect** is later confirmed-or-dismissed by a clerk, or an exact `STATUS_DUPLICATE` is reviewed, emit an `AP Review Event` with root-cause vocabulary. The relevant root-cause tag for an over-flagged recurring-template suspect is best expressed via the dedupe surface; this spec does **not** define the event schema (that is [[10-ap-review-observability]]) but names the emission point: the human action on a `STATUS_DUPLICATE` / suspect capture.
-- **Follow-on guard (body-text fingerprint):** the perceptual-suspect false-positive mitigation (D2) depends on OCR output (`proposed_supplier_invoice_no` + `proposed_total_amount` + `proposed_invoice_date`, `ap_invoice_capture.py:251-281` proposed fields) produced by [[04-extraction-confidence-line-items]] — it is a **follow-on spec**, named here so the suspect path is explicitly NOT wired to auto-close.
+- **Follow-on guard (body-text fingerprint):** the perceptual-suspect false-positive mitigation (D2) depends on OCR output (`proposed_supplier_invoice_no` + `proposed_total_amount` + `proposed_invoice_date`, `document_capture.py:251-281` proposed fields) produced by [[04-extraction-confidence-line-items]] — it is a **follow-on spec**, named here so the suspect path is explicitly NOT wired to auto-close.
 
 ## 6. Acceptance criteria
 
@@ -250,9 +250,9 @@ Step 0 (pre-extraction dedupe):
 
 ### 7.1 Automated
 
-Conventions confirmed from the existing suites: `from frappe.tests import IntegrationTestCase`; **never** `frappe.db.commit()` (rollback happens in `tearDown`); cascade is opt-in via `frappe.flags.ap_auto_progress_enabled` and hard-disabled with `frappe.flags.skip_ap_auto_progress` (`ap_invoice_capture.py:300-313`); mock the late-imported `get_dedupe_config` the same way the OCR-config tests patch `get_ocr_config` (patch path `erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings.get_dedupe_config`). **Monkeypatch `_compute_phash` in ALL perceptual tests** so the fuzzy-distance logic is under test, not the rasterizer/poppler.
+Conventions confirmed from the existing suites: `from frappe.tests import IntegrationTestCase`; **never** `frappe.db.commit()` (rollback happens in `tearDown`); cascade is opt-in via `frappe.flags.ap_auto_progress_enabled` and hard-disabled with `frappe.flags.skip_ap_auto_progress` (`document_capture.py:300-313`); mock the late-imported `get_dedupe_config` the same way the OCR-config tests patch `get_ocr_config` (patch path `erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings.get_dedupe_config`). **Monkeypatch `_compute_phash` in ALL perceptual tests** so the fuzzy-distance logic is under test, not the rasterizer/poppler.
 
-- **Module:** `erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py` — new class `TestAPInvoiceCaptureDedup(IntegrationTestCase)`.
+- **Module:** `erpnext/accounts/doctype/document_capture/test_document_capture.py` — new class `TestAPInvoiceCaptureDedup(IntegrationTestCase)`.
   - `detect_duplicates_for` — **positive exact** (AC-03-1: status Duplicate + duplicate_of + action_required, assert OCR did not run); **negative window** (AC-03-2); **negative distinct** (AC-03-3, falls through to perceptual); **edge self** (AC-03-4); **edge already-flagged chain** → oldest surfaced (AC-03-5); **positive perceptual** via monkeypatched `_compute_phash` returning two near hashes (AC-03-6, assert NOT Duplicate, duplicate_of unset); **negative perceptual** distance 10 (AC-03-7); **edge poppler-missing** via `_compute_phash` raising → swallowed, exact-only still works (AC-03-8); **kill switch** (AC-03-9); **window boundary** at exact cutoff (AC-03-10).
   - **Cascade integration** with `frappe.flags.ap_auto_progress_enabled = True`: duplicate-file insert → `STATUS_DUPLICATE`, assert `run_extraction` never reached (patch/spy on `run_extraction`); unique-file insert → reaches `Proposed` (AC-03-12).
   - **ONE skip-if-not-installed test** exercising the **real** `_compute_phash` against a tiny fixture PDF/PNG to prove dep wiring — `@unittest.skipUnless(<import succeeded>, "imagehash/pdf2image not installed")`. This is the only test that touches poppler.

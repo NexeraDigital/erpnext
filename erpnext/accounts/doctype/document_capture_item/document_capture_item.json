@@ -94,7 +94,7 @@
   },
   {
    "columns": 2,
-   "description": "Human-readable per-line confidence blurb (e.g. desc 0.95 / amount 0.88 / po 0.40). Authoritative numbers live in AP Invoice Capture Confidence keyed line_<i>_<field>.",
+   "description": "Human-readable per-line confidence blurb (e.g. desc 0.95 / amount 0.88 / po 0.40). Authoritative numbers live in Document Capture Confidence keyed line_<i>_<field>.",
    "fieldname": "confidence_summary",
    "fieldtype": "Small Text",
    "label": "Confidence Summary",
@@ -106,7 +106,7 @@
  "modified": "2026-05-31 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Accounts",
- "name": "AP Invoice Capture Item",
+ "name": "Document Capture Item",
  "owner": "Administrator",
  "permissions": [],
  "sort_field": "modified",

@@ -13,7 +13,7 @@ until those specs land. The native Workflow record (states/transitions/roles) is
 owned by spec 11 — here the lifecycle is controller-driven via ``workflow_state``.
 
 Approval is doubly gated: ``frappe.only_for(approver_role)`` (mirrors
-``ap_invoice_capture.record_manager_decision``) AND a requester≠approver
+``document_capture.record_manager_decision``) AND a requester≠approver
 segregation-of-duties backstop in the controller, independent of the spec-11
 Workflow transition Allowed Role.
 
@@ -90,6 +90,7 @@ class SupplierMasterChangeRequest(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
+		amended_from: DF.Link | None
 		approver_role: DF.Link | None
 		change_type: DF.Literal["Create", "Update Bank Details", "Update Payment Terms", "Disable"]
 		created_supplier: DF.Link | None
@@ -153,7 +154,7 @@ def approve_supplier_master_change_request(request: str, actor: str | None = Non
 	idempotency-ledger guard).
 	"""
 
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+	from erpnext.accounts.doctype.document_capture.document_capture import (
 		CaptureApprovalError,
 		validate_for_purchase_invoice,
 	)
@@ -205,7 +206,7 @@ def approve_supplier_master_change_request(request: str, actor: str | None = Non
 
 	# Re-validate the originating capture so Tier-1/2 now find the new Supplier and
 	# a blocked Stream-I capture flips BLOCKED -> VALIDATED, then resume the cascade.
-	if req.evidence_capture and frappe.db.exists("AP Invoice Capture", req.evidence_capture):
+	if req.evidence_capture and frappe.db.exists("Document Capture", req.evidence_capture):
 		capture = validate_for_purchase_invoice(req.evidence_capture)
 		capture._kick_next_step()
 
@@ -224,7 +225,7 @@ def _post_create(req: "SupplierMasterChangeRequest") -> str:
 		# Fall back to the requested vendor string if the payload omitted the name.
 		payload["supplier_name"] = (req.requested_supplier_name or "").strip()
 	if not payload.get("supplier_name"):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			CaptureApprovalError,
 		)
 
@@ -292,7 +293,7 @@ def reject_supplier_master_change_request(
 	On Stream I the linked capture stays BLOCKED (no payable). Returns the request name.
 	"""
 
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+	from erpnext.accounts.doctype.document_capture.document_capture import (
 		CaptureApprovalError,
 	)
 

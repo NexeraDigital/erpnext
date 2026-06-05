@@ -24,7 +24,7 @@ from erpnext.accounts.ap_closed_loop.extractors.anthropic import (
 )
 from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult
 from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import OCRExtractionError
+from erpnext.accounts.doctype.document_capture.document_capture import OCRExtractionError
 
 
 def _tool_use_block(tool_input: dict):
@@ -274,7 +274,7 @@ class TestAnthropicExtractEndToEnd(IntegrationTestCase):
 		# Bypass the real file read.
 		extractor._read_source = lambda capture: (b"%PDF fake", "application/pdf")
 
-		cap = frappe.new_doc("AP Invoice Capture")
+		cap = frappe.new_doc("Document Capture")
 		cap.source_filename = "e2e.pdf"
 		cap.file_extension = "pdf"
 		cap.intake_channel = "Manual ERPNext Upload"
@@ -310,7 +310,7 @@ class TestAnthropicFallback(IntegrationTestCase):
 		return ex
 
 	def _cap(self):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = "fb.png"
 		c.file_extension = "png"
 		c.intake_channel = "Manual ERPNext Upload"
@@ -390,7 +390,7 @@ class TestAnthropicLive(IntegrationTestCase):
 			self.skipTest("no PDF File fixture available on the site")
 
 		file_doc = frappe.get_doc("File", fixture)
-		cap = frappe.new_doc("AP Invoice Capture")
+		cap = frappe.new_doc("Document Capture")
 		cap.source_filename = file_doc.file_name
 		cap.file_extension = (file_doc.file_name or "").rsplit(".", 1)[-1].lower()
 		cap.intake_channel = "Manual ERPNext Upload"

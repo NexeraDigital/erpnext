@@ -1,6 +1,6 @@
 # Invoice Test Fixtures
 
-Synthetic invoices for testing the AP Invoice Capture pipeline. **Organised into
+Synthetic invoices for testing the Document Capture pipeline. **Organised into
 subfolders by what each set tests** — add new fixtures to the matching purpose
 folder (or a new one), not to this root.
 
@@ -93,7 +93,7 @@ import glob, json, os
 CORPUS = os.path.join(os.path.dirname(__file__), "ocr-extraction")
 for p in sorted(glob.glob(os.path.join(CORPUS, "invoice_*.json"))):
     d = json.load(open(p))
-    # upload d["file"] as a File, build an AP Invoice Capture, run the
+    # upload d["file"] as a File, build an Document Capture, run the
     # AnthropicExtractor, then compare result.proposal to d["expected"]:
     #   supplier        -> fuzzy text match (minor punctuation ok)
     #   supplier_invoice_no -> exact

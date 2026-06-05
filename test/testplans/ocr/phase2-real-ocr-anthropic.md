@@ -120,7 +120,7 @@ The unit tests (TC-1–TC-6) mock the client and need **no key**. For the live t
 - **Action:**
   ```bash
   bench --site ocr2.localhost run-tests --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
-  bench --site ocr2.localhost run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site ocr2.localhost run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** both `OK` (4 and ~66). If they fail in `setUpClass` with `Could not find Supplier/Customer: _Test ...`, that's the fixture-bootstrap environment issue — create the site fresh (don't reinstall) and ensure `payments` is installed.
 - **Pass:** both green.

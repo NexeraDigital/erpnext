@@ -77,7 +77,7 @@
             "justMyCode": false
         },
         {
-            "name": "AP Invoice Capture tests",
+            "name": "Document Capture tests",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/apps/frappe/frappe/utils/bench_helper.py",
@@ -85,7 +85,7 @@
                 "frappe",
                 "--site", "erpnext.localhost",
                 "run-tests",
-                "--module", "erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture"
+                "--module", "erpnext.accounts.doctype.document_capture.test_document_capture"
             ],
             "python": "${workspaceFolder}/env/bin/python",
             "cwd": "${workspaceFolder}/sites",

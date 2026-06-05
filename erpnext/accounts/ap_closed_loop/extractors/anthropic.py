@@ -33,8 +33,8 @@ import frappe
 from erpnext.accounts.ap_closed_loop.extractors.base import ExtractionResult, OCRProvider
 
 if TYPE_CHECKING:
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
-		APInvoiceCapture,
+	from erpnext.accounts.doctype.document_capture.document_capture import (
+		DocumentCapture,
 	)
 
 PROVIDER_NAME = "anthropic"
@@ -272,7 +272,7 @@ class AnthropicExtractor(OCRProvider):
 
 	def extract(
 		self,
-		capture: "APInvoiceCapture",
+		capture: "DocumentCapture",
 		*,
 		simulate_missing=None,  # noqa: ARG002 - real provider ignores test affordances
 		simulate_ambiguous=None,  # noqa: ARG002
@@ -391,12 +391,12 @@ class AnthropicExtractor(OCRProvider):
 			# original bytes — the API call may still succeed for small files.
 			return file_bytes, media_type
 
-	def _read_source(self, capture: "APInvoiceCapture") -> tuple[bytes, str]:
+	def _read_source(self, capture: "DocumentCapture") -> tuple[bytes, str]:
 		"""Return (raw bytes, media_type) for the capture's source file."""
 		ext = (capture.file_extension or "").lower().lstrip(".")
 		media_type = _MEDIA_TYPE_BY_EXT.get(ext)
 		if not media_type:
-			from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+			from erpnext.accounts.doctype.document_capture.document_capture import (
 				OCRExtractionError,
 			)
 
@@ -412,7 +412,7 @@ class AnthropicExtractor(OCRProvider):
 			if name:
 				file_doc = frappe.get_doc("File", name)
 		if not file_doc:
-			from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+			from erpnext.accounts.doctype.document_capture.document_capture import (
 				AmbiguousSourceError,
 			)
 
@@ -442,7 +442,7 @@ class AnthropicExtractor(OCRProvider):
 		for block in getattr(response, "content", []) or []:
 			if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == "extract_invoice_fields":
 				return dict(block.input or {})
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			OCRExtractionError,
 		)
 
@@ -567,7 +567,7 @@ def smoke_test(file_name: str | None = None) -> dict:
 	ext = (file_doc.file_name or "").rsplit(".", 1)[-1].lower()
 
 	# Build a throwaway in-memory capture pointing at the file.
-	cap = frappe.new_doc("AP Invoice Capture")
+	cap = frappe.new_doc("Document Capture")
 	cap.source_filename = file_doc.file_name
 	cap.file_extension = ext
 	cap.intake_channel = "Manual ERPNext Upload"

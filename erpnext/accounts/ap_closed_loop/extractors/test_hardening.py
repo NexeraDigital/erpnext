@@ -224,7 +224,7 @@ class TestRunExtractionHardening(IntegrationTestCase):
 		ai.save(ignore_permissions=True)
 
 	def _capture(self, fname="hard.png", ext="png"):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = fname
 		c.file_extension = ext
 		c.intake_channel = "Manual ERPNext Upload"
@@ -235,7 +235,7 @@ class TestRunExtractionHardening(IntegrationTestCase):
 		return c
 
 	def test_oversize_file_rejected_before_api_call(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			OCRExtractionError,
 			run_extraction,
 		)
@@ -245,7 +245,7 @@ class TestRunExtractionHardening(IntegrationTestCase):
 		cap = self._capture()
 		# 6 MB > 5 MB limit.
 		with patch(
-			"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture._source_file_size_bytes",
+			"erpnext.accounts.doctype.document_capture.document_capture._source_file_size_bytes",
 			return_value=6 * 1024 * 1024,
 		), patch(
 			"erpnext.accounts.ap_closed_loop.extractors.registry.get_extractor"
@@ -265,7 +265,7 @@ class TestRunExtractionHardening(IntegrationTestCase):
 		)
 
 	def test_extraction_failure_surfaces_on_capture(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._store_key()
 		self._set(ocr_provider="Anthropic Claude", ocr_model="claude-haiku-4-5-20251001", ocr_max_file_mb=20)
@@ -276,7 +276,7 @@ class TestRunExtractionHardening(IntegrationTestCase):
 			"erpnext.accounts.ap_closed_loop.extractors.registry.get_extractor",
 			return_value=boom,
 		), patch(
-			"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture._source_file_size_bytes",
+			"erpnext.accounts.doctype.document_capture.document_capture._source_file_size_bytes",
 			return_value=1024,
 		):
 			with self.assertRaises(RuntimeError):
@@ -294,13 +294,13 @@ class TestRunExtractionHardening(IntegrationTestCase):
 		)
 
 	def test_fake_provider_skips_size_guard(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._set(ocr_provider="Fake (Deterministic)", ocr_max_file_mb=1)
 		cap = self._capture()
 		# Even with a huge file, the fake provider runs (no API, no guard).
 		with patch(
-			"erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture._source_file_size_bytes",
+			"erpnext.accounts.doctype.document_capture.document_capture._source_file_size_bytes",
 			return_value=999 * 1024 * 1024,
 		):
 			out = run_extraction(cap, save=False)

@@ -4,11 +4,11 @@
 
 ## 1. Feature under test
 
-An AP Invoice Capture's reviewed vendor string is resolved to an ERPNext `Supplier` via a **three-tier resolver**: (1) a deterministic **`AP Supplier Alias`** table (exact / glob / regex patterns → a canonical Supplier), (2) **fuzzy** match against existing Suppliers (rapidfuzz, tunable cutoff), (3) a **gated** `Supplier Master Change Request` (off by default) that, when approved by a second user, creates the Supplier — the resolver **never** auto-creates one. Validation is **stream-aware**: on **Stream I (Invoice)** an unresolved supplier **blocks** the capture; on **Stream R (Receipt)** it is a **soft** flag (validation passes, raw vendor string preserved for the Unmapped-Card-Spend posting). User-visible change: a new `AP Supplier Alias` master, a new `Supplier Master Change Request` doctype, four new audit fields on the capture, and a supplier-resolution section on `AP Closed Loop Settings`.
+An Document Capture's reviewed vendor string is resolved to an ERPNext `Supplier` via a **three-tier resolver**: (1) a deterministic **`AP Supplier Alias`** table (exact / glob / regex patterns → a canonical Supplier), (2) **fuzzy** match against existing Suppliers (rapidfuzz, tunable cutoff), (3) a **gated** `Supplier Master Change Request` (off by default) that, when approved by a second user, creates the Supplier — the resolver **never** auto-creates one. Validation is **stream-aware**: on **Stream I (Invoice)** an unresolved supplier **blocks** the capture; on **Stream R (Receipt)** it is a **soft** flag (validation passes, raw vendor string preserved for the Unmapped-Card-Spend posting). User-visible change: a new `AP Supplier Alias` master, a new `Supplier Master Change Request` doctype, four new audit fields on the capture, and a supplier-resolution section on `AP Closed Loop Settings`.
 
 ## 2. Branch / commit
 
-- **Branch:** `russ/migrateToV16` · working tree. Sanity: `erpnext/accounts/doctype/ap_supplier_alias/` and `.../supplier_master_change_request/` exist; `_resolve_supplier` / `queue_supplier_create_request` are defined in `ap_invoice_capture.py`; `get_supplier_resolution_settings` in `ap_closed_loop_settings.py`.
+- **Branch:** `russ/migrateToV16` · working tree. Sanity: `erpnext/accounts/doctype/ap_supplier_alias/` and `.../supplier_master_change_request/` exist; `_resolve_supplier` / `queue_supplier_create_request` are defined in `document_capture.py`; `get_supplier_resolution_settings` in `ap_closed_loop_settings.py`.
 
 ## 3. Environment setup
 
@@ -26,7 +26,7 @@ bench --site <test-site> doctor    # redis + workers up (for the cascade/enqueue
 - A System Manager login and **two** users with the **Accounts Manager** role (call them **MgrA** and **MgrB**) for the SoD case; one user with only **Accounts User** (call them **Clerk**).
 - Supplier **`Amazon`** (`/app/supplier/new` → Supplier Name `Amazon`, any group, type Company).
 - An `AP Supplier Alias` (`/app/ap-supplier-alias/new`): Canonical Supplier `Amazon`, Alias Pattern `AMZN Mktp US*`, Match Type `glob`, Is Active ✓.
-- You will create captures by uploading any valid PDF via the AP Invoice Capture form; the Fake provider proposes deterministic fields, which you override in the Confirm Fields dialog.
+- You will create captures by uploading any valid PDF via the Document Capture form; the Fake provider proposes deterministic fields, which you override in the Confirm Fields dialog.
 
 ## 5. Numbered test cases
 
@@ -35,7 +35,7 @@ bench --site <test-site> doctor    # redis + workers up (for the cascade/enqueue
   ```bash
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_alias.test_ap_supplier_alias
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.supplier_master_change_request.test_supplier_master_change_request
-  bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
   ```
 - **Expected:** `8 OK`, `6 OK`, `Ran 107 tests … OK (skipped=1)`, `20 OK`.
@@ -44,7 +44,7 @@ bench --site <test-site> doctor    # redis + workers up (for the cascade/enqueue
 ### TC-2 — Tier-1 alias resolves (glob)
 - **Action:** create a capture, run the Fake OCR, and in **Confirm Fields** set the supplier to `AMZN Mktp US*4Z9` (plus any total/currency). Then run validation (the cascade does this automatically once Confirmed, or click the validate action).
 - **Expected (form):** `Supplier Match Status = Alias`, `Matched Supplier = Amazon`, `Supplier Match Tier = Alias`, `Supplier Match Confidence = 100`, `Validation Status = Validated`.
-- **DB check:** `bench --site <test-site> mariadb -e "SELECT supplier_match_status, matched_supplier, supplier_match_tier FROM \`tabAP Invoice Capture\` WHERE name='<APIC>'\\G"`
+- **DB check:** `bench --site <test-site> mariadb -e "SELECT supplier_match_status, matched_supplier, supplier_match_tier FROM \`tabDocument Capture\` WHERE name='<APIC>'\\G"`
 - **Pass/fail:** PASS iff resolved to Amazon via the Alias tier.
 
 ### TC-3 — Stream-I unknown vendor BLOCKS (no auto-create)
@@ -79,7 +79,7 @@ bench --site <test-site> doctor    # redis + workers up (for the cascade/enqueue
 
 ## 6. Cleanup / rollback
 
-- Delete any test `Supplier Master Change Request`, `AP Supplier Alias`, `AP Invoice Capture`, and Suppliers created via the UI/API.
+- Delete any test `Supplier Master Change Request`, `AP Supplier Alias`, `Document Capture`, and Suppliers created via the UI/API.
 - Restore **AP Closed Loop Settings → OCR Provider** to its prior value, set **Enable Gated Supplier Creation** back to off, and clear any test **Unmapped Card Spend Account**.
 - Remove the MgrA/MgrB/Clerk test users if created for this run.
 

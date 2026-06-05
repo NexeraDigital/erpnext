@@ -7,7 +7,7 @@ Child rows of ``AP Closed Loop Settings.stream_rules``. Each row maps a signal
 (filename / sender_domain / body / label) + pattern to a stream (Receipt/Invoice)
 so non-engineers can tune Receipt-vs-Invoice tagging with no code change. Read
 back via ``ap_closed_loop_settings.get_stream_rules()`` and consumed by
-``ap_invoice_capture.classify_stream_at_intake``. See
+``document_capture.classify_stream_at_intake``. See
 docs/spec/02-intake-stream-tagging.md §5.1.2.
 """
 

@@ -4,7 +4,7 @@
 """Tests for the OCR provider adapter (Phase 1).
 
 Phase 1 introduced the ``OCRProvider`` seam without changing behaviour. The
-existing AP suites (test_walking_skeleton, test_ap_invoice_capture) prove the
+existing AP suites (test_walking_skeleton, test_document_capture) prove the
 no-behaviour-change requirement by passing unchanged. These tests cover the
 NEW code paths the existing suites only exercise indirectly:
 
@@ -31,7 +31,7 @@ from erpnext.accounts.ap_closed_loop.extractors.base import (
 )
 from erpnext.accounts.ap_closed_loop.extractors.fake import FakeExtractor
 from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
 	FAKE_OCR_PROVIDER,
 	run_extraction,
 	run_fake_extraction,
@@ -40,7 +40,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 
 def _make_capture(filename: str = "phase1_test_invoice.pdf") -> "frappe.Document":
 	"""Build an in-memory, unsaved capture sufficient for extraction."""
-	c = frappe.new_doc("AP Invoice Capture")
+	c = frappe.new_doc("Document Capture")
 	c.source_filename = filename
 	c.file_extension = filename.rsplit(".", 1)[-1]
 	c.intake_channel = "Manual ERPNext Upload"
@@ -188,7 +188,7 @@ class TestRunExtractionThroughAdapter(IntegrationTestCase):
 		self.assertIn("total_amount", doc.proposed_missing_fields or "")
 
 	def test_run_extraction_rejects_unsupported_format(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			OCRExtractionError,
 		)
 

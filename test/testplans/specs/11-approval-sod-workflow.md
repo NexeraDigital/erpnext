@@ -38,7 +38,7 @@ approver, both holding `Accounts Manager`.
 ## 5. Numbered test cases
 
 ### A. Automated (authoritative)
-- **A-1.** `bench … run-tests --module …test_ap_invoice_capture --test TestAPApprovalSoD` →
+- **A-1.** `bench … run-tests --module …test_document_capture --test TestAPApprovalSoD` →
   `Ran 6 … OK` (AC-11-4 self-approval blocked, AC-11-5 clean approver passes, self-reject allowed,
   Administrator exempt, AC-11-8 resolver default, AC-11-9 roles installed).
 - **A-2.** The updated `TestAPInvoiceCaptureValidationGates.test_ac_08_18…` proves the bank-change

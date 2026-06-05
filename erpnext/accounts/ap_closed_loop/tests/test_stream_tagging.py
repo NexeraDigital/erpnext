@@ -12,7 +12,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
     INTAKE_EMAIL_INBOUND,
     INTAKE_MOBILE_UPLOAD,
     STREAM_INVOICE,
@@ -220,7 +220,7 @@ class TestStreamTaggingCapture(IntegrationTestCase):
             {"doctype": "File", "file_name": "invoice_mobile.pdf", "content": _PDF_BYTES, "is_private": 1}
         ).insert(ignore_permissions=True)
         name = create_capture_from_uploaded_file(f.name, intake_channel=INTAKE_MOBILE_UPLOAD)
-        self.assertEqual(frappe.db.get_value("AP Invoice Capture", name, "intake_channel"), INTAKE_MOBILE_UPLOAD)
+        self.assertEqual(frappe.db.get_value("Document Capture", name, "intake_channel"), INTAKE_MOBILE_UPLOAD)
 
     # AC-02-11 (email-in: one capture per supported attachment)
     def test_email_in_one_capture_per_supported_attachment(self):
@@ -229,7 +229,7 @@ class TestStreamTaggingCapture(IntegrationTestCase):
         self._attach(comm, "signature.txt", content=b"sig")
         created = create_capture_from_email(comm.name)
         self.assertEqual(len(created), 1)
-        cap = frappe.get_doc("AP Invoice Capture", created[0])
+        cap = frappe.get_doc("Document Capture", created[0])
         self.assertEqual(cap.source_file, pdf.name)
         self.assertEqual(cap.intake_channel, INTAKE_EMAIL_INBOUND)
         self.assertEqual(get_datetime(cap.received_at), get_datetime(comm.communication_date))
@@ -244,7 +244,7 @@ class TestStreamTaggingCapture(IntegrationTestCase):
     # AC-02-13 (handler guard — no-op unless inbound on the configured account)
     def test_handle_inbound_guard_skips(self):
         frappe.db.set_single_value(SETTINGS, "ap_intake_email_account", "AP Acct")
-        before = frappe.db.count("AP Invoice Capture")
+        before = frappe.db.count("Document Capture")
         handle_inbound_ap_communication(
             frappe._dict(communication_type="Communication", sent_or_received="Sent",
                          email_account="AP Acct", name="nope"))  # not Received
@@ -255,7 +255,7 @@ class TestStreamTaggingCapture(IntegrationTestCase):
         handle_inbound_ap_communication(
             frappe._dict(communication_type="Communication", sent_or_received="Received",
                          email_account="AP Acct", name="nope"))  # feature off
-        self.assertEqual(frappe.db.count("AP Invoice Capture"), before)
+        self.assertEqual(frappe.db.count("Document Capture"), before)
 
     # AC-02-15 (data-driven — adding a rule changes classification, no code change)
     def test_data_driven_new_rule(self):

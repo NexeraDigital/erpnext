@@ -10,7 +10,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 from pypdf import PdfWriter
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
 	REVIEW_ACTION_TAKEN_VALUES,
 	ROOT_CAUSE_TAG_VALUES,
 	create_capture_from_file,

@@ -89,7 +89,7 @@ PY
 
 ### TC-4 — LIVE: a real extraction writes a Completed row with real cost (opt-in)
 - **Precondition:** real key configured; `ocr_provider = Anthropic Claude`.
-- **Action:** upload a corpus invoice via the AP Invoice Capture form (or run
+- **Action:** upload a corpus invoice via the Document Capture form (or run
   `run_extraction` on a saved capture), then:
   ```bash
   bench --site <site> console <<'PY'
@@ -114,7 +114,7 @@ for m in extractors.test_anthropic extractors.test_extractors extractors.test_be
   bench --site <site> run-tests --module erpnext.accounts.$m
 done
 bench --site <site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 **Expected:** 23 / 15 / 9 / 5 / 11 / 4 / 8 / 66 — all `OK`.
 
@@ -145,4 +145,4 @@ Notes:
 ## 8. Where to view the audit trail
 Operators see calls in the standard list:
 `/app/integration-request/view/list?integration_request_service=anthropic`
-filterable by status, date, and reference (AP Invoice Capture). No custom report.
+filterable by status, date, and reference (Document Capture). No custom report.

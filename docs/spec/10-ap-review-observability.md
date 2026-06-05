@@ -19,7 +19,7 @@ related: [02-intake-stream-tagging, 04-extraction-confidence-line-items, 05-supp
 
 ## 1. Summary
 
-This spec turns Step 9 from a silent exception handler into an instrumented **feedback gate**. It adds (a) a clerk-facing **reject-back-to-vendor / reopen** transition pair the document currently lacks, recorded in a new child table `AP Capture Rejection Log`; (b) a new standalone log DocType **`AP Review Event`** that every Step-9 clerk action emits exactly once, carrying a fixed-vocabulary root-cause tag; and (c) a weekly "Top step-9 root causes" Query Report plus an auto-rate Dashboard Chart that answer the plan's two governance questions. Instrumentation is **stream-agnostic** — Stream R (already-paid receipts) and Stream I (unpaid payables) both emit events — but Stream R emits a lighter subset (no approval/rejection root causes). Current-state delta: `STATUS_REJECTED` is declared and listed in the `status` Select but **no function ever assigns it** (`ap_invoice_capture.py:38`, `ap_invoice_capture.json:162`); the only `*_REJECTED` writes target the *payment* `approval_status` field — so there is no clerk reject path and zero step-9 telemetry today.
+This spec turns Step 9 from a silent exception handler into an instrumented **feedback gate**. It adds (a) a clerk-facing **reject-back-to-vendor / reopen** transition pair the document currently lacks, recorded in a new child table `AP Capture Rejection Log`; (b) a new standalone log DocType **`AP Review Event`** that every Step-9 clerk action emits exactly once, carrying a fixed-vocabulary root-cause tag; and (c) a weekly "Top step-9 root causes" Query Report plus an auto-rate Dashboard Chart that answer the plan's two governance questions. Instrumentation is **stream-agnostic** — Stream R (already-paid receipts) and Stream I (unpaid payables) both emit events — but Stream R emits a lighter subset (no approval/rejection root causes). Current-state delta: `STATUS_REJECTED` is declared and listed in the `status` Select but **no function ever assigns it** (`document_capture.py:38`, `document_capture.json:162`); the only `*_REJECTED` writes target the *payment* `approval_status` field — so there is no clerk reject path and zero step-9 telemetry today.
 
 ## 2. Plan alignment
 
@@ -45,7 +45,7 @@ It also operationalizes the principle row "**Exceptions loop, they don't dead-en
 
 All file:line refs are against branch `russ/migrateToV16`. Spec-10 surface lives almost entirely in one controller + its JSON.
 
-**The core gap (confirmed against code):** `STATUS_REJECTED = "Rejected"` is declared at `ap_invoice_capture.py:38` and `"Rejected"` is a valid option of the document `status` Select (`ap_invoice_capture.json:162`, options `Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed`; mirrored in the `DF.Literal` type hint at `ap_invoice_capture.py:182-189`). **No function assigns `capture.status = STATUS_REJECTED`.** The only `*_REJECTED` writes in the file target a *different* field, `approval_status` (`APPROVAL_STATUS_REJECTED = "Rejected"`, line 71), at `ap_invoice_capture.py:1355`, read by `is_payment_blocked` at `:1383`. So the document-level "Rejected" state is reachable only by a direct DB write today.
+**The core gap (confirmed against code):** `STATUS_REJECTED = "Rejected"` is declared at `document_capture.py:38` and `"Rejected"` is a valid option of the document `status` Select (`document_capture.json:162`, options `Pending Review\nUnsupported\nRejected\nProposed\nNeeds Correction\nConfirmed`; mirrored in the `DF.Literal` type hint at `document_capture.py:182-189`). **No function assigns `capture.status = STATUS_REJECTED`.** The only `*_REJECTED` writes in the file target a *different* field, `approval_status` (`APPROVAL_STATUS_REJECTED = "Rejected"`, line 71), at `document_capture.py:1355`, read by `is_payment_blocked` at `:1383`. So the document-level "Rejected" state is reachable only by a direct DB write today.
 
 **What "reject" means today (and why it is NOT a step-9 reject):** `record_manager_decision(capture, approve, actor, notes, save)` (`:1321-1362`) is a **manager over-threshold payment decision**, gated by `frappe.only_for(capture.assigned_approver_role or MANAGER_APPROVAL_ROLE_DEFAULT)` (`:1336`), requires `approval_status == "Pending Manager"` (`:1338`), and on `approve=False` sets `approval_status=Rejected`, `payment_readiness=Blocked`, `action_required=1` (`:1355-1358`). The form's "Reject" button calls `record_manager_decision_for` (`:1719`) — it rejects a *payment*, not the capture document. There is **no** UI or server path for a clerk to bounce a capture back to the vendor.
 
@@ -59,7 +59,7 @@ All file:line refs are against branch `russ/migrateToV16`. Spec-10 surface lives
 
 **Audit trail already exists:** the capture sets `track_changes: 1` (`json:669`), so Frappe auto-writes a `Version` row on each field change. This is the "preserve audit trail (Frappe Version)" mechanism the plan relies on. Reject/reopen MUST mutate through `doc.save()` / `doc.append()` — **not** `frappe.db.set_value` — or versioning is bypassed (see §8 risk).
 
-**No existing report or Dashboard Chart references "AP Invoice Capture"** (grep of `erpnext/accounts/report/` and `erpnext/accounts/dashboard_chart/` returned nothing). The weekly report and auto-rate chart are net-new. Module is `Accounts` (`json:636`); standard reports live under `erpnext/accounts/report/<slug>/` and charts under `erpnext/accounts/dashboard_chart/<slug>/`. `hooks.py` has a populated `scheduler_events["weekly"]` list (the `auto_create_exchange_rate_revaluation_weekly` entry) where an optional weekly rollup job slots in.
+**No existing report or Dashboard Chart references "Document Capture"** (grep of `erpnext/accounts/report/` and `erpnext/accounts/dashboard_chart/` returned nothing). The weekly report and auto-rate chart are net-new. Module is `Accounts` (`json:636`); standard reports live under `erpnext/accounts/report/<slug>/` and charts under `erpnext/accounts/dashboard_chart/<slug>/`. `hooks.py` has a populated `scheduler_events["weekly"]` list (the `auto_create_exchange_rate_revaluation_weekly` entry) where an optional weekly rollup job slots in.
 
 **Correction to the brief:** none required — every current-state claim in the brief was confirmed against the code as read. One precision note: the brief's "reject allowed from any non-terminal state except Promoted" is stated against the doc `status`, but `Promoted` is not a `status` value — it is a `promotion_status` value. The guard in §5.3 is therefore written against `promotion_status`, which is correct.
 
@@ -92,7 +92,7 @@ Before committing to a new DocType, each native Frappe logging/audit carrier was
 
 ### 5.1 Data model
 
-Two **new** DocTypes, both non-submittable (`is_submittable: 0`), both `module: "Accounts"`, developer-mode standard JSON checked into the repo, plus one new `Table` field on the existing `AP Invoice Capture`.
+Two **new** DocTypes, both non-submittable (`is_submittable: 0`), both `module: "Accounts"`, developer-mode standard JSON checked into the repo, plus one new `Table` field on the existing `Document Capture`.
 
 #### (A) New child table — `AP Capture Rejection Log`
 
@@ -109,7 +109,7 @@ Two **new** DocTypes, both non-submittable (`is_submittable: 0`), both `module: 
 
 `parent` / `parenttype` / `parentfield` / `idx` are auto-managed by Frappe. Rows are appended via `doc.append("rejection_log", {...})` — never raw SQL — so child linkage + parent versioning stay correct.
 
-**New field on `AP Invoice Capture`** (parents the child table; child-doctype citation):
+**New field on `Document Capture`** (parents the child table; child-doctype citation):
 
 | fieldname | fieldtype | options | purpose |
 |---|---|---|---|
@@ -121,7 +121,7 @@ Standalone log (NOT a child table, NOT submittable). Directory `erpnext/accounts
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
-| `capture` | Link → AP Invoice Capture | `reqd: 1`, `in_list_view: 1` | The capture this clerk action was performed on. |
+| `capture` | Link → Document Capture | `reqd: 1`, `in_list_view: 1` | The capture this clerk action was performed on. |
 | `exception_reason_code` | Data | — | The original surfaced-exception code (free identifier, e.g. the `action_required_reason` slug or a confidence/validation code from [[09-confidence-routing]]). |
 | `action_taken` | Select | `field_corrected\nsupplier_created\nrejected\nclassified_other\ncoding_completed` | The clerk action class. (See §8 for the `reopened` open decision.) |
 | `fields_changed` | Small Text | — | JSON string of `{logical_field: {from, to}}`. Small Text chosen over a native JSON fieldtype for v15/v16 portability (see §8). |
@@ -147,7 +147,7 @@ Standalone log (NOT a child table, NOT submittable). Directory `erpnext/accounts
 
 ### 5.2 Endpoints
 
-All new server logic goes in `ap_invoice_capture.py` (or a sibling module under `accounts/ap_closed_loop/` that imports the status constants). It follows the existing controller convention exactly: a core `fn(capture: "APInvoiceCapture | str", ..., save: bool = True) -> "APInvoiceCapture"` that accepts str-or-doc (`if isinstance(capture, str): capture = frappe.get_doc("AP Invoice Capture", capture)`, pattern at `:887-888`, `:1330-1331`), plus a thin `@frappe.whitelist()` `_for(capture: str, ...)` wrapper (pattern at `:949-973`, `:1719-1732`).
+All new server logic goes in `document_capture.py` (or a sibling module under `accounts/ap_closed_loop/` that imports the status constants). It follows the existing controller convention exactly: a core `fn(capture: "APInvoiceCapture | str", ..., save: bool = True) -> "APInvoiceCapture"` that accepts str-or-doc (`if isinstance(capture, str): capture = frappe.get_doc("Document Capture", capture)`, pattern at `:887-888`, `:1330-1331`), plus a thin `@frappe.whitelist()` `_for(capture: str, ...)` wrapper (pattern at `:949-973`, `:1719-1732`).
 
 ```python
 # Core transitions (str-or-doc, save-toggle)
@@ -259,7 +259,7 @@ This spec adds **no new auto-advance hop** to `_determine_next_step` (`:321-366`
 
 ### 5.5 Cross-cutting
 
-- **Permissions / SoD:** reject/reopen require write on `AP Invoice Capture` (granted to Accounts User + Accounts Manager today, `json:653-663`). No new role-gate on reject itself in v1 (any clerk may bounce a doc to the vendor); the manager-payment reject stays gated by `frappe.only_for` (`:1336`). `AP Review Event` is append-only telemetry (read-only for clerks). The new `Auditor (Read Only)` role (Bible) gets read on both new DocTypes — **flagged as a new role**.
+- **Permissions / SoD:** reject/reopen require write on `Document Capture` (granted to Accounts User + Accounts Manager today, `json:653-663`). No new role-gate on reject itself in v1 (any clerk may bounce a doc to the vendor); the manager-payment reject stays gated by `frappe.only_for` (`:1336`). `AP Review Event` is append-only telemetry (read-only for clerks). The new `Auditor (Read Only)` role (Bible) gets read on both new DocTypes — **flagged as a new role**.
 - **Idempotency (via [[01-foundations-settings-async-idempotency]]):** the reject/reopen transitions are guarded by status preconditions (steps 1.3, 2.2) so a double-click can't create a second `Rejected` row from an already-`Rejected` capture. `emit_review_event` itself is intentionally non-idempotent (one event per action). If [[01-foundations-settings-async-idempotency]] ships an idempotency-key helper, the reject transition may adopt a per-capture-per-action key to coalesce duplicate form submits — optional, low priority.
 - **Async / enqueue:** none. Reject/reopen and event emission are synchronous, inside the request — they are cheap DB writes and the clerk needs immediate feedback. The weekly rollup is the only optional async piece (§5.3 step 5).
 - **Observability emission:** this spec **is** the observability sink. `emit_review_event` is the shared primitive [[04-extraction-confidence-line-items]], [[05-supplier-resolution]], [[07-classification-doctype-branching]], [[08-validation-gates]], [[09-confidence-routing]], and [[11-approval-sod-workflow]] all import and call. Its signature (§5.2) must stabilize before those specs build their call sites.
@@ -290,9 +290,9 @@ This spec adds **no new auto-advance hop** to `_determine_next_step` (`:321-366`
 
 ### 7.1 Automated
 
-Convention (from `test_ap_invoice_capture.py:8,144`): `from frappe.tests import IntegrationTestCase`, one class per concern, `tearDown` → `frappe.db.rollback()`, constants imported from the controller. Structural template for reject/reopen audit: the existing `test_manager_reject_records_audit_and_blocks_payment` test.
+Convention (from `test_document_capture.py:8,144`): `from frappe.tests import IntegrationTestCase`, one class per concern, `tearDown` → `frappe.db.rollback()`, constants imported from the controller. Structural template for reject/reopen audit: the existing `test_manager_reject_records_audit_and_blocks_payment` test.
 
-**Module:** `erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture` (new `TestAPReviewGate` class) — covers reject/reopen + instrumentation wiring.
+**Module:** `erpnext.accounts.doctype.document_capture.test_document_capture` (new `TestAPReviewGate` class) — covers reject/reopen + instrumentation wiring.
 **Module:** `erpnext.accounts.doctype.ap_review_event.test_ap_review_event` (`test_ap_review_event.py`) — covers `emit_review_event` + the DocType.
 
 `reject_capture`:
@@ -324,7 +324,7 @@ Report/chart smoke:
 
 Run locally:
 ```
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 bench --site <site> run-tests --module erpnext.accounts.doctype.ap_review_event.test_ap_review_event
 ```
 Confirm green before declaring done (per CLAUDE.md "Automated tests").
@@ -365,7 +365,7 @@ Browser-driven verification of the desk UI this slice adds, via the **Playwright
 ## 9. Dependencies & sequencing
 
 **Must land first:**
-- The `AP Invoice Capture` controller + status enum (this same file) — already shipped; this spec extends it.
+- The `Document Capture` controller + status enum (this same file) — already shipped; this spec extends it.
 - [[01-foundations-settings-async-idempotency]] — for the idempotency-key helper (optional adoption by reject) and the shared async/settings conventions. Soft dependency: this spec works without it but should align with its primitives.
 
 **This spec unblocks (it is the instrumentation sink they feed):**

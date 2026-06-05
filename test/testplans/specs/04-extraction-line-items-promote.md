@@ -7,7 +7,7 @@
 ## 1. Feature under test
 
 The extractor now pulls **line items** (description / qty / rate / amount, plus a
-visible PO ref) into the `AP Invoice Capture Item` child table, and surfaces
+visible PO ref) into the `Document Capture Item` child table, and surfaces
 subtotal/tax on the capture. When a clerk **promotes** a validated capture
 (Stream I), the Purchase Invoice gets **one item row per capture line** (instead
 of a single header line), with `po_reference`/`pr_reference` mapped to PI Item
@@ -19,7 +19,7 @@ single-header-line behaviour.
 ## 2. Branch / commit
 
 - **Branch:** `russ/migrateToV16` · working tree. Verify
-  `erpnext/accounts/doctype/ap_invoice_capture_item/` exists and `AP Invoice
+  `erpnext/accounts/doctype/document_capture_item/` exists and `AP Invoice
   Capture` has a `line_items` table field.
 
 ## 3. Environment setup
@@ -51,7 +51,7 @@ bench --site <test-site> migrate
 ### TC-1 — Automated suites
 - **Action:**
   ```bash
-  bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** `88 OK` (1 skipped = poppler PDF dedupe test). Includes
   `test_write_back_builds_confidence_and_line_rows`, `test_promote_creates_one_pi_item_per_line`,
@@ -67,8 +67,8 @@ bench --site <test-site> migrate
   (description/qty/rate/amount), and `Subtotal Amount` / `Tax Amount` are set.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT description, qty, rate, amount FROM \`tabAP Invoice Capture Item\` WHERE parent='<name>'\\G"
-  bench --site <test-site> mariadb -e "SELECT subtotal_amount, tax_amount FROM \`tabAP Invoice Capture\` WHERE name='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT description, qty, rate, amount FROM \`tabDocument Capture Item\` WHERE parent='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT subtotal_amount, tax_amount FROM \`tabDocument Capture\` WHERE name='<name>'\\G"
   ```
 - **Pass/fail:** PASS iff one row per line + subtotal/tax populated.
 
@@ -83,7 +83,7 @@ bench --site <test-site> migrate
   wrongly block taxed invoices); any line `po_reference` lands on PI Item `purchase_order`.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT pii.description, pii.qty, pii.rate, pii.amount, pii.purchase_order FROM \`tabPurchase Invoice Item\` pii JOIN \`tabAP Invoice Capture\` c ON c.purchase_invoice = pii.parent WHERE c.name='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT pii.description, pii.qty, pii.rate, pii.amount, pii.purchase_order FROM \`tabPurchase Invoice Item\` pii JOIN \`tabDocument Capture\` c ON c.purchase_invoice = pii.parent WHERE c.name='<name>'\\G"
   ```
 - **Pass/fail:** PASS iff PI item count == capture line count and amounts reconcile.
 
@@ -95,7 +95,7 @@ bench --site <test-site> migrate
   and `action_required = 1` with a reconciliation reason.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT promotion_status, purchase_invoice, action_required, action_required_reason FROM \`tabAP Invoice Capture\` WHERE name='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT promotion_status, purchase_invoice, action_required, action_required_reason FROM \`tabDocument Capture\` WHERE name='<name>'\\G"
   ```
 - **Pass/fail:** PASS iff promote is blocked and the capture is flagged, with no PI created.
 

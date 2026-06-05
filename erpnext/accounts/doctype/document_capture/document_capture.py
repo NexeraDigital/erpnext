@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nexera and Contributors
 # License: GNU General Public License v3. See license.txt
 
-"""AP Invoice Capture.
+"""Document Capture.
 
 Narrow pre-accounting capture record for the AP Closed Loop pilot.
 
@@ -255,7 +255,7 @@ class CapturePaymentError(frappe.ValidationError):
 	"""Raised when mock payment issuance is invalid."""
 
 
-class APInvoiceCapture(Document):
+class DocumentCapture(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 
@@ -267,11 +267,11 @@ class APInvoiceCapture(Document):
 		from erpnext.accounts.doctype.ap_capture_rejection_log.ap_capture_rejection_log import (
 			APCaptureRejectionLog,
 		)
-		from erpnext.accounts.doctype.ap_invoice_capture_confidence.ap_invoice_capture_confidence import (
-			APInvoiceCaptureConfidence,
+		from erpnext.accounts.doctype.document_capture_confidence.document_capture_confidence import (
+			DocumentCaptureConfidence,
 		)
-		from erpnext.accounts.doctype.ap_invoice_capture_item.ap_invoice_capture_item import (
-			APInvoiceCaptureItem,
+		from erpnext.accounts.doctype.document_capture_item.document_capture_item import (
+			DocumentCaptureItem,
 		)
 
 		action_required: DF.Check
@@ -302,8 +302,8 @@ class APInvoiceCapture(Document):
 		proposed_total_amount: DF.Float
 		subtotal_amount: DF.Currency
 		tax_amount: DF.Currency
-		line_items: DF.Table[APInvoiceCaptureItem]
-		field_confidences: DF.Table[APInvoiceCaptureConfidence]
+		line_items: DF.Table[DocumentCaptureItem]
+		field_confidences: DF.Table[DocumentCaptureConfidence]
 		rejection_log: DF.Table[APCaptureRejectionLog]
 		bank_cleared: DF.Check
 		bank_transaction: DF.Link | None
@@ -738,11 +738,11 @@ class APInvoiceCapture(Document):
 
 		if not (self.source_file or self.source_file_url):
 			raise AmbiguousSourceError(
-				_("AP Invoice Capture requires a Source File or Source File URL.")
+				_("Document Capture requires a Source File or Source File URL.")
 			)
 		if not self.source_filename:
 			raise AmbiguousSourceError(
-				_("AP Invoice Capture requires a Source Filename for traceability.")
+				_("Document Capture requires a Source Filename for traceability.")
 			)
 
 	def _apply_stream_tag(self) -> None:
@@ -902,7 +902,7 @@ def create_capture_from_file(
 	sender_domain: str | None = None,
 	body_text: str | None = None,
 ):
-	"""Deterministic API for creating an AP Invoice Capture.
+	"""Deterministic API for creating an Document Capture.
 
 	Accepts either a Frappe ``File`` document (or its name) via
 	``file_doc``, or a raw ``file_url`` / ``file_name`` pair. Always
@@ -910,7 +910,7 @@ def create_capture_from_file(
 	capture is created in ``Unsupported`` status with ``action_required``
 	set so it cannot silently progress.
 
-	Returns the saved ``AP Invoice Capture`` document.
+	Returns the saved ``Document Capture`` document.
 	"""
 
 	resolved_file = None
@@ -925,7 +925,7 @@ def create_capture_from_file(
 	effective_filename = _resolve_filename(resolved_file, file_name)
 	effective_url = file_url or (resolved_file.file_url if resolved_file else None)
 
-	capture = frappe.new_doc("AP Invoice Capture")
+	capture = frappe.new_doc("Document Capture")
 	capture.intake_channel = intake_channel or INTAKE_MANUAL_UPLOAD
 	capture.received_at = received_at or now_datetime()
 	capture.source_filename = effective_filename
@@ -991,7 +991,7 @@ def _email_body_snippet(content: str | None, limit: int = 2000) -> str | None:
 
 @frappe.whitelist()
 def create_capture_from_email(communication: str) -> list:
-	"""Create one AP Invoice Capture per supported attachment of a Communication.
+	"""Create one Document Capture per supported attachment of a Communication.
 
 	Iterates the inbound email's attached Files, skipping unsupported
 	attachments (signatures/logos/.txt — spec 02 OD-7). Stream is classified from
@@ -1021,7 +1021,7 @@ def create_capture_from_email(communication: str) -> list:
 			continue
 		# Don't double-create from a re-fired hook / re-delivery (OD-5). The real
 		# content-level dedupe firewall is spec 03.
-		if frappe.db.exists("AP Invoice Capture", {"source_file": file_row.name}):
+		if frappe.db.exists("Document Capture", {"source_file": file_row.name}):
 			continue
 		capture = create_capture_from_file(
 			file_doc=file_row.name,
@@ -1099,7 +1099,7 @@ def _propose_for_seed(seed: str) -> dict:
 	}
 
 
-def _seed_for_capture(capture: "APInvoiceCapture") -> str:
+def _seed_for_capture(capture: "DocumentCapture") -> str:
 	# Use both filename and URL so two captures of literally the same artifact
 	# yield the same proposal, but two different sources don't collide.
 	return "|".join(
@@ -1138,7 +1138,7 @@ def _detect_simulation_markers(filename: str) -> tuple[set[str], set[str]]:
 	return missing, ambiguous
 
 
-def _source_file_size_bytes(capture: "APInvoiceCapture") -> int | None:
+def _source_file_size_bytes(capture: "DocumentCapture") -> int | None:
 	"""Best-effort size (bytes) of the capture's source File, or None if unknown.
 
 	Uses the File DocType's stored ``file_size`` so we don't have to read the
@@ -1160,12 +1160,12 @@ def _source_file_size_bytes(capture: "APInvoiceCapture") -> int | None:
 
 
 def run_extraction(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	*,
 	simulate_missing: list[str] | tuple[str, ...] | None = None,
 	simulate_ambiguous: list[str] | tuple[str, ...] | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Run OCR against a capture and persist the proposal.
 
 	Provider-agnostic entry point: the proposal is produced by the configured
@@ -1190,7 +1190,7 @@ def run_extraction(
 	)
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if not capture.is_supported_format:
 		raise OCRExtractionError(
@@ -1431,7 +1431,7 @@ def _line_confidence_summary(line_conf: dict) -> "str | None":
 
 
 def _write_extraction_detail(
-	capture: "APInvoiceCapture", result, cfg: dict
+	capture: "DocumentCapture", result, cfg: dict
 ) -> None:
 	"""Rebuild ``field_confidences`` + ``line_items`` and set header surfaces.
 
@@ -1457,7 +1457,7 @@ def _write_extraction_detail(
 		)
 	capture.set("field_confidences", conf_rows)
 
-	# (2) line_items — one AP Invoice Capture Item per extracted line.
+	# (2) line_items — one Document Capture Item per extracted line.
 	currency = capture.final_currency or capture.proposed_currency
 	line_rows = []
 	for line in getattr(result, "lines", None) or []:
@@ -1525,13 +1525,13 @@ def _coerce_correction(logical_name: str, value):
 
 
 def confirm_extracted_fields(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	corrections: dict | None = None,
 	reviewer: str | None = None,
 	notes: str | None = None,
 	save: bool = True,
 	emit_event: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Record an AP clerk's review of an OCR proposal.
 
 	Behavior:
@@ -1546,7 +1546,7 @@ def confirm_extracted_fields(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.ocr_status == OCR_STATUS_NOT_EXTRACTED:
 		raise OCRExtractionError(
@@ -1649,7 +1649,7 @@ def run_fake_extraction_for(capture: str) -> str:
 
 
 def detect_duplicates_for(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	save: bool = True,
 ) -> dict:
 	"""Run exact + perceptual dedupe against the last ``dedupe_window_days``.
@@ -1670,7 +1670,7 @@ def detect_duplicates_for(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
 		get_dedupe_config,
@@ -1697,7 +1697,7 @@ def detect_duplicates_for(
 	if content_hash:
 		capture.content_hash = content_hash
 		hits = frappe.db.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={
 				"content_hash": content_hash,
 				"received_at": [">=", cutoff],
@@ -1734,7 +1734,7 @@ def detect_duplicates_for(
 
 	if capture.perceptual_hash:
 		candidates = frappe.db.get_all(
-			"AP Invoice Capture",
+			"Document Capture",
 			filters={
 				"received_at": [">=", cutoff],
 				"name": ["!=", capture.name],
@@ -1789,7 +1789,7 @@ def _phash_distance(a: "str | None", b: "str | None") -> "int | None":
 		return None
 
 
-def _compute_phash(capture: "APInvoiceCapture") -> "str | None":
+def _compute_phash(capture: "DocumentCapture") -> "str | None":
 	"""pHash hex of the rasterized first page, or None on ANY failure.
 
 	None when poppler/imagehash is absent, the file is unreadable, or the type is
@@ -1852,7 +1852,7 @@ def run_dedupe_for(capture: str) -> str:
 	"""
 
 	detect_duplicates_for(capture)
-	doc = frappe.get_doc("AP Invoice Capture", capture)
+	doc = frappe.get_doc("Document Capture", capture)
 	doc._kick_next_step()
 	return doc.name
 
@@ -1888,7 +1888,7 @@ def auto_confirm_extracted_fields_for(capture: str) -> str:
 	the human pause if it no longer holds. Suppresses the spec-10 AP Review Event —
 	an auto-confirm is not an escalation. Resumes the cascade."""
 
-	doc = frappe.get_doc("AP Invoice Capture", capture)
+	doc = frappe.get_doc("Document Capture", capture)
 	decision = _evaluate_confirm_signals(doc)
 	if not (decision.fields_ok and decision.flags_ok):
 		# Lost the gate since enqueue — leave it at the human pause; do not auto-confirm.
@@ -2123,7 +2123,7 @@ def _match_supplier(supplier_name: str | None) -> tuple[str | None, str]:
 
 
 def queue_supplier_create_request(
-	capture: "APInvoiceCapture | str", candidate: str, payload: dict | None = None
+	capture: "DocumentCapture | str", candidate: str, payload: dict | None = None
 ) -> str:
 	"""Tier 3: create a Draft Supplier Master Change Request. NEVER creates a Supplier.
 
@@ -2165,14 +2165,14 @@ def queue_supplier_create_request(
 	# write directly (the capture isn't in-flight here).
 	if isinstance(capture, str):
 		frappe.db.set_value(
-			"AP Invoice Capture", capture_name, "supplier_change_request", req_name
+			"Document Capture", capture_name, "supplier_change_request", req_name
 		)
 	else:
 		capture.supplier_change_request = req_name
 	return req_name
 
 
-def _maybe_queue_supplier_create(capture: "APInvoiceCapture", candidate: str | None) -> None:
+def _maybe_queue_supplier_create(capture: "DocumentCapture", candidate: str | None) -> None:
 	"""Fire Tier-3 iff the gate is on AND OCR supplier confidence clears the bar AND
 	no open create-request already exists for this capture (spec 05 §5.3-Tier-3).
 
@@ -2224,7 +2224,7 @@ def _classify_purchase_reference(po_ref: str | None, pr_ref: str | None) -> str:
 # at promotion time (an approved Update-Bank-Details request lifts it).
 
 
-def _is_stream_i(capture: "APInvoiceCapture") -> bool:
+def _is_stream_i(capture: "DocumentCapture") -> bool:
 	"""True when the gates should block on failure.
 
 	Stream R (Receipt) short-circuits to non-blocking; Invoice / Unclassified /
@@ -2234,7 +2234,7 @@ def _is_stream_i(capture: "APInvoiceCapture") -> bool:
 	return capture.stream != STREAM_RECEIPT
 
 
-def _resolve_gate_config(capture: "APInvoiceCapture") -> dict:
+def _resolve_gate_config(capture: "DocumentCapture") -> dict:
 	"""Effective gate parameters: site settings, with per-supplier profile overrides.
 
 	A non-zero ``AP Supplier Coding Profile`` override replaces the corresponding
@@ -2280,7 +2280,7 @@ def _resolve_gate_config(capture: "APInvoiceCapture") -> dict:
 	return cfg
 
 
-def three_way_match_for(capture: "APInvoiceCapture | str", save: bool = True) -> "APInvoiceCapture":
+def three_way_match_for(capture: "DocumentCapture | str", save: bool = True) -> "DocumentCapture":
 	"""Three-way match the capture against its referenced Purchase Order(s).
 
 	PO-level match (pilot scope): OCR resolves a PO reference at header / line
@@ -2297,7 +2297,7 @@ def three_way_match_for(capture: "APInvoiceCapture | str", save: bool = True) ->
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	capture.three_way_match_checked_at = now_datetime()
 
@@ -2435,8 +2435,8 @@ def _anomaly_baseline(supplier: str, cfg: dict) -> tuple[int, float, float]:
 
 
 def detect_amount_anomaly_for(
-	capture: "APInvoiceCapture | str", save: bool = True
-) -> "APInvoiceCapture":
+	capture: "DocumentCapture | str", save: bool = True
+) -> "DocumentCapture":
 	"""Flag a capture whose total is an outlier vs the supplier's recent history.
 
 	Anomalous when the total exceeds either rule: ``> anomaly_multiple × mean`` OR
@@ -2446,7 +2446,7 @@ def detect_amount_anomaly_for(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	capture.anomaly_checked_at = now_datetime()
 	supplier = capture.matched_supplier
@@ -2506,8 +2506,8 @@ _SUPPLIER_WATCH_FIELDS = {"default_bank_account"}
 
 
 def detect_vendor_bank_change_for(
-	capture: "APInvoiceCapture | str", save: bool = True
-) -> "APInvoiceCapture":
+	capture: "DocumentCapture | str", save: bool = True
+) -> "DocumentCapture":
 	"""Detect a watched vendor bank-detail change since the supplier's last payment.
 
 	Anchors on the most recent *submitted* Payment Entry to the supplier and scans
@@ -2517,7 +2517,7 @@ def detect_vendor_bank_change_for(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	capture.vendor_bank_change_checked_at = now_datetime()
 	supplier = capture.matched_supplier
@@ -2627,11 +2627,11 @@ def has_approved_bank_change(supplier: str | None) -> bool:
 
 
 def override_three_way_match(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	notes: str,
 	actor: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""AP override of a 3WM Exception into ``Matched (Override)``, then re-validate.
 
 	Dedicated override fields (D6) keep the override audit separate from the
@@ -2644,7 +2644,7 @@ def override_three_way_match(
 	frappe.only_for(("Accounts User", "Accounts Manager", "System Manager"))
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.three_way_match_status != THREE_WAY_MATCH_EXCEPTION:
 		raise CaptureValidationError(
@@ -2728,11 +2728,11 @@ def _upsert_anomaly_baseline(
 
 
 def validate_for_purchase_invoice(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	actor: str | None = None,
 	source: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Validate an AP-reviewed capture against existing ERPNext records.
 
 	Behavior:
@@ -2751,12 +2751,12 @@ def validate_for_purchase_invoice(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.status != STATUS_CONFIRMED:
 		raise CaptureValidationError(
 			_(
-				"AP Invoice Capture must be AP-reviewed (status Confirmed) before validation; "
+				"Document Capture must be AP-reviewed (status Confirmed) before validation; "
 				"current status is {0}."
 			).format(capture.status)
 		)
@@ -3028,7 +3028,7 @@ def _card_cost_center(card_last4: "str | None") -> "str | None":
 
 
 def _infer_cost_center(
-	capture: "APInvoiceCapture", supplier_profile: dict
+	capture: "DocumentCapture", supplier_profile: dict
 ) -> "tuple[str | None, str | None]":
 	"""Return ``(cost_center, ambiguity_reason)`` (spec 06 §5.3 step 5).
 
@@ -3059,7 +3059,7 @@ def _infer_cost_center(
 	return None, _("Cost-center conflict: {0}").format(detail)
 
 
-def _validate_coding_tax(capture: "APInvoiceCapture", tax_template: str) -> "tuple[bool, str | None]":
+def _validate_coding_tax(capture: "DocumentCapture", tax_template: str) -> "tuple[bool, str | None]":
 	"""Validate the extracted tax against the template's computed tax (spec 06 §5.3 step 7).
 
 	Computes expected tax as ``subtotal × Σ(template rates)`` and compares to the
@@ -3105,10 +3105,10 @@ def _apply_dimensions_to_row(row, dims: "list[dict] | None") -> None:
 
 
 def apply_coding_profile_for(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	defaults: dict | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Three-layer GL-coding merge + cost-center inference + tax (spec 06 §5.3).
 
 	Re-runnable; refuses to mutate a *submitted* Purchase Invoice. Resolves expense
@@ -3121,7 +3121,7 @@ def apply_coding_profile_for(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	# (2) Submitted-PI guard (highest severity, R3) — coding only ever mutates a draft.
 	if capture.purchase_invoice:
@@ -3237,7 +3237,7 @@ def apply_coding_profile_for(
 	return capture
 
 
-def _apply_coding_to_draft_pi(capture: "APInvoiceCapture", merged: dict) -> None:
+def _apply_coding_to_draft_pi(capture: "DocumentCapture", merged: dict) -> None:
 	"""Write the resolved coding onto an existing docstatus==0 Purchase Invoice."""
 
 	pi = frappe.get_doc("Purchase Invoice", capture.purchase_invoice)
@@ -3256,12 +3256,12 @@ def _apply_coding_to_draft_pi(capture: "APInvoiceCapture", merged: dict) -> None
 	pi.save()
 
 
-def is_fully_coded(capture: "APInvoiceCapture | str") -> bool:
+def is_fully_coded(capture: "DocumentCapture | str") -> bool:
 	"""Step-8 auto-post gate (spec 06 §5.3): expense + cost center (unambiguous) +
 	tax (validated/absent) all resolved. "Without coding, nothing auto-posts."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 	if capture.coding_status in (CODING_STATUS_AMBIGUOUS, CODING_STATUS_FLAGGED):
 		return False
 	if not capture.applied_expense_account:
@@ -3286,7 +3286,7 @@ _DOC_TYPE_TO_STREAM = {
 }
 
 
-def _classification_text(capture: "APInvoiceCapture") -> str:
+def _classification_text(capture: "DocumentCapture") -> str:
 	"""Concatenated OCR/clerk text the classifier scans for a paid/card marker."""
 
 	parts = [
@@ -3539,7 +3539,7 @@ def _content_rationale(verdict: dict) -> str:
 	)
 
 
-def _provisional_stream(capture: "APInvoiceCapture") -> "str | None":
+def _provisional_stream(capture: "DocumentCapture") -> "str | None":
 	"""Map the spec-02 ``stream`` field onto the classifier's I/R space."""
 
 	if capture.stream == STREAM_INVOICE:
@@ -3549,7 +3549,7 @@ def _provisional_stream(capture: "APInvoiceCapture") -> "str | None":
 	return None  # Unclassified / unset
 
 
-def _content_classification_confident(capture: "APInvoiceCapture") -> bool:
+def _content_classification_confident(capture: "DocumentCapture") -> bool:
 	"""Whether the content read is confident enough to trust over a weak intake tag
 	(spec 07 §5.3 / T-017). A decisive paid/card marker is itself a confident content
 	signal; otherwise the mandatory-header confidence (spec 04) must clear threshold."""
@@ -3561,11 +3561,11 @@ def _content_classification_confident(capture: "APInvoiceCapture") -> bool:
 
 
 def classify_document_type(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	override: str | None = None,
 	actor: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Step-6 classification (spec 07): route a confirmed capture to a document type.
 
 	Heuristics (clerk ``override`` always wins): a paid/card marker → Already Paid;
@@ -3578,7 +3578,7 @@ def classify_document_type(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.status not in (STATUS_CONFIRMED, STATUS_MANUAL_REVIEW):
 		raise CaptureValidationError(
@@ -3697,8 +3697,8 @@ def classify_document_type(
 
 
 def _finalize_classification(
-	capture: "APInvoiceCapture", actor: str | None, save: bool, reason: str | None
-) -> "APInvoiceCapture":
+	capture: "DocumentCapture", actor: str | None, save: bool, reason: str | None
+) -> "DocumentCapture":
 	capture.classified_at = now_datetime()
 	capture.classified_by = actor or frappe.session.user
 	if not capture.classification_source:
@@ -3720,7 +3720,7 @@ def _finalize_classification(
 	return capture
 
 
-def _build_already_paid_voucher(capture: "APInvoiceCapture", defaults: dict | None) -> "Document":
+def _build_already_paid_voucher(capture: "DocumentCapture", defaults: dict | None) -> "Document":
 	"""The SINGLE swap point for the already-paid posting mechanism (D-07-1).
 
 	**Locked = Option C (PI is_paid=1):** build a Purchase Invoice marked paid — one
@@ -3737,7 +3737,7 @@ def _build_already_paid_voucher(capture: "APInvoiceCapture", defaults: dict | No
 
 
 def promote_already_paid(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	actor: str | None = None,
 	defaults: dict | None = None,
 	save: bool = True,
@@ -3749,7 +3749,7 @@ def promote_already_paid(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.document_type != DOCUMENT_TYPE_ALREADY_PAID:
 		raise CapturePromotionError(
@@ -3781,7 +3781,7 @@ def promote_already_paid(
 
 
 def promote_to_purchase_invoice(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	actor: str | None = None,
 	defaults: dict | None = None,
 	save: bool = True,
@@ -3801,7 +3801,7 @@ def promote_to_purchase_invoice(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	# Document-type guard (spec 07). The standard (Unpaid Bill) path refuses an
 	# Already-Paid capture; the already-paid path (_already_paid=True, via
@@ -4027,7 +4027,7 @@ def promote_to_purchase_invoice(
 	return pi
 
 
-def _reflect_default_coding(capture: "APInvoiceCapture", pi: "Document") -> None:
+def _reflect_default_coding(capture: "DocumentCapture", pi: "Document") -> None:
 	"""Stamp 'posted on ERPNext native defaults' onto a capture that promoted without
 	AP coding (spec 06 graceful-degrade). Mark-and-continue: backfills the ``applied_*``
 	fields from the PI so the GL Coding section shows what actually posted, flags the
@@ -4095,7 +4095,7 @@ def _resolve_approval_threshold(threshold: float | None, source: str | None) -> 
 
 
 def emit_review_event(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	*,
 	action_taken: str,
 	root_cause_tag: str | None = None,
@@ -4117,7 +4117,7 @@ def emit_review_event(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if time_to_resolve_seconds is None and capture.get("creation"):
 		try:
@@ -4161,12 +4161,12 @@ def _safe_emit_review_event(capture, **kwargs) -> "str | None":
 
 
 def reject_capture(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	reason: str,
 	actor: str | None = None,
 	root_cause_tag: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Clerk bounce of a non-promoted capture back to the vendor (spec 10 §5.3).
 
 	Sets ``status = Rejected`` (terminal-quiet: ``action_required = 0``), appends a
@@ -4175,7 +4175,7 @@ def reject_capture(
 	Workflow) and an already-rejected one (reopen first)."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.promotion_status == PROMOTION_STATUS_PROMOTED:
 		raise CaptureValidationError(
@@ -4226,11 +4226,11 @@ def reject_capture(
 
 
 def reopen_capture(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	reason: str,
 	actor: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Reopen a Rejected capture, restoring the stage it was rejected from (spec 10 §5.3).
 
 	Deterministic restore: reads the most-recent ``Rejected`` row's ``from_status``
@@ -4240,7 +4240,7 @@ def reopen_capture(
 	by decision D-2)."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.status != STATUS_REJECTED:
 		raise CaptureValidationError(
@@ -4308,7 +4308,7 @@ def reopen_capture_for(capture: str, reason: str) -> str:
 def get_rejection_log_for(capture: str) -> list[dict]:
 	"""Whitelisted read of a capture's reject/reopen trail (spec 10)."""
 
-	doc = frappe.get_doc("AP Invoice Capture", capture)
+	doc = frappe.get_doc("Document Capture", capture)
 	return [
 		{
 			"action": r.action,
@@ -4344,7 +4344,7 @@ RoutingDecision = namedtuple(
 )
 
 
-def _residual_gate_flag(capture: "APInvoiceCapture") -> "str | None":
+def _residual_gate_flag(capture: "DocumentCapture") -> "str | None":
 	"""First open spec-08 gate failure on a capture, or None.
 
 	Normally empty at routing time (a failed gate blocks validation upstream), but
@@ -4362,7 +4362,7 @@ def _residual_gate_flag(capture: "APInvoiceCapture") -> "str | None":
 	return None
 
 
-def _confidence_fields_ok(capture: "APInvoiceCapture") -> "tuple[bool, str | None]":
+def _confidence_fields_ok(capture: "DocumentCapture") -> "tuple[bool, str | None]":
 	"""The shared confidence axis — every mandatory header field is above threshold.
 
 	Used by BOTH the approval seam (``_evaluate_routing_signals``) and the OCR-confirm
@@ -4386,7 +4386,7 @@ def _confidence_fields_ok(capture: "APInvoiceCapture") -> "tuple[bool, str | Non
 ConfirmDecision = namedtuple("ConfirmDecision", ["fields_ok", "flags_ok", "failing_field", "failing_flag"])
 
 
-def _evaluate_confirm_signals(capture: "APInvoiceCapture") -> ConfirmDecision:
+def _evaluate_confirm_signals(capture: "DocumentCapture") -> ConfirmDecision:
 	"""Pure read of the OCR-confirm seam gate (spec 04/09 §5.6, T-015). No writes.
 
 	Whether a freshly-extracted capture is clean+confident enough to auto-confirm the
@@ -4404,7 +4404,7 @@ def _evaluate_confirm_signals(capture: "APInvoiceCapture") -> ConfirmDecision:
 
 
 def _evaluate_routing_signals(
-	capture: "APInvoiceCapture", threshold: float | None = None, source: str | None = None
+	capture: "DocumentCapture", threshold: float | None = None, source: str | None = None
 ) -> RoutingDecision:
 	"""Pure read of the three routing axes (spec 09 §5.3). No writes.
 
@@ -4440,7 +4440,7 @@ def _evaluate_routing_signals(
 
 
 def _emit_review_event(
-	capture: "APInvoiceCapture",
+	capture: "DocumentCapture",
 	axis: str,
 	failing_field: "str | None" = None,
 	failing_flag: "str | None" = None,
@@ -4477,7 +4477,7 @@ def _emit_review_event(
 		return None
 
 
-def resolve_approver_role(capture: "APInvoiceCapture") -> str:
+def resolve_approver_role(capture: "DocumentCapture") -> str:
 	"""The approver Role this capture routes to (spec 11 §5.2).
 
 	Pilot: the threshold-driven default (``Accounts Manager``). The optional
@@ -4490,13 +4490,13 @@ def resolve_approver_role(capture: "APInvoiceCapture") -> str:
 
 
 def request_approval(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	threshold: float | None = None,
 	source: str | None = None,
 	actor: str | None = None,
 	approver_role: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Route a promoted capture through Phase 1 approval controls (spec 09).
 
 	Combined-signal routing: a clean+confident capture at/under threshold is
@@ -4507,7 +4507,7 @@ def request_approval(
 	"""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.validation_status != VALIDATION_STATUS_VALIDATED:
 		raise CaptureApprovalError(
@@ -4601,10 +4601,10 @@ def request_approval(
 
 
 def reroute_after_review(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	actor: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Sanctioned re-route of a Needs-Review capture once its flags are cleared (spec 09 D-4).
 
 	The normal ``request_approval`` guard refuses a capture whose ``approval_status``
@@ -4616,7 +4616,7 @@ def reroute_after_review(
 	flagged/low-confidence."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	if capture.approval_status != APPROVAL_STATUS_NEEDS_REVIEW:
 		raise CaptureApprovalError(
@@ -4638,16 +4638,16 @@ def reroute_after_review(
 
 
 def record_manager_decision(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	approve: bool,
 	actor: str | None = None,
 	notes: str | None = None,
 	save: bool = True,
-) -> "APInvoiceCapture":
+) -> "DocumentCapture":
 	"""Record manager approval or rejection for a routed capture."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	# The DocType grants write to both Accounts User and Accounts Manager,
 	# so without this gate any AP clerk could approve their own over-threshold
@@ -4710,11 +4710,11 @@ def record_manager_decision(
 	return capture
 
 
-def is_ready_for_payment(capture: "APInvoiceCapture | str") -> bool:
+def is_ready_for_payment(capture: "DocumentCapture | str") -> bool:
 	"""Predicate used by downstream mock-payment issuance code."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	return (
 		capture.approval_status
@@ -4723,9 +4723,9 @@ def is_ready_for_payment(capture: "APInvoiceCapture | str") -> bool:
 	)
 
 
-def is_payment_blocked(capture: "APInvoiceCapture | str") -> bool:
+def is_payment_blocked(capture: "DocumentCapture | str") -> bool:
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	return (
 		capture.approval_status == APPROVAL_STATUS_REJECTED
@@ -4768,14 +4768,14 @@ def _matched_bank_transaction(payment_document: str, voucher: str | None) -> "st
 
 
 @frappe.whitelist()
-def reconcile_bank_for(capture: "APInvoiceCapture | str", save: bool = True) -> "APInvoiceCapture":
+def reconcile_bank_for(capture: "DocumentCapture | str", save: bool = True) -> "DocumentCapture":
 	"""The EXTERNAL close signal (spec 13). Read the native Bank Reconciliation result
 	and stamp ``bank_cleared`` when the bank feed has matched a Bank Transaction to this
 	capture's disbursing voucher (Stream I → Payment Entry; Stream R → Journal Entry if
 	present). Idempotent; never matches itself — only surfaces the native match."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	bt = None
 	if capture.payment_entry:
@@ -4792,7 +4792,7 @@ def reconcile_bank_for(capture: "APInvoiceCapture | str", save: bool = True) -> 
 	return capture
 
 
-def _derive_payment_lifecycle_status(capture: "APInvoiceCapture") -> str:
+def _derive_payment_lifecycle_status(capture: "DocumentCapture") -> str:
 	if is_payment_blocked(capture):
 		return PAYMENT_LIFECYCLE_BLOCKED
 	if not capture.payment_entry:
@@ -4858,7 +4858,7 @@ def _resolve_mock_pay_account(company: str, paid_from: str | None = None) -> str
 
 
 def issue_mock_payment(
-	capture: "APInvoiceCapture | str",
+	capture: "DocumentCapture | str",
 	actor: str | None = None,
 	paid_from: str | None = None,
 	save: bool = True,
@@ -4868,7 +4868,7 @@ def issue_mock_payment(
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	# Payment issuance is a manager-level action — the approval gate above is
 	# state-only and would otherwise let any AP clerk trigger a Payment Entry.
@@ -4954,11 +4954,11 @@ def _gl_entries_for_vouchers(voucher_names: list[str]) -> list[dict]:
 	)
 
 
-def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
+def build_closure_evidence(capture: "DocumentCapture | str") -> dict:
 	"""Build audit evidence for a capture from ERPNext-native state."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	pi_state = None
 	pe_state = None
@@ -5102,7 +5102,7 @@ def build_closure_evidence(capture: "APInvoiceCapture | str") -> dict:
 	}
 
 
-def build_audit_trail_for(capture: "APInvoiceCapture | str") -> dict:
+def build_audit_trail_for(capture: "DocumentCapture | str") -> dict:
 	"""Single-record audit retrieval (spec 14): the full audit chain in one composite.
 
 	Assembles the live closure evidence (image → OCR → validation → gates → approval →
@@ -5111,14 +5111,14 @@ def build_audit_trail_for(capture: "APInvoiceCapture | str") -> dict:
 	print format. Read-only; nothing is stored."""
 
 	if isinstance(capture, str):
-		capture = frappe.get_doc("AP Invoice Capture", capture)
+		capture = frappe.get_doc("Document Capture", capture)
 
 	evidence = build_closure_evidence(capture)
 
 	history: list[dict] = []
 	for v in frappe.get_all(
 		"Version",
-		filters={"ref_doctype": "AP Invoice Capture", "docname": capture.name},
+		filters={"ref_doctype": "Document Capture", "docname": capture.name},
 		fields=["name", "owner", "creation", "data"],
 		order_by="creation asc",
 	):
@@ -5160,7 +5160,7 @@ def enforce_retention_policy() -> dict:
 
 	cutoff = add_to_date(today(), years=-AP_RETENTION_YEARS)
 	past = frappe.get_all(
-		"AP Invoice Capture",
+		"Document Capture",
 		filters={"received_at": ["<", cutoff]},
 		pluck="name",
 	)
@@ -5176,7 +5176,7 @@ def get_ap_lifecycle_rows() -> list[dict]:
 	"""List AP captures with the fields AP clerks need for next action visibility."""
 
 	return frappe.get_all(
-		"AP Invoice Capture",
+		"Document Capture",
 		fields=[
 			"name",
 			"source_filename",
@@ -5199,7 +5199,7 @@ def get_manager_approval_queue() -> list[dict]:
 	"""Return only captures currently waiting for manager approval."""
 
 	return frappe.get_all(
-		"AP Invoice Capture",
+		"Document Capture",
 		filters={"approval_status": APPROVAL_STATUS_PENDING_MANAGER},
 		fields=[
 			"name",
@@ -5233,7 +5233,7 @@ def resolve_supplier_for(capture: str, stream: str | None = None) -> str:
 	Stream-I blocking path. Returns the capture name (spec 05 §5.2).
 	"""
 
-	doc = frappe.get_doc("AP Invoice Capture", capture)
+	doc = frappe.get_doc("Document Capture", capture)
 	stream = (stream or "").strip() or None
 	if stream and stream in (STREAM_RECEIPT, STREAM_INVOICE, STREAM_UNCLASSIFIED):
 		doc.stream = stream
@@ -5256,7 +5256,7 @@ def promote_to_purchase_invoice_for(
 	pi = promote_to_purchase_invoice(capture, defaults=parsed)
 	# `promote` returns the PI, not the capture — reload the capture to
 	# resume the cascade (next hop is approval routing).
-	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap = frappe.get_doc("Document Capture", capture if isinstance(capture, str) else capture.name)
 	cap._kick_next_step()
 	return pi.name
 
@@ -5277,7 +5277,7 @@ def promote_already_paid_for(capture: str, defaults: str | dict | None = None) -
 
 	parsed = json.loads(defaults) if isinstance(defaults, str) and defaults else (defaults or None)
 	pi = promote_already_paid(capture, defaults=parsed)
-	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap = frappe.get_doc("Document Capture", capture if isinstance(capture, str) else capture.name)
 	cap._kick_next_step()
 	return pi.name
 
@@ -5331,7 +5331,7 @@ def get_coding_review_queue_for() -> list[dict]:
 	awaiting a human (mirrors get_manager_approval_queue_for)."""
 
 	return frappe.get_all(
-		"AP Invoice Capture",
+		"Document Capture",
 		filters={
 			"coding_status": ["in", [CODING_STATUS_AMBIGUOUS, CODING_STATUS_FLAGGED]],
 			"action_required": 1,
@@ -5396,7 +5396,7 @@ def issue_mock_payment_for(capture: str, paid_from: str | None = None) -> str:
 	# Mock payment is terminal — _kick_next_step is a no-op at Closed/Confirmed
 	# but we call it for symmetry and so any future hop (e.g. closure-evidence
 	# auto-generation) plugs in without changing the wrapper.
-	cap = frappe.get_doc("AP Invoice Capture", capture if isinstance(capture, str) else capture.name)
+	cap = frappe.get_doc("Document Capture", capture if isinstance(capture, str) else capture.name)
 	cap._kick_next_step()
 	return pe.name
 

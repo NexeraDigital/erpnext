@@ -45,7 +45,7 @@ So "ERPNext" is best read as **business doctypes + controllers + reports + hooks
 - **Web tier:** Nginx in front of Gunicorn workers running the Frappe Werkzeug app.
 - **Async tier:** Frappe scheduler enqueues into Redis-backed RQ; workers consume `default`, `short`, `long` queues. ERPNext registers callbacks under `scheduler_events` (see `hooks.py`).
 - **Persistence:** MariaDB is the canonical store; each DocType becomes a `tab<DocType>` table. Redis is cache + websocket bus, not the source of truth.
-- **Files:** `File` doctype wraps uploads on local disk (or S3 if configured). Used by AP Invoice Capture.
+- **Files:** `File` doctype wraps uploads on local disk (or S3 if configured). Used by Document Capture.
 - **Realtime:** Socket.IO via Frappe for desk notifications and live document updates.
 
 ---
@@ -65,7 +65,7 @@ erpnext-1/
     ├── accounts/         finance: GL, AR/AP, taxes, PI/SI, PE, BoM cost flow
     │   ├── doctype/      187 doctypes (Account, GL Entry, Purchase Invoice, …)
     │   ├── ap_closed_loop/                       ◀ FORK: walking skeleton
-    │   ├── doctype/ap_invoice_capture/           ◀ FORK: capture doctype + flow
+    │   ├── doctype/document_capture/           ◀ FORK: capture doctype + flow
     │   ├── report/       finance reports (P&L, BS, Trial Balance, GL, AR/AP …)
     │   └── utils.py, party.py, general_ledger.py, deferred_revenue.py
     ├── stock/            78 doctypes — Item, Warehouse, Bin, Stock Entry, SLE, Serial/Batch
@@ -301,4 +301,4 @@ From `erpnext/modules.txt` (21 modules) — doctype counts measured in this repo
 
 ## 9. The Fork Overlay
 
-This repository is `develop` of upstream **plus** an AP Closed Loop Receipt Processing pilot owned by NexeraDigital. The pilot adds **one** new accounting doctype (`AP Invoice Capture`), a deterministic walking-skeleton module, and an `AGENTS.md` operating note. **No upstream business logic is replaced.** See [`FORK-CHANGES.md`](FORK-CHANGES.md) for the full breakdown.
+This repository is `develop` of upstream **plus** an AP Closed Loop Receipt Processing pilot owned by NexeraDigital. The pilot adds **one** new accounting doctype (`Document Capture`), a deterministic walking-skeleton module, and an `AGENTS.md` operating note. **No upstream business logic is replaced.** See [`FORK-CHANGES.md`](FORK-CHANGES.md) for the full breakdown.

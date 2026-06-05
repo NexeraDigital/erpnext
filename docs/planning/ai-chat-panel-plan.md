@@ -58,7 +58,7 @@ The panel must **not** mint an OAuth token for the browser. The desk session has
 
 ### 1.5 Established fork conventions matched
 
-- Whitelisted methods: `@frappe.whitelist()` defaults to **`allow_guest=False` → rejects Guest** ([`frappe/__init__.py:1263`](https://github.com/frappe/frappe/blob/version-15/frappe/__init__.py)). AP examples: `run_dedupe_for`, `run_fake_extraction_for` (`ap_invoice_capture.py`).
+- Whitelisted methods: `@frappe.whitelist()` defaults to **`allow_guest=False` → rejects Guest** ([`frappe/__init__.py:1263`](https://github.com/frappe/frappe/blob/version-15/frappe/__init__.py)). AP examples: `run_dedupe_for`, `run_fake_extraction_for` (`document_capture.py`).
 - Async: `frappe.enqueue` with `deduplicate=True` + per-entity `job_id` (the AP cascade `_enqueue_next`). Background jobs set the user, so tool calls in the job run under the session user's permissions.
 - Streaming: `frappe.publish_realtime` to the `user:{username}` room (allowed without extra permission checks) + client `frappe.realtime.on` ([realtime docs](https://docs.frappe.io/framework/v15/user/en/api/realtime)) — the same Socket.IO pattern ARCHITECTURE.md notes for telephony/progress.
 

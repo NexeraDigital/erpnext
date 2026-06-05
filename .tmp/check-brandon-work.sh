@@ -9,9 +9,9 @@ echo "=== AP files present on this branch? ==="
 for f in \
   erpnext/accounts/ap_closed_loop/walking_skeleton.py \
   erpnext/accounts/ap_closed_loop/test_walking_skeleton.py \
-  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json \
-  erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py \
-  erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py \
+  erpnext/accounts/doctype/document_capture/document_capture.json \
+  erpnext/accounts/doctype/document_capture/document_capture.py \
+  erpnext/accounts/doctype/document_capture/test_document_capture.py \
   AGENTS.md \
   docs/architecture/FORK-CHANGES.md; do
   if [ -f "$f" ]; then echo "OK   $f"; else echo "MISS $f"; fi

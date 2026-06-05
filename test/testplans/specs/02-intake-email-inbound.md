@@ -4,7 +4,7 @@
 
 ## 1. Feature under test
 
-A dedicated inbound **Email Account** receives invoices/receipts; the `Communication.after_insert` hook (`handle_inbound_ap_communication`) turns each inbound mail's supported attachments into `AP Invoice Capture` records (one per supported attachment), tagged by stream, with `intake_channel = Email Inbound` and `received_at = the email's date`. The feature is **OFF by default** — it activates only when `AP Closed Loop Settings.ap_intake_email_account` names the inbound account.
+A dedicated inbound **Email Account** receives invoices/receipts; the `Communication.after_insert` hook (`handle_inbound_ap_communication`) turns each inbound mail's supported attachments into `Document Capture` records (one per supported attachment), tagged by stream, with `intake_channel = Email Inbound` and `received_at = the email's date`. The feature is **OFF by default** — it activates only when `AP Closed Loop Settings.ap_intake_email_account` names the inbound account.
 
 ## 2. Branch / commit
 
@@ -34,16 +34,16 @@ bench --site <test-site> migrate
 ### TC-1 — Live: email a receipt → capture auto-created as Stream R
 - **Precondition:** feature activated (§3).
 - **Action:** email `receipt_test.pdf` (+ `note.txt`) to the inbound mailbox. Wait for the email-sync scheduler (or run `bench --site <test-site> execute frappe.email.doctype.email_account.email_account.pull`).
-- **Expected:** exactly **one** new `AP Invoice Capture` (from the PDF, not the `.txt`), with `intake_channel = Email Inbound`, `received_at` = the email's sent time, `stream = Receipt (R)` (filename `receipt_*`), and a 72h `sla_due_at`.
+- **Expected:** exactly **one** new `Document Capture` (from the PDF, not the `.txt`), with `intake_channel = Email Inbound`, `received_at` = the email's sent time, `stream = Receipt (R)` (filename `receipt_*`), and a 72h `sla_due_at`.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT name, intake_channel, stream, sla_due_at FROM \`tabAP Invoice Capture\` WHERE source_filename='receipt_test.pdf'\\G"
+  bench --site <test-site> mariadb -e "SELECT name, intake_channel, stream, sla_due_at FROM \`tabDocument Capture\` WHERE source_filename='receipt_test.pdf'\\G"
   ```
 - **Pass/fail:** PASS iff one capture, Email Inbound, Receipt (R), 72h SLA, and the `.txt` produced no capture.
 
 ### TC-2 — No-op guard (mail not on the AP account)
 - **Action:** with the feature still on, send/receive an email on a **different** Email Account (not the configured AP intake one).
-- **Expected:** **no** `AP Invoice Capture` is created from it.
+- **Expected:** **no** `Document Capture` is created from it.
 - **Pass/fail:** PASS iff no capture is created.
 
 ### TC-3 — Feature off

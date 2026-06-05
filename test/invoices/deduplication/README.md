@@ -1,7 +1,7 @@
 # Deduplication Test Fixtures (spec 03)
 
 Invoices built to exercise the **pre-extraction deduplication** firewall in
-`erpnext.accounts.doctype.ap_invoice_capture` (`detect_duplicates_for` /
+`erpnext.accounts.doctype.document_capture` (`detect_duplicates_for` /
 `_compute_phash`). See `docs/spec/03-deduplication.md` and the clean-room
 runbook `test/testplans/pre-extraction-dedup.md`.
 

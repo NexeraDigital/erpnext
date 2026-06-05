@@ -213,7 +213,7 @@
   <li><strong>Web tier:</strong> Nginx in front of Gunicorn workers running the Frappe Werkzeug app.</li>
   <li><strong>Async tier:</strong> Frappe scheduler enqueues into Redis-backed RQ; workers consume <code>default</code>, <code>short</code>, <code>long</code>. ERPNext registers callbacks under <code>scheduler_events</code> in <code>hooks.py</code>.</li>
   <li><strong>Persistence:</strong> MariaDB is canonical; each DocType becomes a <code>tab&lt;DocType&gt;</code> table. Redis is cache + websocket bus, not source of truth.</li>
-  <li><strong>Files:</strong> the Frappe <code>File</code> doctype wraps uploads on disk (or S3). Used by the fork's <em>AP Invoice Capture</em>.</li>
+  <li><strong>Files:</strong> the Frappe <code>File</code> doctype wraps uploads on disk (or S3). Used by the fork's <em>Document Capture</em>.</li>
   <li><strong>Realtime:</strong> Socket.IO via Frappe for desk notifications and live document updates.</li>
 </ul>
 
@@ -230,7 +230,7 @@
     ├── accounts/         finance: GL, AR/AP, taxes, PI/SI, PE, banking
     │   ├── doctype/      187 doctypes (Account, GL Entry, Purchase Invoice, …)
     │   ├── ap_closed_loop/                       ◀ FORK: walking skeleton
-    │   ├── doctype/ap_invoice_capture/           ◀ FORK: capture doctype + flow
+    │   ├── doctype/document_capture/           ◀ FORK: capture doctype + flow
     │   └── report/       finance reports (P&amp;L, BS, Trial Balance, GL, AR/AP …)
     ├── stock/            78 doctypes — Item, Warehouse, Bin, Stock Entry, SLE
     ├── manufacturing/    48 doctypes — BOM, Work Order, Job Card, Routing
@@ -443,7 +443,7 @@ Material Request ─► RFQ ─► Supplier Quotation ─► Purchase Order
 <h2 id="fork">9. The Fork Overlay</h2>
 <div class="callout fork">
   This repository is <code>develop</code> of upstream <strong>plus</strong> an AP Closed Loop Receipt Processing pilot owned by
-  <span class="pill fork">NexeraDigital</span>. The pilot adds one new accounting doctype (<code>AP Invoice Capture</code>),
+  <span class="pill fork">NexeraDigital</span>. The pilot adds one new accounting doctype (<code>Document Capture</code>),
   a deterministic walking-skeleton module, and an <code>AGENTS.md</code> operating note. <strong>No upstream business logic is replaced.</strong>
   See <a href="FORK-CHANGES.md">FORK-CHANGES.md</a> for the full breakdown.
 </div>

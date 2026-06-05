@@ -1,9 +1,9 @@
 # Copyright (c) 2026, Nexera and Contributors
 # License: GNU General Public License v3. See license.txt
 
-"""AP Invoice Capture Item — extracted invoice line item.
+"""Document Capture Item — extracted invoice line item.
 
-Child rows of ``AP Invoice Capture.line_items``. Mirrors the narrow shape of
+Child rows of ``Document Capture.line_items``. Mirrors the narrow shape of
 Purchase Invoice Item (description / qty / rate / amount / expense_account /
 cost_center / purchase_order / purchase_receipt) so ``promote_to_purchase_invoice``
 can map one capture line → one PI item row (Stream I), and the Stream-R Journal
@@ -16,7 +16,7 @@ from __future__ import annotations
 from frappe.model.document import Document
 
 
-class APInvoiceCaptureItem(Document):
+class DocumentCaptureItem(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 

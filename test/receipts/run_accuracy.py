@@ -29,7 +29,7 @@ import os
 
 import frappe
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
     _classify_text_anthropic,
     _detect_card_marker,
     _score_document_content,

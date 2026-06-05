@@ -106,7 +106,7 @@ def _extract_one(definition: dict, base_dir: str, provider: str, model, threshol
 	).insert(ignore_permissions=True)
 	frappe.db.commit()
 	try:
-		cap = frappe.new_doc("AP Invoice Capture")
+		cap = frappe.new_doc("Document Capture")
 		cap.source_filename = fname
 		cap.file_extension = definition["format"]
 		cap.intake_channel = "Manual ERPNext Upload"

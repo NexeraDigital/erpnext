@@ -4,7 +4,7 @@
 >
 > **Date drafted:** 2026-05-28.
 >
-> **Audience:** NexeraDigital pilot stakeholders; engineers implementing the real OCR adapter for `AP Invoice Capture`.
+> **Audience:** NexeraDigital pilot stakeholders; engineers implementing the real OCR adapter for `Document Capture`.
 >
 > **Scope:** Justifies the choice of **Anthropic Claude** (Haiku 4.5 default, Sonnet 4.6 / 4.7 fallback) as the OCR / structured-extraction provider that will replace the current `fake_extract` implementation in the AP closed-loop pilot. Does not cover prompt engineering, schema design, retry policy, or settings-DocType changes in detail — those belong in a separate implementation plan.
 >
@@ -14,7 +14,7 @@
 
 ## 0. TL;DR
 
-**Use Anthropic Claude as the OCR provider for AP Invoice Capture.** Within the Claude family, use **Claude Haiku 4.5** as the first-pass extractor and **Claude Sonnet 4.6 or 4.7** as the low-confidence fallback. Build it behind an `OCRProvider` adapter interface so a Document AI–class provider (Google Document AI Invoice Parser, AWS Textract, Mindee, etc.) can be added later without touching the state machine.
+**Use Anthropic Claude as the OCR provider for Document Capture.** Within the Claude family, use **Claude Haiku 4.5** as the first-pass extractor and **Claude Sonnet 4.6 or 4.7** as the low-confidence fallback. Build it behind an `OCRProvider` adapter interface so a Document AI–class provider (Google Document AI Invoice Parser, AWS Textract, Mindee, etc.) can be added later without touching the state machine.
 
 The two reasons this wins on the merits, not just on vendor alignment:
 
@@ -25,9 +25,9 @@ The two reasons this wins on the merits, not just on vendor alignment:
 
 ## 1. What the OCR step does in this pilot
 
-The `AP Invoice Capture` workflow has a deliberate **OCR proposal** step between intake and clerk review. Per `docs/architecture/FORK-CHANGES.md` §6.4, the current implementation:
+The `Document Capture` workflow has a deliberate **OCR proposal** step between intake and clerk review. Per `docs/architecture/FORK-CHANGES.md` §6.4, the current implementation:
 
-- Lives in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (function `run_fake_extraction`, around line 650) and in `erpnext/accounts/ap_closed_loop/walking_skeleton.py` (function `fake_extract`).
+- Lives in `erpnext/accounts/doctype/document_capture/document_capture.py` (function `run_fake_extraction`, around line 650) and in `erpnext/accounts/ap_closed_loop/walking_skeleton.py` (function `fake_extract`).
 - Uses a hash-based deterministic stand-in (`FAKE_OCR_PROVIDER = "fake-deterministic-v1"`) that generates plausible-but-fake values from the filename and content hash.
 - Writes structured output to a fixed set of `proposed_*` fields on the capture record: `proposed_supplier`, `proposed_supplier_invoice_no`, `proposed_invoice_date`, `proposed_total_amount`, `proposed_currency`, plus `proposed_missing_fields` and `proposed_ambiguous_fields` for low-confidence cases, plus `ocr_raw_response` (JSON) for the full provider payload.
 - Runs asynchronously via the existing cascade (`_enqueue_next` → `frappe.enqueue` with deduplication and per-capture job IDs).
@@ -202,7 +202,7 @@ erpnext/accounts/ap_closed_loop/
 └── walking_skeleton.py     # unchanged shape; uses get_extractor() to pick provider
 ```
 
-In `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`:
+In `erpnext/accounts/doctype/document_capture/document_capture.py`:
 
 - `run_fake_extraction()` becomes `run_extraction()`, dispatches to `get_extractor()` for the configured provider.
 - `FAKE_OCR_PROVIDER` constant becomes a value read from `AP Closed Loop Settings.ocr_provider`.
@@ -229,7 +229,7 @@ Best-practice patterns to bake in (regardless of model choice):
 
 ## 9. Decision (the one-line version)
 
-> Use Anthropic Claude as the OCR provider for AP Invoice Capture, defaulting to Haiku 4.5 with Sonnet 4.6 / 4.7 as the low-confidence fallback, behind an `OCRProvider` adapter that preserves the option to add Document AI or specialist providers later.
+> Use Anthropic Claude as the OCR provider for Document Capture, defaulting to Haiku 4.5 with Sonnet 4.6 / 4.7 as the low-confidence fallback, behind an `OCRProvider` adapter that preserves the option to add Document AI or specialist providers later.
 
 ---
 
@@ -252,8 +252,8 @@ Best-practice patterns to bake in (regardless of model choice):
 - [Claude Vision for Document Analysis — Stream](https://getstream.io/blog/anthropic-claude-visual-reasoning/)
 
 ### Repo-internal
-- `docs/architecture/FORK-CHANGES.md` §6.4 — current AP Invoice Capture pipeline, including the OCR proposal step.
-- `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` — `run_fake_extraction` function, current OCR integration point (lines ~650–720).
+- `docs/architecture/FORK-CHANGES.md` §6.4 — current Document Capture pipeline, including the OCR proposal step.
+- `erpnext/accounts/doctype/document_capture/document_capture.py` — `run_fake_extraction` function, current OCR integration point (lines ~650–720).
 - `erpnext/accounts/ap_closed_loop/walking_skeleton.py` — `fake_extract` function, the underlying deterministic stand-in.
 - `erpnext/accounts/doctype/ap_closed_loop_settings/` — Single DocType that will hold the OCR provider configuration.
 

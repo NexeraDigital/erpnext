@@ -122,7 +122,7 @@ class TestAsyncRunner(IntegrationTestCase):
 
         self.assertEqual(len(set_calls), 1)
         args, _kwargs = set_calls[0]
-        self.assertEqual(args[0], "AP Invoice Capture")
+        self.assertEqual(args[0], "Document Capture")
         self.assertEqual(args[1], "APIC-D")
         payload = args[2]
         self.assertEqual(payload["action_required"], 1)

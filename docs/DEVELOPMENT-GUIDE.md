@@ -50,7 +50,7 @@ Stop everything with `Ctrl+C` in the `bench start` terminal.
 Edit → save → refresh the page that calls it. `web` reloads automatically. No restart needed.
 
 Example file paths for this fork:
-- `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` — the main DocType controller
+- `erpnext/accounts/doctype/document_capture/document_capture.py` — the main DocType controller
 - `erpnext/accounts/ap_closed_loop/walking_skeleton.py` — pure-python end-to-end flow
 
 ### 2. Client-side (JavaScript)
@@ -77,7 +77,7 @@ bench --site erpnext.localhost run-tests \
   --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
 
 bench --site erpnext.localhost run-tests \
-  --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 
 ---
@@ -105,7 +105,7 @@ bench --site erpnext.localhost console
 iPython shell with `frappe` pre-imported and the site connected:
 
 ```python
-inv = frappe.get_doc("AP Invoice Capture", "APIC-2026-00001")
+inv = frappe.get_doc("Document Capture", "APIC-2026-00001")
 inv.run_method("validate_for_purchase_invoice")
 frappe.db.sql("SELECT name, outstanding_amount FROM `tabPurchase Invoice` LIMIT 5", as_dict=True)
 ```
@@ -130,7 +130,7 @@ frappe.db.sql("SELECT name, outstanding_amount FROM `tabPurchase Invoice` LIMIT 
 The global `frappe` object is available in the DevTools console:
 
 ```javascript
-frappe.db.get_doc("AP Invoice Capture", "APIC-2026-00001")
+frappe.db.get_doc("Document Capture", "APIC-2026-00001")
   .then(doc => console.log(doc));
 
 cur_frm.refresh();        // refresh the current form
@@ -177,9 +177,9 @@ http://erpnext.localhost:8000/api/method/<dotted.python.path>
 Examples (per `docs/architecture/FORK-CHANGES.md`):
 
 ```
-POST /api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.create_capture_from_uploaded_file
-POST /api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.run_fake_extraction_for?capture=APIC-2026-00001
-POST /api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.build_closure_evidence_for?capture=APIC-2026-00001
+POST /api/method/erpnext.accounts.doctype.document_capture.document_capture.create_capture_from_uploaded_file
+POST /api/method/erpnext.accounts.doctype.document_capture.document_capture.run_fake_extraction_for?capture=APIC-2026-00001
+POST /api/method/erpnext.accounts.doctype.document_capture.document_capture.build_closure_evidence_for?capture=APIC-2026-00001
 ```
 
 Use a session cookie from the logged-in browser, or a server-issued API key/secret.
@@ -188,16 +188,16 @@ Use a session cookie from the logged-in browser, or a server-issued API key/secr
 
 ## A typical day, end to end
 
-Adding a button to `AP Invoice Capture` that runs a new validation:
+Adding a button to `Document Capture` that runs a new validation:
 
-1. Edit `apps/erpnext/erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` — add a new `@frappe.whitelist()` function.
-2. Edit `ap_invoice_capture.js` — add a `frm.add_custom_button(...)` that calls your new endpoint.
+1. Edit `apps/erpnext/erpnext/accounts/doctype/document_capture/document_capture.py` — add a new `@frappe.whitelist()` function.
+2. Edit `document_capture.js` — add a `frm.add_custom_button(...)` that calls your new endpoint.
 3. Save both. `web` reloads instantly; `watch` rebuilds the JS in ~2 seconds.
-4. Hard-refresh the AP Invoice Capture form in the browser → click the new button.
+4. Hard-refresh the Document Capture form in the browser → click the new button.
 5. If Python errored → check `web.1` lines of `bench start` or `/app/error-log`.
 6. If JS errored → DevTools console.
 7. If the button does nothing → `debugger;` in the JS handler, `print(...)` in the Python function.
-8. Write a test in `test_ap_invoice_capture.py`. Run with `bench --site erpnext.localhost run-tests --module ...`.
+8. Write a test in `test_document_capture.py`. Run with `bench --site erpnext.localhost run-tests --module ...`.
 9. Commit and push from `~/frappe-bench/apps/erpnext`.
 
 ---

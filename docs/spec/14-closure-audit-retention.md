@@ -39,19 +39,19 @@ This spec closes the loop **automatically** — closure is **derived, never decl
 
 What ships today on `russ/migrateToV16` @ `51ef0f7554` that this builds on or replaces:
 
-1. **`build_closure_evidence(capture)`** — `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py:1523-1631`. Accepts a capture name or doc; returns one dict with blocks `capture`, `ocr` (`proposal{}`/`final{}`), `validation`, `approval`, `payment`, `native` (`purchase_invoice`, `payment_entry`, `gl_entries[]`, `gl_entry_count`, `bank_transaction_count`), plus top-level `closed` (bool) and `closure_basis` (str). **This is the single-record seed for `build_audit_trail_for`, but it has NO `history` block (Version), NO `gates` block, and NO `bank_match` block today.**
+1. **`build_closure_evidence(capture)`** — `erpnext/accounts/doctype/document_capture/document_capture.py:1523-1631`. Accepts a capture name or doc; returns one dict with blocks `capture`, `ocr` (`proposal{}`/`final{}`), `validation`, `approval`, `payment`, `native` (`purchase_invoice`, `payment_entry`, `gl_entries[]`, `gl_entry_count`, `bank_transaction_count`), plus top-level `closed` (bool) and `closure_basis` (str). **This is the single-record seed for `build_audit_trail_for`, but it has NO `history` block (Version), NO `gates` block, and NO `bank_match` block today.**
 
-2. **Current `closure_basis` (quote, `ap_invoice_capture.py:1626-1630`):**
+2. **Current `closure_basis` (quote, `document_capture.py:1626-1630`):**
    > "Closed is derived from native ERPNext state: submitted Purchase Invoice, submitted Payment Entry, Purchase Invoice outstanding_amount=0, and status Paid. No custom closed flag is stored; Bank Transaction count must remain 0."
-   The final clause **conflicts with dual-signal closure** — bank-cleared closure *requires* a Bank Transaction. This string and the assertions at `test_ap_invoice_capture.py:1208` (`bank_transaction_count == 0`) and `:1210` ("No custom closed flag") must be rewritten in the same PR.
+   The final clause **conflicts with dual-signal closure** — bank-cleared closure *requires* a Bank Transaction. This string and the assertions at `test_document_capture.py:1208` (`bank_transaction_count == 0`) and `:1210` ("No custom closed flag") must be rewritten in the same PR.
 
-3. **`closed` derivation** (`ap_invoice_capture.py:1551-1558`) and **`_derive_payment_lifecycle_status`** (`ap_invoice_capture.py:1402-1423`) are **single-signal**: `closed == (PI docstatus 1 AND PE docstatus 1 AND PI outstanding == 0 AND PI status == 'Paid')`. No bank-clearing leg.
+3. **`closed` derivation** (`document_capture.py:1551-1558`) and **`_derive_payment_lifecycle_status`** (`document_capture.py:1402-1423`) are **single-signal**: `closed == (PI docstatus 1 AND PE docstatus 1 AND PI outstanding == 0 AND PI status == 'Paid')`. No bank-clearing leg.
 
-4. **`payment_lifecycle_status` field options** (`ap_invoice_capture.json:577-581`) are exactly `"Not Requested\nConfirmed\nClosed\nBlocked"` (default `Not Requested`, `read_only`, `in_standard_filter`). Constants `PAYMENT_LIFECYCLE_*` at `ap_invoice_capture.py:88-91`; `PAYMENT_LIFECYCLE_CLOSED == "Closed"`.
+4. **`payment_lifecycle_status` field options** (`document_capture.json:577-581`) are exactly `"Not Requested\nConfirmed\nClosed\nBlocked"` (default `Not Requested`, `read_only`, `in_standard_filter`). Constants `PAYMENT_LIFECYCLE_*` at `document_capture.py:88-91`; `PAYMENT_LIFECYCLE_CLOSED == "Closed"`.
 
-5. **`_bank_transaction_count_for_payment_entry(payment_entry)`** (`ap_invoice_capture.py:1393-1399`) counts rows in child table `Bank Transaction Payments` where `payment_document='Payment Entry'` and `payment_entry=<pe>`. **This is the only existing hook into bank reconciliation.** It returns a count, not the parent Bank Transaction — it must be generalized to resolve the parent BT name and to accept `Journal Entry` as `payment_document`.
+5. **`_bank_transaction_count_for_payment_entry(payment_entry)`** (`document_capture.py:1393-1399`) counts rows in child table `Bank Transaction Payments` where `payment_document='Payment Entry'` and `payment_entry=<pe>`. **This is the only existing hook into bank reconciliation.** It returns a count, not the parent Bank Transaction — it must be generalized to resolve the parent BT name and to accept `Journal Entry` as `payment_document`.
 
-6. **Whitelisted entrypoints** (`@frappe.whitelist()`): `build_closure_evidence_for(capture)` at `ap_invoice_capture.py:1748`; `get_ap_lifecycle_rows_for()` at `:1753`; `get_manager_approval_queue_for()` at `:1758`. `build_audit_trail_for` will be a sibling of `build_closure_evidence_for`.
+6. **Whitelisted entrypoints** (`@frappe.whitelist()`): `build_closure_evidence_for(capture)` at `document_capture.py:1748`; `get_ap_lifecycle_rows_for()` at `:1753`; `get_manager_approval_queue_for()` at `:1758`. `build_audit_trail_for` will be a sibling of `build_closure_evidence_for`.
 
 7. **Walking-skeleton twin** — `erpnext/accounts/ap_closed_loop/walking_skeleton.py` defines `ClosureEvidence` (lines 100-121, fields include `bank_transaction_count: int = 0`, `closed`, `closure_basis`) and `build_closure_evidence(...)` (~lines 285-339) with the same single-signal logic and analogous `closure_basis` string (lines 310-315). Its tests assert the old string at `test_walking_skeleton.py:78-79` (`"docstatus=1"` and `"No custom closed flag"`). Keep in sync or document the divergence.
 
@@ -77,7 +77,7 @@ The grounded research brief returned an **empty `upstream_citations` array** (ve
 | C-3 | `https://docs.frappe.io/erpnext/user/manual/en/period-closing-voucher` (seed, verified=false) | ERPNext Period Closing Voucher + Account Closing Balance concept (TB-drift prior baseline). No quote — re-verify against installed v16 docs. | (page-level; grounding rests on C-1/C-2 in-repo source). |
 | C-4 | `frappe/frappe` core `frappe/core/doctype/version/version.json` (vendored, in bench) | The `Version` doctype field shape for the history block. Fields: `ref_doctype` (Link→DocType, reqd), `docname` (Data, reqd), `data` (Code, hidden), `table_html` (HTML). `track_changes: 1`, `in_create: 1`, `sort_field: creation`, `sort_order: DESC`, `naming_rule: Random`/`autoname: hash`. | Read at `apps/frappe/frappe/core/doctype/version/version.json` lines 16-51, 81. Change payload is `Version.data`. |
 | C-5 | `https://github.com/frappe/frappe/blob/version-15/frappe/core/doctype/version/version.json` (seed, verified=false) | Public mirror of C-4. Branch is `version-15`; bench runs v16 — **C-4 (the installed JSON) is authoritative**, this URL is for reference only. | (mirror of C-4). |
-| C-6 | `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json:669` (in-repo) | `track_changes: 1` on AP Invoice Capture — the capture's own field-level history is automatic. | `"track_changes": 1`. |
+| C-6 | `erpnext/accounts/doctype/document_capture/document_capture.json:669` (in-repo) | `track_changes: 1` on Document Capture — the capture's own field-level history is automatic. | `"track_changes": 1`. |
 | C-7 | `erpnext/accounts/doctype/purchase_invoice/purchase_invoice.json`, `payment_entry.json`, `journal_entry.json`, `bank_transaction.json` (in-repo) | **All four linked voucher types carry `track_changes: 1`** — history coverage for PI/PE/JE/BT is real, not aspirational. | Verified `track_changes: 1` on each of the four DocType JSONs. |
 | C-8 | `erpnext/accounts/doctype/bank_transaction_payments/bank_transaction_payments.json` (in-repo) | The bank-match link shape. Child table fields: `payment_document` (Link→DocType), `payment_entry` (Dynamic Link, options=`payment_document`), `allocated_amount` (Currency), `clearance_date` (Date). Parent is Bank Transaction. | The `bank_match` block reads the parent `Bank Transaction` via this child's `parent`. The Dynamic Link `payment_entry` holds the disbursing-voucher name regardless of doctype, so JE rows are addressable for Stream R. |
 | C-9 | `erpnext/accounts/doctype/bank_transaction/bank_transaction.json` (in-repo) | Bank Transaction fields available to the bank-match block: `date` (Date), `status` (Select), `bank_account` (Link), `reference_number` (Small Text), `deposit`/`withdrawal`/`allocated_amount` (Currency). **There is NO native `reconciled_by`/`reconciled_at` field, and [[13-bank-feed-reconciliation]] adds none** (its new fields are `bank_transaction`, `bank_cleared`, `bank_cleared_at`). Per **resolved D-14-5**, the block sources `reconciled_by` ← BT `modified_by` and `reconciled_at` ← BT `modified`. | `bank_transaction.json` has no `reconciled_by`/`reconciled_at`; fallback to the framework audit columns `modified_by` / `modified` (always present). **Resolved — no spec-13 dependency.** |
@@ -94,7 +94,7 @@ The grounded research brief returned an **empty `upstream_citations` array** (ve
 
 **No new closure/audit DocType.** `build_audit_trail_for` returns an **in-memory composite dict** assembled on demand from (1) live `build_closure_evidence`, (2) a `Version`-history block, (3) a gates block, (4) a bank-match block. It MUST NOT be persisted — a stored snapshot would drift from live linked-doc state.
 
-**A) Changed field — `payment_lifecycle_status`** (existing Select, `ap_invoice_capture.json:577-581`) — **reconciled with [[13-bank-feed-reconciliation]] (cross-spec consistency).**
+**A) Changed field — `payment_lifecycle_status`** (existing Select, `document_capture.json:577-581`) — **reconciled with [[13-bank-feed-reconciliation]] (cross-spec consistency).**
 
 > **Vocabulary aligned with spec 13.** An earlier draft of this spec proposed two new terminals `Closed (Settled)` / `Closed (Bank Cleared)`. That **diverged** from [[13-bank-feed-reconciliation]], which adds the single value `Bank Cleared`. To keep specs 13 and 14 in agreement, **do NOT add `Closed (Settled)` / `Closed (Bank Cleared)`.** Instead, keep the existing enum and add **only** `Bank Cleared`, and carry the two closure SIGNALS as derived fields (`settled`, `bank_cleared`), not as extra enum values.
 
@@ -106,10 +106,10 @@ The grounded research brief returned an **empty `upstream_citations` array** (ve
 
 | field | shape | derivation |
 |---|---|---|
-| `settled` | bool | submitted Purchase Invoice **+** submitted Payment Entry, PI `outstanding_amount == 0`, PI `status == "Paid"` (existing single-signal logic at `ap_invoice_capture.py:1551-1558`). The state behind the `Closed` enum value. |
+| `settled` | bool | submitted Purchase Invoice **+** submitted Payment Entry, PI `outstanding_amount == 0`, PI `status == "Paid"` (existing single-signal logic at `document_capture.py:1551-1558`). The state behind the `Closed` enum value. |
 | `bank_cleared` | Check, `read_only` (the field [[13-bank-feed-reconciliation]] adds) **/** bool in the evidence dict | set on bank match — the disbursing voucher is matched to a Bank Transaction (`Bank Transaction Payments`). `settled AND bank_cleared` ⇒ `payment_lifecycle_status == "Bank Cleared"`. |
 
-**B) New fields on `AP Invoice Capture` (retention):**
+**B) New fields on `Document Capture` (retention):**
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
@@ -124,7 +124,7 @@ The grounded research brief returned an **empty `upstream_citations` array** (ve
 | `drift_threshold_cents` | Int | default `100` (= $1.00) | TB-drift report flags rows where `abs(drift)` in cents exceeds this. Cents to avoid FX/rounding false-positives. |
 | `ap_notification_role` | Link → Role | default `Accounts Manager` | Role notified when the scheduler flags records for archive. Recommend `AP Clerk` once that role lands ([[11-approval-sod-workflow]]). |
 
-**D) Composite dict — `build_audit_trail_for(capture)` return shape** (in-memory, not stored). Extends the `build_closure_evidence` dict (`ap_invoice_capture.py:1560-1631`) with:
+**D) Composite dict — `build_audit_trail_for(capture)` return shape** (in-memory, not stored). Extends the `build_closure_evidence` dict (`document_capture.py:1560-1631`) with:
 
 | key | shape | source |
 |---|---|---|
@@ -160,13 +160,13 @@ The grounded research brief returned an **empty `upstream_citations` array** (ve
 | `drift_cents` | Int | `round(drift * 100)` |
 | `over_threshold` | Check | `abs(drift_cents) > settings.drift_threshold_cents` |
 
-**G) Print Format — `AP Audit Trail`** (Jinja Print Format, **no new DocType**). `print_format_type = Jinja`, `custom_format = 1`, `doc_type = AP Invoice Capture`, `html` = Jinja template. Place under `erpnext/accounts/print_format/ap_audit_trail/`. Template renders the `build_audit_trail_for(doc.name)` payload sections (image ref → extraction → validation → approval → payment → bank-match → posting/GL → history → gates) to one PDF (C-10).
+**G) Print Format — `AP Audit Trail`** (Jinja Print Format, **no new DocType**). `print_format_type = Jinja`, `custom_format = 1`, `doc_type = Document Capture`, `html` = Jinja template. Place under `erpnext/accounts/print_format/ap_audit_trail/`. Template renders the `build_audit_trail_for(doc.name)` payload sections (image ref → extraction → validation → approval → payment → bank-match → posting/GL → history → gates) to one PDF (C-10).
 
-**Permissions:** `build_audit_trail_for` is a read endpoint exposing financial + actor data — gate it with the capture's read permission (default `@frappe.whitelist()` already enforces the doc read-perm path used by `build_closure_evidence_for`). An auditor-only print variant SHOULD be gated with `frappe.only_for(...)` consistent with `issue_mock_payment`'s `frappe.only_for(MANAGER_APPROVAL_ROLE_DEFAULT)` at `ap_invoice_capture.py:1441`. New role `'Auditor (Read Only)'` (per bible) is the recommended grant for read-only audit retrieval — call it out as new when used.
+**Permissions:** `build_audit_trail_for` is a read endpoint exposing financial + actor data — gate it with the capture's read permission (default `@frappe.whitelist()` already enforces the doc read-perm path used by `build_closure_evidence_for`). An auditor-only print variant SHOULD be gated with `frappe.only_for(...)` consistent with `issue_mock_payment`'s `frappe.only_for(MANAGER_APPROVAL_ROLE_DEFAULT)` at `document_capture.py:1441`. New role `'Auditor (Read Only)'` (per bible) is the recommended grant for read-only audit retrieval — call it out as new when used.
 
 ### 5.2 Endpoints
 
-All whitelisted methods live in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (sibling to `build_closure_evidence_for` at `:1748`) and follow the file's `str | doc` dual-accept convention. Report `execute` lives in the new report module.
+All whitelisted methods live in `erpnext/accounts/doctype/document_capture/document_capture.py` (sibling to `build_closure_evidence_for` at `:1748`) and follow the file's `str | doc` dual-accept convention. Report `execute` lives in the new report module.
 
 ```python
 # New — single-record audit retrieval (whitelisted)
@@ -186,15 +186,15 @@ def _bank_match_for(payment_doctype: str, payment_name: str | None) -> dict | No
     payment_doctype in ('Payment Entry','Journal Entry'). Returns
     {bank_transaction, date, amount, reconciled_by, reconciled_at} or None."""
 
-# Generalized from _bank_transaction_count_for_payment_entry (ap_invoice_capture.py:1393)
+# Generalized from _bank_transaction_count_for_payment_entry (document_capture.py:1393)
 def _bank_transaction_for_payment(payment_doctype: str, payment_name: str | None) -> str | None:
     """Resolve the parent Bank Transaction name for a disbursing voucher; None if unmatched."""
 
-# Changed — build_closure_evidence(ap_invoice_capture.py:1523) extended in place:
+# Changed — build_closure_evidence(document_capture.py:1523) extended in place:
 #   + top-level bank_match{}, settled, bank_cleared; closed = settled or bank_cleared;
 #   + rewritten closure_basis (stream-aware, no "must remain 0" clause).
 
-# Changed — _derive_payment_lifecycle_status(ap_invoice_capture.py:1402): signal-aware.
+# Changed — _derive_payment_lifecycle_status(document_capture.py:1402): signal-aware.
 ```
 
 **Report module** `erpnext/accounts/report/accounts_payable_trial_balance_drift/accounts_payable_trial_balance_drift.py`:
@@ -212,7 +212,7 @@ def flag_captures_for_retention() -> None:
     """Scheduler entrypoint (daily). FLAG-ONLY — never deletes (IRS 7-year)."""
 ```
 
-**Normalization convention:** UI callers pass `capture` as a name **string**; internal helpers accept `str | doc` and `frappe.get_doc("AP Invoice Capture", capture)` if a string — identical to `build_closure_evidence` (`ap_invoice_capture.py:1526-1527`). The report `execute` receives `filters` as a dict (Frappe deserializes the JSON filter payload before calling).
+**Normalization convention:** UI callers pass `capture` as a name **string**; internal helpers accept `str | doc` and `frappe.get_doc("Document Capture", capture)` if a string — identical to `build_closure_evidence` (`document_capture.py:1526-1527`). The report `execute` receives `filters` as a dict (Frappe deserializes the JSON filter payload before calling).
 
 ### 5.3 Logic
 
@@ -225,7 +225,7 @@ def flag_captures_for_retention() -> None:
 - *Precondition:* `capture` resolves; otherwise `frappe.get_doc` raises **`frappe.DoesNotExistError`** (no custom exception needed — this is a read path).
 - *Idempotency:* pure read; naturally idempotent.
 
-**(2) `build_closure_evidence` extension** (`ap_invoice_capture.py:1523`):
+**(2) `build_closure_evidence` extension** (`document_capture.py:1523`):
 1. Resolve the disbursing voucher: Stream I → `(payment_doctype="Payment Entry", payment_name=capture.payment_entry)`; Stream R → `(payment_doctype="Journal Entry", payment_name=capture.journal_entry)` **iff** the `journal_entry` field exists (else `None` — R path stubbed, see §5.4).
 2. `bank_match = _bank_match_for(payment_doctype, payment_name)`; add top-level `payload["bank_match"] = bank_match`.
 3. `settled = <existing PI-Paid + PE-submitted logic>` (unchanged at `:1551-1558`).
@@ -234,22 +234,22 @@ def flag_captures_for_retention() -> None:
 6. **Rewrite `closure_basis`** (drops the "must remain 0" clause):
    > "Settled = submitted Purchase Invoice (outstanding_amount=0, status Paid) + submitted disbursing voucher. Bank-cleared = the disbursing voucher is matched to a Bank Transaction (Bank Transaction Payments). Closed when either signal holds. Stream R clears on the Journal Entry's bank match; Stream I clears on the Payment Entry's bank match."
 7. `native.bank_transaction_count` stays for back-compat but is **no longer asserted to be 0**.
-- *Test-migration item:* `test_ap_invoice_capture.py:1208` (`== 0`) and `:1210` ("No custom closed flag") MUST change in the same PR; `test_walking_skeleton.py:78-79` if the twin is updated (see §5.5).
+- *Test-migration item:* `test_document_capture.py:1208` (`== 0`) and `:1210` ("No custom closed flag") MUST change in the same PR; `test_walking_skeleton.py:78-79` if the twin is updated (see §5.5).
 
 **(3) `_bank_match_for(payment_doctype, payment_name)`**
-1. If `payment_name` falsy or `Bank Transaction`/`Bank Transaction Payments` DocTypes absent → return `None` (mirrors the guard at `ap_invoice_capture.py:1394`).
+1. If `payment_name` falsy or `Bank Transaction`/`Bank Transaction Payments` DocTypes absent → return `None` (mirrors the guard at `document_capture.py:1394`).
 2. Find the `Bank Transaction Payments` row where `payment_document == payment_doctype` and `payment_entry == payment_name`; read its `parent` (the Bank Transaction name) and `allocated_amount`.
 3. Read parent `Bank Transaction`: `date`, and `reconciled_by` ← BT `modified_by`, `reconciled_at` ← BT `modified` (**resolved D-14-5** — no native or spec-13 `reconciled_by`/`reconciled_at` field exists; use the framework audit columns).
 4. Return `{bank_transaction, date, amount, reconciled_by, reconciled_at}` or `None` if no row.
 
 **(4) `_audit_history_for(capture)`**
-1. Collect `(ref_doctype, docname)` pairs: `("AP Invoice Capture", capture.name)`, and for each non-null link `("Purchase Invoice", capture.purchase_invoice)`, `("Payment Entry", capture.payment_entry)`, `("Journal Entry", capture.journal_entry if present)`, and the resolved Bank Transaction.
+1. Collect `(ref_doctype, docname)` pairs: `("Document Capture", capture.name)`, and for each non-null link `("Purchase Invoice", capture.purchase_invoice)`, `("Payment Entry", capture.payment_entry)`, `("Journal Entry", capture.journal_entry if present)`, and the resolved Bank Transaction.
 2. For each pair, `frappe.get_all("Version", filters={"ref_doctype": dt, "docname": name}, fields=["name","owner","creation","data"], order_by="creation asc")` (mirrors the `transaction_deletion_record.py` Version query pattern; C-4).
 3. Merge all rows, sort by `creation asc`, return. Coverage is **real for all four linked voucher types** (C-7 confirmed `track_changes:1` on each).
 
 **(5) `_audit_gates_for(capture)`** — return the §5.1-E gate list, deriving `outcome`/`detail` from existing capture fields + `json.loads(capture.mock_payment_response or "{}")`. Gates with no instrumentation yet emit `{"gate": ..., "outcome": "not-instrumented", "source": "<future spec>"}` so the print/print-format is honest about coverage.
 
-**(6) `_derive_payment_lifecycle_status` (signal-aware)** (`ap_invoice_capture.py:1402`):
+**(6) `_derive_payment_lifecycle_status` (signal-aware)** (`document_capture.py:1402`):
 1. `if is_payment_blocked(capture): return PAYMENT_LIFECYCLE_BLOCKED`.
 2. `if not capture.payment_entry (and no journal_entry): return PAYMENT_LIFECYCLE_NOT_REQUESTED`.
 3. Compute `settled`/`bank_cleared` (reuse the evidence helpers).
@@ -270,16 +270,16 @@ def flag_captures_for_retention() -> None:
 *Why a custom scheduler and not native `Log Settings`:* native `Log Settings` (C-13) is a real scheduler-driven retention engine, but it **deletes** rows older than N days via `clear_old_logs` — the opposite of IRS 7-year keep-forever. There is no native "flag-and-keep" retention surface, so this flag-only, never-delete scheduler is the justified custom path, not a reinvention.
 
 1. `years = settings.retention_years or 7`; `cutoff = now - years`.
-2. Select `AP Invoice Capture` where `received_at < cutoff` AND `archive_pending = 0` (idempotent self-guard — skips already-flagged).
-3. For each: `frappe.db.set_value("AP Invoice Capture", name, {"archive_pending": 1, "archived_flagged_at": now})` (C-12). **Never `delete`.**
-4. Flag linked `File` rows (`attached_to_doctype="AP Invoice Capture"`, `attached_to_name=name`) — set a marker (recommend a custom `File` flag field added by this spec, or skip if out-of-scope and note it).
+2. Select `Document Capture` where `received_at < cutoff` AND `archive_pending = 0` (idempotent self-guard — skips already-flagged).
+3. For each: `frappe.db.set_value("Document Capture", name, {"archive_pending": 1, "archived_flagged_at": now})` (C-12). **Never `delete`.**
+4. Flag linked `File` rows (`attached_to_doctype="Document Capture"`, `attached_to_name=name`) — set a marker (recommend a custom `File` flag field added by this spec, or skip if out-of-scope and note it).
 5. Emit **one** `Notification`/notification-log to `settings.ap_notification_role` summarizing the batch (not per-record, to avoid spam).
 - *Guarantee:* zero deletions — asserted in tests (§7).
 - *Cold-storage handoff is explicitly out of scope* (later phase).
 
 ### 5.4 Cascade & stream-awareness
 
-- **No new pause point.** Closure/audit-trail retrieval is a **read-side aggregator**, not a state transition — it does NOT participate in `_determine_next_step` / the `after_insert → _kick_next_step → _enqueue_next` cascade. The mock-payment wrapper already calls `_kick_next_step()` "for symmetry … so any future hop (e.g. closure-evidence auto-generation) plugs in" (`ap_invoice_capture.py:1739-1743`) — closure remains a terminal read, not an auto-advanced step.
+- **No new pause point.** Closure/audit-trail retrieval is a **read-side aggregator**, not a state transition — it does NOT participate in `_determine_next_step` / the `after_insert → _kick_next_step → _enqueue_next` cascade. The mock-payment wrapper already calls `_kick_next_step()` "for symmetry … so any future hop (e.g. closure-evidence auto-generation) plugs in" (`document_capture.py:1739-1743`) — closure remains a terminal read, not an auto-advanced step.
 - **Dual-signal terminal — derived, never declared (the automation-first heart of closure).** The capture's terminal `payment_lifecycle_status` advances **passively** from `Closed` (settled) → `Bank Cleared` (settled AND bank_cleared) when [[13-bank-feed-reconciliation]] lands the Bank Transaction match. **There is deliberately no "mark closed" action, button, or human step** — no enqueue, no flag hand-set; the value is **re-derived** each time evidence is built from the `settled`/`bank_cleared` signals (consistent with the "no custom closed flag" design, and with spec 13's vocabulary). A human is involved in closure only when an automated output **surfaces an exception** — specifically a TB-drift row over threshold (§5.3-7) — never to declare a clean closure.
 - **Stream R vs Stream I divergence:**
   - **Stream I (PE path) — fully implemented in v1.** `_bank_match_for("Payment Entry", capture.payment_entry)`.
@@ -320,7 +320,7 @@ def flag_captures_for_retention() -> None:
 
 Base class `frappe.tests.IntegrationTestCase`; roll back DB writes in `tearDown` so suites are reentrant.
 
-**Module 1 — `erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py`** (extend; reuse `_capture_through_payment` at `:1159`):
+**Module 1 — `erpnext/accounts/doctype/document_capture/test_document_capture.py`** (extend; reuse `_capture_through_payment` at `:1159`):
 - `test_build_audit_trail_for_full_lifecycle` *(positive, AC-14-1/2)* — payload has all required keys; `history` non-empty and `creation asc`; blocks carry the same values the existing closure test asserts.
 - `test_build_audit_trail_unknown_raises` *(negative, AC-14-3)* — `frappe.DoesNotExistError`.
 - `test_build_audit_trail_no_payment_no_history` *(edge, AC-14-4)* — `bank_match is None`, no throw.
@@ -335,7 +335,7 @@ Base class `frappe.tests.IntegrationTestCase`; roll back DB writes in `tearDown`
 - `test_zero_drift_not_flagged` *(negative, AC-14-10)*.
 - `test_no_prior_pcv_treats_prior_zero` *(edge, AC-14-11)* — and a sub-threshold (1-cent-under) row is unflagged.
 
-**Module 3 — retention** (`test_ap_invoice_capture.py` or a new `erpnext/accounts/ap_closed_loop/test_retention.py`):
+**Module 3 — retention** (`test_document_capture.py` or a new `erpnext/accounts/ap_closed_loop/test_retention.py`):
 - `test_retention_flags_old_capture` *(positive, AC-14-12)*.
 - `test_retention_skips_recent` *(negative, AC-14-13)*.
 - `test_retention_idempotent_no_delete` *(edge, AC-14-14)* — assert no duplicate Notification AND `frappe.db.exists(...)` still true.
@@ -343,7 +343,7 @@ Base class `frappe.tests.IntegrationTestCase`; roll back DB writes in `tearDown`
 
 Run locally:
 ```
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 bench --site <site> run-tests --module erpnext.accounts.report.accounts_payable_trial_balance_drift.test_accounts_payable_trial_balance_drift
 ```
 Confirm green before declaring done — console probes are not sufficient (CLAUDE.md).
@@ -366,14 +366,14 @@ Browser-driven verification of the desk UI this slice adds — the audit-trail r
 
 **Scenarios** (`route → action → expected UI → DB assertion`):
 - On a fully closed capture, trigger the audit-trail view/action → the full chain (image → extraction → validation → approval → payment → bank-match → posting) renders in one place; screenshot.
-- Render the `AP Audit Trail` print format at `/app/print/AP Invoice Capture/<name>?format=AP%20Audit%20Trail` → the PDF/preview renders without truncation for a multi-line invoice (and a reject-and-reopen history); screenshot.
+- Render the `AP Audit Trail` print format at `/app/print/Document Capture/<name>?format=AP%20Audit%20Trail` → the PDF/preview renders without truncation for a multi-line invoice (and a reject-and-reopen history); screenshot.
 - Open the `Accounts Payable Trial Balance Drift` report → it renders and flags a synthetic 1¢ drift; screenshot.
 
 **Not browser-testable in this slice** (covered by §7.1/§7.2): the Version-history aggregation, and the 7-year retention flag scheduler — §7.1.
 
 ## 8. Open decisions
 
-- **D-14-1 — `payment_lifecycle_status` value set (RECONCILED with [[13-bank-feed-reconciliation]]).** Options: (a) keep `Closed` (= settled state) + add the single value `Bank Cleared` matching spec 13, carry the signals as derived `settled`/`bank_cleared` fields; (b) add two terminals `Closed (Settled)`/`Closed (Bank Cleared)` (the original draft — **rejected: diverges from spec 13**); (c) migrate all and drop `Closed`. **Recommended default: (a)** — single new `Bank Cleared` value, `Closed` retained as the settled-state value / back-compat alias (avoids breaking `PAYMENT_LIFECYCLE_CLOSED`, `ap_invoice_capture.py:90`, and the 5 existing assertions), and **agrees with [[13-bank-feed-reconciliation]]'s enum** so the two specs don't fork the vocabulary. Owner: AP closed-loop lead. Lock: before the JSON Select edit lands (build start). Verify v16 patch conventions before writing any data patch.
+- **D-14-1 — `payment_lifecycle_status` value set (RECONCILED with [[13-bank-feed-reconciliation]]).** Options: (a) keep `Closed` (= settled state) + add the single value `Bank Cleared` matching spec 13, carry the signals as derived `settled`/`bank_cleared` fields; (b) add two terminals `Closed (Settled)`/`Closed (Bank Cleared)` (the original draft — **rejected: diverges from spec 13**); (c) migrate all and drop `Closed`. **Recommended default: (a)** — single new `Bank Cleared` value, `Closed` retained as the settled-state value / back-compat alias (avoids breaking `PAYMENT_LIFECYCLE_CLOSED`, `document_capture.py:90`, and the 5 existing assertions), and **agrees with [[13-bank-feed-reconciliation]]'s enum** so the two specs don't fork the vocabulary. Owner: AP closed-loop lead. Lock: before the JSON Select edit lands (build start). Verify v16 patch conventions before writing any data patch.
 - **D-14-2 — persist audit payload vs render-on-demand.** Options: (a) in-memory composite each call; (b) store a snapshot DocType. **Recommended: (a)** — must always reflect live linked-doc state. Owner: architecture. Lock: at spec sign-off (decided here, flagged for confirmation).
 - **D-14-3 — Stream R (JE) closure scope in v1.** Options: (a) stub behind the missing `journal_entry`/`stream` field, ship I-path only; (b) block this spec until [[07-classification-doctype-branching]]/[[02-intake-stream-tagging]] land the field. **Recommended: (a) stub** — unblocks the I-path and the audit trail now. Owner: AP lead + classification-spec owner. Lock: when [[07-classification-doctype-branching]] data model is finalized.
 - **D-14-4 — `gates[]` fidelity in v1.** Options: (a) best-effort summary from existing fields + `mock_payment_response`, mark uninstrumented gates `"not-instrumented"`; (b) block until [[10-ap-review-observability]]/[[05-supplier-resolution]]/[[11-approval-sod-workflow]] land their event doctypes. **Recommended: (a)** — honest partial coverage now. Owner: AP lead. Lock: build start.

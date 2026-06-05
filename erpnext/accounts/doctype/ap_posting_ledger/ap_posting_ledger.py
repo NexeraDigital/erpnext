@@ -32,4 +32,5 @@ class APPostingLedger(Document):
 		result_name: DF.Data | None
 		step: DF.Data | None
 	# end: auto-generated types
+
 	pass

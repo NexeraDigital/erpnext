@@ -32,7 +32,7 @@ That's six+ manual steps per invoice. Brandon's pilot turns it into a tracked, s
 
 ## What he actually built — one new "thing"
 
-A single new database table called **`AP Invoice Capture`**. Think of it as a "ticket" that follows one invoice from when it arrives until it's paid. Each ticket records every step's evidence:
+A single new database table called **`Document Capture`**. Think of it as a "ticket" that follows one invoice from when it arrives until it's paid. Each ticket records every step's evidence:
 
 | Stage | What happens | What gets recorded |
 |---|---|---|
@@ -77,7 +77,7 @@ Baked into the code AND enforced by tests:
 Two files do all the work:
 
 - **`walking_skeleton.py`** (365 lines) — a pure-Python script that runs the entire flow end-to-end with no UI. Used to *prove* the spine works against ERPNext's Purchase Invoice + Payment Entry before any DocType was built.
-- **`ap_invoice_capture.py`** (1,424 lines) — the real DocType controller with all the state-machine logic, validation, supplier matching, approval routing, and mock payment writeback.
+- **`document_capture.py`** (1,424 lines) — the real DocType controller with all the state-machine logic, validation, supplier matching, approval routing, and mock payment writeback.
 
 Plus **66 tests** covering every state transition, every guardrail, and the auto-progression cascade.
 
@@ -111,21 +111,21 @@ Brandon's code + the Phase-2 UI is installed and live in this local site.
 
 - Sidebar: open `/app/invoicing` and expand **Payables → Invoice Capture**
 - List view: `/app/ap-invoice-capture`
-- DocType definition: `/app/doctype/AP Invoice Capture`
+- DocType definition: `/app/doctype/Document Capture`
 
 To create a capture: open the list, click "+ Add", then click **Upload Invoice** on the form. The cascade takes it from there.
 
 To create one via API:
 
 ```
-POST /api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.create_capture_from_uploaded_file
+POST /api/method/erpnext.accounts.doctype.document_capture.document_capture.create_capture_from_uploaded_file
 ```
 
 Or just run the test suite to see the whole flow happen end-to-end:
 
 ```bash
 bench --site erpnext.localhost run-tests --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
-bench --site erpnext.localhost run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site erpnext.localhost run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 
 ---
@@ -349,4 +349,4 @@ We measured it on a set of **42 labelled test receipts/invoices** (built for exa
 
 ## TL;DR
 
-Two new things. **(1)** One new ticket type (`AP Invoice Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**
+Two new things. **(1)** One new ticket type (`Document Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

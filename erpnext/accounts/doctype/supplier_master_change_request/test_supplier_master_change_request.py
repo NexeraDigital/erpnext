@@ -13,7 +13,7 @@ from __future__ import annotations
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+from erpnext.accounts.doctype.document_capture.document_capture import (
 	STATUS_CONFIRMED,
 	VALIDATION_STATUS_BLOCKED,
 	VALIDATION_STATUS_VALIDATED,
@@ -24,7 +24,7 @@ from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
 	run_fake_extraction,
 	validate_for_purchase_invoice,
 )
-from erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture import _make_file
+from erpnext.accounts.doctype.document_capture.test_document_capture import _make_file
 from erpnext.accounts.doctype.supplier_master_change_request.supplier_master_change_request import (
 	STATE_POSTED,
 	STATE_REJECTED,

@@ -15,10 +15,10 @@ What changed:
   - `base.py` — `OCRProvider` ABC + `ExtractionResult` dataclass + `PROPOSAL_KEYS`
   - `fake.py` — `FakeExtractor(OCRProvider)`, wrapping the existing deterministic proposal logic
   - `registry.py` — `get_extractor(name="fake") -> OCRProvider`
-- `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`:
+- `erpnext/accounts/doctype/document_capture/document_capture.py`:
   - The function previously named `run_fake_extraction` is now `run_extraction`, and it produces the proposal by calling `get_extractor("fake").extract(...)` instead of inline logic. **All field-writing, status transitions, `ocr_raw_response` construction, and the human-review pause are unchanged.**
   - `run_fake_extraction = run_extraction` is kept as a module-level backward-compatible alias (the test suite and the cascade call it by name).
-  - The proposal helpers (`_detect_simulation_markers`, `_propose_for_seed`, `_seed_for_capture`) still live in `ap_invoice_capture.py`; `FakeExtractor` imports them lazily.
+  - The proposal helpers (`_detect_simulation_markers`, `_propose_for_seed`, `_seed_for_capture`) still live in `document_capture.py`; `FakeExtractor` imports them lazily.
 
 **What did NOT change:** the cascade, the DocType schema, the `proposed_*`/`final_*` field semantics, the OCR-review pause, and the existing test files (not a single test was modified). Phase 1 is a pure structural seam.
 
@@ -83,12 +83,12 @@ None beyond the standard ERPNext test fixtures (auto-created on first `run-tests
 - **Expected:** all tests pass, final line `OK`, exit 0. (These tests were not modified by Phase 1.)
 - **Pass:** suite green.
 
-### TC-2 — Existing AP Invoice Capture suite passes unchanged
+### TC-2 — Existing Document Capture suite passes unchanged
 
 - **Action:**
   ```bash
   bench --site ocr-test.localhost run-tests \
-    --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+    --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** all ~66 tests pass, `OK`, exit 0. This is the primary proof: this suite calls `run_fake_extraction` (now the alias) 14+ times, including with `simulate_missing=`, and asserts on `proposed_*` fields, statuses, and the full cascade.
 - **Pass:** suite green with no test-file modifications.
@@ -126,7 +126,7 @@ None beyond the standard ERPNext test fixtures (auto-created on first `run-tests
 - **Action:**
   ```bash
   bench --site ocr-test.localhost console <<'PY'
-  from erpnext.accounts.doctype.ap_invoice_capture import ap_invoice_capture as m
+  from erpnext.accounts.doctype.document_capture import document_capture as m
   print("ALIAS:", m.run_fake_extraction is m.run_extraction)
   PY
   ```
@@ -141,12 +141,12 @@ None beyond the standard ERPNext test fixtures (auto-created on first `run-tests
   import frappe, json
   frappe.set_user("Administrator")
   def mk():
-      c = frappe.new_doc("AP Invoice Capture")
+      c = frappe.new_doc("Document Capture")
       c.source_filename = "tc6_invoice.pdf"; c.file_extension="pdf"
       c.intake_channel="Manual ERPNext Upload"; c.is_supported_format=1
       c.source_file_url="/private/files/tc6.pdf"; c.received_at=frappe.utils.now_datetime()
       return c
-  from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+  from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
   d1 = run_extraction(mk(), save=False)
   d2 = run_extraction(mk(), save=False)
   print("PROVIDER:", d1.ocr_provider)
@@ -168,10 +168,10 @@ None beyond the standard ERPNext test fixtures (auto-created on first `run-tests
   bench --site ocr-test.localhost console <<'PY'
   import frappe
   frappe.set_user("Administrator")
-  c = frappe.new_doc("AP Invoice Capture")
+  c = frappe.new_doc("Document Capture")
   c.source_filename="tc7.pdf"; c.file_extension="pdf"; c.intake_channel="Manual ERPNext Upload"
   c.is_supported_format=1; c.source_file_url="/private/files/tc7.pdf"; c.received_at=frappe.utils.now_datetime()
-  from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+  from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
   d = run_extraction(c, save=False, simulate_missing=["total_amount","currency"])
   print("CURRENCY_NONE:", d.proposed_currency is None)
   print("MISSING_FIELDS:", d.proposed_missing_fields)
@@ -187,10 +187,10 @@ None beyond the standard ERPNext test fixtures (auto-created on first `run-tests
   bench --site ocr-test.localhost console <<'PY'
   import frappe
   frappe.set_user("Administrator")
-  c = frappe.new_doc("AP Invoice Capture")
+  c = frappe.new_doc("Document Capture")
   c.source_filename="bad.gif"; c.file_extension="gif"; c.intake_channel="Manual ERPNext Upload"
   c.is_supported_format=0; c.source_file_url="/private/files/bad.gif"; c.received_at=frappe.utils.now_datetime()
-  from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction, OCRExtractionError
+  from erpnext.accounts.doctype.document_capture.document_capture import run_extraction, OCRExtractionError
   try:
       run_extraction(c, save=False); print("RESULT: no error (FAIL)")
   except OCRExtractionError: print("RESULT: OCRExtractionError OK")
@@ -221,7 +221,7 @@ Date:      <YYYY-MM-DD>
 Tester:    <agent / VM id>
 
   [ ] TC-1  walking-skeleton suite passes unchanged
-  [ ] TC-2  AP Invoice Capture suite passes unchanged (~66 tests)
+  [ ] TC-2  Document Capture suite passes unchanged (~66 tests)
   [ ] TC-3  registry resolves fake provider -> "fake-deterministic-v1"
   [ ] TC-4  unknown provider raises ValueError
   [ ] TC-5  run_fake_extraction IS run_extraction (alias)
@@ -241,4 +241,4 @@ Return the checklist plus raw `run-tests` output for TC-1 and TC-2.
 ## 8. Notes for the executor
 
 - **The whole point of Phase 1 is "no behavior change."** TC-1 and TC-2 passing with **zero test-file edits** is the load-bearing evidence. TC-3–TC-8 confirm the seam is wired correctly.
-- If TC-1/TC-2 fail with `Could not find Supplier: _Test Supplier` in `setUpClass` (`Ran 0 tests`), that is an environment fixture-bootstrap problem, **not** a Phase 1 regression — create the site fresh (don't reinstall) and retry. To confirm it's environmental, `git stash` the change to `ap_invoice_capture.py` and re-run: the baseline fails identically.
+- If TC-1/TC-2 fail with `Could not find Supplier: _Test Supplier` in `setUpClass` (`Ran 0 tests`), that is an environment fixture-bootstrap problem, **not** a Phase 1 regression — create the site fresh (don't reinstall) and retry. To confirm it's environmental, `git stash` the change to `document_capture.py` and re-run: the baseline fails identically.

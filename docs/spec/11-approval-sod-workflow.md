@@ -42,13 +42,13 @@ Control-Summary rows this spec owns:
 **Stream R vs Stream I.** This step is **Stream I only**. Stream R captures (already-paid card/cash receipts) **must short-circuit** the approval cascade entirely — there is nothing to authorize. The spec adds a stream discriminator gate to `_determine_next_step` (§5.4) so a Stream R capture is never routed into `AP Document Approval` and is never auto-approved-under-threshold by the legacy cascade.
 
 > **Plan-excerpt corrections (trust the code over the plan):**
-> 1. The plan's `doc.grand_total > 5000` example is illustrative — the **shipped default threshold is `1000.0`** (`AUTO_APPROVAL_THRESHOLD_DEFAULT`, `ap_invoice_capture.py:78`), overridable via `approval_threshold` / an `explicit-override` source. All Conditions in this spec use `1000` unless the matrix overrides it.
+> 1. The plan's `doc.grand_total > 5000` example is illustrative — the **shipped default threshold is `1000.0`** (`AUTO_APPROVAL_THRESHOLD_DEFAULT`, `document_capture.py:78`), overridable via `approval_threshold` / an `explicit-override` source. All Conditions in this spec use `1000` unless the matrix overrides it.
 > 2. The plan says backstop with a Server Script **`validate`** hook. When shipped as **app code** via `hooks.py` `doc_events`, `"validate"` is a valid Python hook key (ERPNext already registers `"*": {"validate": [...]}` at `hooks.py:353`). When shipped as a **Server Script record**, there is **no bare "Validate"** Document Event in the dropdown — use **`Before Save`** / `Before Submit` (see §4). The spec recommends app code (§5.3, §8 D-3), so the existing `"validate"` doc_events surface is available.
 > 3. `Expense Claim` is **aspirational** — `hrms` is not installed (apps = `erpnext`, `frappe`, `payments`). The buildable Workflow `document_type` today is **Purchase Invoice only**. Do not assert Expense Claim coverage as shipped.
 
 ## 3. Current state
 
-All approval logic lives in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`. Verified against the file:
+All approval logic lives in `erpnext/accounts/doctype/document_capture/document_capture.py`. Verified against the file:
 
 - **`request_approval(capture, threshold=None, source=None, actor=None, approver_role=None, save=True)`** — `:1249`. Preconditions raise `CaptureApprovalError` (`frappe.ValidationError` subclass, `:136`): `validation_status == "Validated"` (`:1267`), `promotion_status == "Promoted"` AND `purchase_invoice` set (`:1274`), `approval_status` empty/`Not Required` (`:1278`). Resolves threshold via `_resolve_approval_threshold` (`:1243`). If `final_total_amount <= threshold` → `Auto Approved` + `Ready for Payment` + `decision_by` set (`:1291-1302`); else → `Pending Manager`, `assigned_approver_role = approver_role or "Accounts Manager"`, `Not Ready`, `action_required=1` (`:1303-1314`).
 - **`record_manager_decision(capture, approve, actor=None, notes=None, save=True)`** — `:1321`. **Today's only SoD-ish control** is `frappe.only_for(capture.assigned_approver_role or "Accounts Manager")` at `:1336`. The comment at `:1333-1335` admits that without it "any AP clerk could approve their own over-threshold capture." Requires `approval_status == "Pending Manager"` (`:1338`). Sets `Manager Approved` + `Ready` or `Rejected` + `Blocked`.
@@ -83,7 +83,7 @@ All approval logic lives in `erpnext/accounts/doctype/ap_invoice_capture/ap_invo
 
 The **pilot** is the automation-first path and the default build. It does **not** introduce a native `Workflow` engine; it keeps the existing approval engine (which already auto-approves under-threshold) and adds only the escalation controls a human must own. The pilot deliverables are:
 
-1. **Auto-approve in-policy (unchanged).** `request_approval` already routes any `final_total_amount <= threshold` capture to `Auto Approved` + `Ready for Payment` with no human (`ap_invoice_capture.py:1291-1302`). **The pilot leaves this hands-free path intact** — it is the throughput case and the whole point of the spec.
+1. **Auto-approve in-policy (unchanged).** `request_approval` already routes any `final_total_amount <= threshold` capture to `Auto Approved` + `Ready for Payment` with no human (`document_capture.py:1291-1302`). **The pilot leaves this hands-free path intact** — it is the throughput case and the whole point of the spec.
 2. **App-code SoD guard ("enterer ≠ approver").** The one real control gap. A `Before Save` / `validate` doc_event on `Purchase Invoice` (wired via `hooks.py doc_events`, §5.3) throws if `frappe.session.user` equals the **recorded coder/promoter** of the linked capture **and** the document is **above** threshold. This is **identity** SoD (stronger than the current role-only `frappe.only_for`), and it does **not** depend on any native engine. *(See §5.3 — this is the pilot's headline.)*
 3. **Three Role fixtures** — `AP Clerk` (the submitter/coder), `Treasury Approver` (bank-change approver only), `Auditor (Read Only)` (§5.1 C).
 4. **Bank-change → Treasury Approver escalation.** A vendor bank-detail change request is gated to the `Treasury Approver` role (separate from invoice approvers), keyed on the `change_category` set by the [[08-validation-gates]] detector (§5.1 "Bank-change escalation" + §5.3).
@@ -144,7 +144,7 @@ Condition strings use only the verified `safe_eval` whitelist. **Threshold singl
 | doctype | fieldname | fieldtype | options | purpose |
 |---|---|---|---|---|
 | `Purchase Invoice` | `workflow_state` | `Link` | `Workflow State` | native field the Workflow drives (Frappe convention) |
-| `AP Invoice Capture` | `workflow_state` | `Data` (read-only, synced) | — | mirror so `_determine_next_step` can read the PI's state without a cross-doc fetch (D-1 — recommend a thin sync, not a second engine) |
+| `Document Capture` | `workflow_state` | `Data` (read-only, synced) | — | mirror so `_determine_next_step` can read the PI's state without a cross-doc fetch (D-1 — recommend a thin sync, not a second engine) |
 
 > **D-1 recommendation:** add a read-only `workflow_state` mirror on the capture, synced from the PI on each cascade tick, rather than reusing `approval_status` directly. Keeps the legacy `approval_status` Literal intact for the downstream adapter (§5.3) while giving the cascade a single field to branch on.
 
@@ -190,7 +190,7 @@ Its transitions route bank-field change requests to `allowed = "Treasury Approve
 
 ### 5.2 Endpoints
 
-The existing whitelisted wrappers are **kept** as the public seam; their bodies are re-pointed to drive the native Workflow. Full dotted paths under `erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture`:
+The existing whitelisted wrappers are **kept** as the public seam; their bodies are re-pointed to drive the native Workflow. Full dotted paths under `erpnext.accounts.doctype.document_capture.document_capture`:
 
 ```python
 @frappe.whitelist()
@@ -244,7 +244,7 @@ def resolve_approver_role(capture) -> str:
    def sod_backstop(doc, method):
        if doc.doctype not in STREAM_I_WORKFLOW_DOCTYPES: return        # PI (+ Expense Claim later)
        if not _is_above_threshold_approval_target(doc.workflow_state): return
-       coder = _recorded_coder_for(doc)        # the AP Invoice Capture's validated_by/decision_by/promoted-by
+       coder = _recorded_coder_for(doc)        # the Document Capture's validated_by/decision_by/promoted-by
        if coder and frappe.session.user == coder and flt(doc.grand_total) > _threshold_for(doc):
            frappe.throw(_("SoD: the user who coded/promoted this document may not approve it above threshold."))
    ```
@@ -333,7 +333,7 @@ This is the **complete-reference** engine, **not** the pilot. It replaces the fo
 
 ### 7.1 Automated
 
-- **Module (existing, extend):** `erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture` — the pilot cases: auto-approve in-policy, the app-code SoD guard, threshold routing, and the stream gate (AC-11-1..5).
+- **Module (existing, extend):** `erpnext.accounts.doctype.document_capture.test_document_capture` — the pilot cases: auto-approve in-policy, the app-code SoD guard, threshold routing, and the stream gate (AC-11-1..5).
 - **Module (new):** `erpnext.accounts.tests.test_ap_approval_workflow` (new `erpnext/accounts/tests/test_ap_approval_workflow.py`) — the matrix-resolver + bank-change + Roles pilot cases, and (when §5.6 is adopted) the deferred native-Workflow cases. Use `from frappe.tests import IntegrationTestCase`; roll back all DB writes (PIs, requests, role assignments) in `tearDown`.
 
 Cases (positive / negative / edge per public function):
@@ -356,7 +356,7 @@ Cases (positive / negative / edge per public function):
 | *Deferred* Condition: supplier-risk via `frappe.db.get_value` evaluates, no `SecurityException` | AC-11-D4 | edge |
 | *Deferred* Regression: `is_ready_for_payment`/`is_payment_blocked` unchanged post-migration | AC-11-D5 | regression |
 
-Run: `bench --site <site> run-tests --module erpnext.accounts.tests.test_ap_approval_workflow` and `… --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`. Confirm green before declaring done.
+Run: `bench --site <site> run-tests --module erpnext.accounts.tests.test_ap_approval_workflow` and `… --module erpnext.accounts.doctype.document_capture.test_document_capture`. Confirm green before declaring done.
 
 ### 7.2 Clean-room test plan
 

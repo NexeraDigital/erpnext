@@ -42,21 +42,21 @@ A short ADR is appended to `docs/changes/` for each decision the moment it's mad
 | `AP Capture Document Type` | Enum-as-doctype | Optional richer enum if we want per-tenant additions; otherwise plain `Literal["Unpaid Bill", "Already Paid", "Employee Reimbursement", "Manual Review"]` on capture |
 | `Supplier Master Change Request` | Submittable | Holds pending bank-detail / IBAN / payment-terms changes; routed to a separate approver per D8/step 10 |
 
-### 1.2 New child tables on `AP Invoice Capture`
+### 1.2 New child tables on `Document Capture`
 
 | Child table | Purpose |
 |---|---|
-| `AP Invoice Capture Item` | Line items from OCR + clerk-edited finals. Mirrors `Purchase Invoice Item`'s narrow shape: item description (free text), qty, rate, amount, tax amount, expense account, cost center, PO reference, PR reference. |
-| `AP Invoice Capture Confidence` | Per-field numeric confidence (float 0-1) returned by the OCR provider. Keyed by `field_name` (e.g. `supplier`, `invoice_no`, `total`, `line_1_rate`). Used by slice G1. |
+| `Document Capture Item` | Line items from OCR + clerk-edited finals. Mirrors `Purchase Invoice Item`'s narrow shape: item description (free text), qty, rate, amount, tax amount, expense account, cost center, PO reference, PR reference. |
+| `Document Capture Confidence` | Per-field numeric confidence (float 0-1) returned by the OCR provider. Keyed by `field_name` (e.g. `supplier`, `invoice_no`, `total`, `line_1_rate`). Used by slice G1. |
 | `AP Capture Rejection Log` | Rejection reasons and reopen history. |
 
-### 1.3 New fields on existing `AP Invoice Capture`
+### 1.3 New fields on existing `Document Capture`
 
 | Field | Purpose | Slice |
 |---|---|---|
 | `content_hash` (Data, indexed) | SHA-256 of the original file bytes | B1 |
 | `perceptual_hash` (Data, indexed) | pHash of rasterized first page | B1 |
-| `duplicate_of` (Link → AP Invoice Capture) | Set when dedupe finds a prior match | B1 |
+| `duplicate_of` (Link → Document Capture) | Set when dedupe finds a prior match | B1 |
 | `document_type` (`Literal[...]`) | Result of classification (D2 — three values in Phase 2) | F1 |
 | `three_way_match_status` (`Literal["Not Applicable", "Matched", "Exception"]`) | Phase-2 explicit 3WM output | H1 |
 | `three_way_match_result` (SmallText) | Human-readable 3WM diff | H1 |
@@ -70,7 +70,7 @@ A short ADR is appended to `docs/changes/` for each decision the moment it's mad
 | `bank_cleared` (Check) | Phase-2 second closure signal | I1 |
 | `idempotency_key` (Data, indexed) | Per-step keys for retry-safe downstream posts | A1 |
 
-### 1.4 New whitelisted endpoints (additions to `ap_invoice_capture.py`)
+### 1.4 New whitelisted endpoints (additions to `document_capture.py`)
 
 ```
 detect_duplicates_for(capture)                                      # B1
@@ -94,7 +94,7 @@ build_audit_trail_for(capture)                                      # L1
 
 | Cadence | Job | Slice |
 |---|---|---|
-| `cron 0/5 * * * *` | `ap_invoice_capture.process_extraction_queue` (drains async OCR queue) | C1 |
+| `cron 0/5 * * * *` | `document_capture.process_extraction_queue` (drains async OCR queue) | C1 |
 | `daily_maintenance` | `ap_settings.refresh_anomaly_baselines` (precomputes supplier rolling averages) | H2 |
 | `hourly_maintenance` | `ap_settings.archive_old_captures` (7-year retention policy, no deletes — flags for cold storage) | L2 |
 
@@ -175,10 +175,10 @@ Phase L — Audit + retention
   - `credit_card_clearing_account` (Link → Account)
   - `ocr_provider` (Link → OCR Provider)
   - `auto_post_amount_threshold` (Float — replaces hard-coded `AUTO_APPROVAL_THRESHOLD_DEFAULT = 1000.0`)
-- New helper module `erpnext/accounts/doctype/ap_invoice_capture/idempotency.py`:
+- New helper module `erpnext/accounts/doctype/document_capture/idempotency.py`:
   - `generate_key(capture_name, step_name) -> str` — deterministic SHA-256 of `(capture_name, step_name, settings_version)`
   - `with_idempotency(key, fn)` decorator — checks a new `AP Posting Ledger` doctype before insert; if `key` exists, returns the prior result instead of re-posting
-- New helper module `erpnext/accounts/doctype/ap_invoice_capture/async_runner.py`:
+- New helper module `erpnext/accounts/doctype/document_capture/async_runner.py`:
   - `enqueue_step(capture, step_name, kwargs)` wraps `frappe.enqueue` with queue selection (`short` for matching, `long` for OCR), retry policy (3× exponential backoff, dead-letter to capture's `action_required_reason`), and idempotency key emission
 
 **Acceptance criteria.**
@@ -201,9 +201,9 @@ Phase L — Audit + retention
 ### Slice B1 · Deduplication (exact + perceptual) · **M**
 
 **Deliverables.**
-- Add `content_hash` (Data, Indexed) to `AP Invoice Capture` and populate on `validate` from the linked `File`'s `content_hash` (Frappe already computes it on upload).
+- Add `content_hash` (Data, Indexed) to `Document Capture` and populate on `validate` from the linked `File`'s `content_hash` (Frappe already computes it on upload).
 - Add `perceptual_hash` (Data, Indexed). Compute pHash of the first page using `imagehash` + `pdf2image` (new deps: `imagehash>=4.3`, `pdf2image>=1.16`, `Pillow>=10`).
-- Add `duplicate_of` (Link → AP Invoice Capture) and new `STATUS_DUPLICATE` enum value.
+- Add `duplicate_of` (Link → Document Capture) and new `STATUS_DUPLICATE` enum value.
 - New whitelisted method `detect_duplicates_for(capture)`:
   - Window = `AP Settings.dedupe_window_days`.
   - Exact match on `content_hash` short-circuits with `STATUS_DUPLICATE`.
@@ -223,7 +223,7 @@ Phase L — Audit + retention
 ### Slice B2 · Email + portal ingestion adapters · **S**
 
 **Deliverables.**
-- New `Email Account` integration: configure a dedicated AP mailbox; Frappe's existing email-in hook fires `ap_invoice_capture.create_capture_from_email(email_doc)`.
+- New `Email Account` integration: configure a dedicated AP mailbox; Frappe's existing email-in hook fires `document_capture.create_capture_from_email(email_doc)`.
 - New whitelisted endpoint `create_capture_from_email(email_doc)` — iterates Communication attachments, creates one capture per supported attachment.
 - New (placeholder) adapter `erpnext/accounts/ap_closed_loop/portal_pull.py` — abstract base + `register_portal_adapter` decorator. No concrete adapters in Phase 2 — wired in Phase 3.
 
@@ -247,8 +247,8 @@ Phase L — Audit + retention
   - `factory.py` — `get_ocr_client()` reads `AP Settings.ocr_provider`.
 - Replace synchronous `run_fake_extraction` with `run_extraction` that:
   - Enqueues via `async_runner.enqueue_step(capture, "ocr")`.
-  - On completion, writes `proposed_*` + `AP Invoice Capture Confidence` rows + `ocr_raw_response` JSON.
-- Add `AP Invoice Capture Confidence` child table with `field_name`, `confidence` (Float 0-1), `is_above_threshold` (Check, computed against `AP Settings.field_thresholds` falling back to `per_field_confidence_threshold`).
+  - On completion, writes `proposed_*` + `Document Capture Confidence` rows + `ocr_raw_response` JSON.
+- Add `Document Capture Confidence` child table with `field_name`, `confidence` (Float 0-1), `is_above_threshold` (Check, computed against `AP Settings.field_thresholds` falling back to `per_field_confidence_threshold`).
 - Keep `run_fake_extraction_for` as a thin wrapper for tests.
 
 **Acceptance criteria.**
@@ -264,7 +264,7 @@ Phase L — Audit + retention
 ### Slice C2 · Line-item child table + line extraction · **M**
 
 **Deliverables.**
-- New child doctype `AP Invoice Capture Item`. Fields: `description`, `qty`, `rate`, `amount`, `tax_amount`, `expense_account`, `cost_center`, `po_reference` (Link → Purchase Order), `pr_reference` (Link → Purchase Receipt), `confidence_summary` (Data, computed).
+- New child doctype `Document Capture Item`. Fields: `description`, `qty`, `rate`, `amount`, `tax_amount`, `expense_account`, `cost_center`, `po_reference` (Link → Purchase Order), `pr_reference` (Link → Purchase Receipt), `confidence_summary` (Data, computed).
 - Extend `OCRResult` to carry `lines: list[dict]`.
 - `promote_to_purchase_invoice` switches from "single header line at total" to "one PI item per capture item" when lines are present; falls back to header-line when not.
 - The Phase 1 deterministic fake gains a `simulate_lines` flag so existing tests don't break by default.
@@ -301,7 +301,7 @@ Phase L — Audit + retention
 
 **Deliverables.**
 - New submittable doctype `Supplier Master Change Request`. Workflow states: Draft → Pending Approval → Approved → Posted.
-  - Fields: `change_type` (`Create` | `Update Bank Details` | `Update Payment Terms` | `Disable`), `requested_supplier_name`, `proposed_payload` (JSON), `evidence_capture` (Link → AP Invoice Capture, optional), `approver_role`, `decision_by`, `decision_at`.
+  - Fields: `change_type` (`Create` | `Update Bank Details` | `Update Payment Terms` | `Disable`), `requested_supplier_name`, `proposed_payload` (JSON), `evidence_capture` (Link → Document Capture, optional), `approver_role`, `decision_by`, `decision_at`.
 - When `_match_supplier()` returns Unknown AND OCR `supplier` confidence ≥ threshold AND `AP Settings.auto_request_supplier_creation = 1`, create a Draft `Supplier Master Change Request` and link it from the capture (new field `supplier_change_request`).
 - Approved request creates the Supplier (`Submit` action) and re-runs validation on the linked capture.
 - Frappe `Workflow` doctype is used — no custom approval engine.
@@ -335,7 +335,7 @@ Phase L — Audit + retention
 ### Slice F1 · Classification + PI branch refactor · **M**
 
 **Deliverables.**
-- Add `document_type` field on `AP Invoice Capture`: `Literal["Unpaid Bill", "Already Paid", "Employee Reimbursement", "Manual Review"]`.
+- Add `document_type` field on `Document Capture`: `Literal["Unpaid Bill", "Already Paid", "Employee Reimbursement", "Manual Review"]`.
 - New whitelisted `classify_document_type_for(capture, override=None)`:
   - Rule 1: If capture metadata includes a card-charge marker (extracted by OCR — slice C2 surfaces "paid by Visa ****1234" lines) → `Already Paid`.
   - Rule 2: If supplier matches an "employee" supplier group → `Employee Reimbursement`.
@@ -456,10 +456,10 @@ Phase L — Audit + retention
 
 ### Slice I1 · Bank-transaction match + dual closure · **L**
 
-**Pre-flight.** D3 retires the Phase-1 "no Bank Transaction" guardrail. Update the docstrings on `walking_skeleton.py` and `ap_invoice_capture.py` *in the same PR* to reflect the new closure model.
+**Pre-flight.** D3 retires the Phase-1 "no Bank Transaction" guardrail. Update the docstrings on `walking_skeleton.py` and `document_capture.py` *in the same PR* to reflect the new closure model.
 
 **Deliverables.**
-- Add `bank_transaction` (Link → Bank Transaction) and `bank_cleared` (Check) to `AP Invoice Capture`.
+- Add `bank_transaction` (Link → Bank Transaction) and `bank_cleared` (Check) to `Document Capture`.
 - New whitelisted `ingest_bank_transaction_match_for(bank_transaction)`:
   - Called by an extension to ERPNext's `get_matching_queries` hook — when a Bank Transaction is reconciled to a Payment Entry linked from a capture, write back to the capture.
   - Sets `bank_cleared = 1` and `bank_transaction = bank_txn.name`.

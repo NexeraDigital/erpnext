@@ -4,7 +4,7 @@
 
 ## 1. Feature under test
 
-Every `AP Invoice Capture` is tagged at intake with a provisional **stream** — `Receipt (R)` (already paid) / `Invoice (I)` (unpaid bill) / `Unclassified` — from data-driven rules (filename / sender domain / body text / channel). `Receipt (R)` captures get a 72-hour `sla_due_at` deadline (`received_at + 72h`); Invoice/Unclassified leave it NULL. Rules live in **AP Closed Loop Settings → Stream Tagging Rules** so they're tunable with no code change. New intake channels (Email Inbound, Mobile Upload, Vendor Portal Pull base) are added.
+Every `Document Capture` is tagged at intake with a provisional **stream** — `Receipt (R)` (already paid) / `Invoice (I)` (unpaid bill) / `Unclassified` — from data-driven rules (filename / sender domain / body text / channel). `Receipt (R)` captures get a 72-hour `sla_due_at` deadline (`received_at + 72h`); Invoice/Unclassified leave it NULL. Rules live in **AP Closed Loop Settings → Stream Tagging Rules** so they're tunable with no code change. New intake channels (Email Inbound, Mobile Upload, Vendor Portal Pull base) are added.
 
 ## 2. Branch / commit
 
@@ -34,7 +34,7 @@ bench --site <test-site> migrate   # creates AP Stream Rule + the new capture/se
   bench --site <test-site> run-tests --module erpnext.accounts.ap_closed_loop.tests.test_portal_pull
   bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
   # regression (set Fake provider first):
-  bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+  bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
   ```
 - **Expected:** `17 OK`, `2 OK`, `15 OK`, `66 OK` respectively.
 - **Pass/fail:** PASS iff all green.
@@ -44,7 +44,7 @@ bench --site <test-site> migrate   # creates AP Stream Rule + the new capture/se
 - **Expected (form):** `Stream = Receipt (R)`, `Stream Provisional Source = filename:receipt_*`, `SLA Due At` populated.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT stream, stream_provisional_source, received_at, sla_due_at FROM \`tabAP Invoice Capture\` WHERE source_filename='receipt_demo.pdf'\\G"
+  bench --site <test-site> mariadb -e "SELECT stream, stream_provisional_source, received_at, sla_due_at FROM \`tabDocument Capture\` WHERE source_filename='receipt_demo.pdf'\\G"
   ```
   `stream='Receipt (R)'`; `sla_due_at` = `received_at` + 72h.
 - **Pass/fail:** PASS iff the row shows Receipt (R) and the 72h deadline.
@@ -60,7 +60,7 @@ bench --site <test-site> migrate   # creates AP Stream Rule + the new capture/se
 - **Pass/fail:** PASS iff Unclassified.
 
 ### TC-5 — Data-driven tuning (no code change)
-- **Action:** at `/app/ap-closed-loop-settings` add a Stream Rule row `sender_domain | square.com | Receipt (R)`, Save. Then create a capture whose sender domain is `square.com` (use the console: `from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import create_capture_from_file; c=create_capture_from_file(file_url="/x/d.pdf", file_name="d.pdf", sender_domain="payments.square.com"); print(c.stream); frappe.db.rollback()`).
+- **Action:** at `/app/ap-closed-loop-settings` add a Stream Rule row `sender_domain | square.com | Receipt (R)`, Save. Then create a capture whose sender domain is `square.com` (use the console: `from erpnext.accounts.doctype.document_capture.document_capture import create_capture_from_file; c=create_capture_from_file(file_url="/x/d.pdf", file_name="d.pdf", sender_domain="payments.square.com"); print(c.stream); frappe.db.rollback()`).
 - **Expected:** `Receipt (R)` — classification changed purely from the new rule.
 - **Pass/fail:** PASS iff the capture classifies Receipt (R) with no code edit.
 

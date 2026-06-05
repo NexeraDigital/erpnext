@@ -2,7 +2,7 @@
 """Generate the pre-extraction **deduplication** test fixtures (spec 03).
 
 These are NOT for OCR accuracy (that's ../ocr-extraction/). They exercise the
-dedupe firewall in `erpnext.accounts.doctype.ap_invoice_capture` —
+dedupe firewall in `erpnext.accounts.doctype.document_capture` —
 `detect_duplicates_for` / `_compute_phash` — so each fixture is built to trip a
 specific branch. Files are grouped into one subfolder per scenario; within a
 folder the numeric prefix is the **upload order** (upload 01, then 02).

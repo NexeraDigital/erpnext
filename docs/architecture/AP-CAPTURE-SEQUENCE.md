@@ -1,7 +1,7 @@
-# AP Invoice Capture — Workflow Sequence (current state)
+# Document Capture — Workflow Sequence (current state)
 
-> Sequence of the **as-implemented** `AP Invoice Capture` cascade on `russ/migrateToV16`.
-> Source of truth: `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py`
+> Sequence of the **as-implemented** `Document Capture` cascade on `russ/migrateToV16`.
+> Source of truth: `erpnext/accounts/doctype/document_capture/document_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
 > Last derived from code: 2026-06-04 (content-based receipt/invoice classifier §34 + default-coding reflection §33 + company-scoped mock payment §30).
 >
@@ -23,7 +23,7 @@ sequenceDiagram
     autonumber
     actor Clerk as AP Clerk
     participant Ch as Intake Channel
-    participant Cap as AP Invoice Capture
+    participant Cap as Document Capture
     participant Q as Async Cascade (RQ)
     participant Dd as Dedupe
     participant OCR as OCR Provider
@@ -223,7 +223,7 @@ sequenceDiagram
 - **Dedupe perceptual branch** needs `poppler` on the worker; absent it, Step 0
   degrades to the exact-hash check only (the rest of the flow is unchanged).
 - **Routing table:** the step preconditions live in `_determine_next_step`
-  (`ap_invoice_capture.py`); the whitelisted step functions are
+  (`document_capture.py`); the whitelisted step functions are
   `run_dedupe_for` / `run_fake_extraction_for` / `classify_document_type_for` /
   `validate_for_purchase_invoice_for` / `promote_already_paid_for` /
   `apply_coding_profile_for_ui` / `request_approval_for` / `issue_mock_payment_for`.

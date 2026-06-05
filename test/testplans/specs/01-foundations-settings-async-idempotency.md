@@ -62,7 +62,7 @@ None beyond the standard ERPNext test bootstrap (`_Test Company`, `_Test Supplie
 
 ### TC-5 — Regression: existing capture suite still green (automated)
 - **Precondition:** OCR provider = `Fake (Deterministic)` (see §3).
-- **Action:** `bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`
+- **Action:** `bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture`
 - **Expected:** `Ran 66 tests ... OK` in ~10 s — proving `_enqueue_next` delegating to `async_runner` and `_run_cascade_step` as an alias did not change cascade behaviour.
 - **Pass/fail:** PASS iff 66/66 green. (If it fails with `'Needs Correction' != 'Confirmed'`, the OCR provider is not Fake — fix the precondition.)
 
@@ -82,7 +82,7 @@ None beyond the standard ERPNext test bootstrap (`_Test Company`, `_Test Supplie
   ```python
   import frappe
   from erpnext.accounts.ap_closed_loop import idempotency
-  cap = frappe.get_doc({"doctype":"AP Invoice Capture",
+  cap = frappe.get_doc({"doctype":"Document Capture",
                         "source_file_url":"http://x/tc7.pdf","source_filename":"tc7.pdf"}).insert(ignore_permissions=True)
   key = idempotency.generate_key(cap.name, "demo")
   fn  = lambda: {"doctype":"Purchase Invoice","name":"PINV-TC7"}
@@ -110,7 +110,7 @@ None beyond the standard ERPNext test bootstrap (`_Test Company`, `_Test Supplie
 | TC-2 | `test_async_runner` (6) | [ ] |
 | TC-3 | `test_install` (3) | [ ] |
 | TC-4 | `test_ap_closed_loop_settings` (14) | [ ] |
-| TC-5 | `test_ap_invoice_capture` regression (66, Fake provider) | [ ] |
+| TC-5 | `test_document_capture` regression (66, Fake provider) | [ ] |
 | TC-6 | Settings page renders new sections + saves | [ ] |
 | TC-7 | Idempotency ledger: `False True 1` | [ ] |
 

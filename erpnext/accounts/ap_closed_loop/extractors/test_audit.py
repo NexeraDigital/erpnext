@@ -69,7 +69,7 @@ class TestSanitize(IntegrationTestCase):
 
 class TestWriteIntegrationRequest(IntegrationTestCase):
 	def _capture(self):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = "audit.pdf"
 		c.file_extension = "pdf"
 		c.intake_channel = "Manual ERPNext Upload"
@@ -100,7 +100,7 @@ class TestWriteIntegrationRequest(IntegrationTestCase):
 		ir = frappe.get_doc("Integration Request", name)
 		self.assertEqual(ir.integration_request_service, INTEGRATION_SERVICE)
 		self.assertEqual(ir.status, "Completed")
-		self.assertEqual(ir.reference_doctype, "AP Invoice Capture")
+		self.assertEqual(ir.reference_doctype, "Document Capture")
 		self.assertEqual(ir.reference_docname, cap.name)
 		out = json.loads(ir.output)
 		self.assertEqual(out["model"], "claude-haiku-4-5-20251001")
@@ -141,7 +141,7 @@ class TestRunExtractionAuditIntegration(IntegrationTestCase):
 		ai.save(ignore_permissions=True)
 
 	def _capture(self):
-		c = frappe.new_doc("AP Invoice Capture")
+		c = frappe.new_doc("Document Capture")
 		c.source_filename = "audit_int.png"
 		c.file_extension = "png"
 		c.intake_channel = "Manual ERPNext Upload"
@@ -154,11 +154,11 @@ class TestRunExtractionAuditIntegration(IntegrationTestCase):
 	def _count_ir(self, capture_name):
 		return frappe.db.count(
 			"Integration Request",
-			{"reference_doctype": "AP Invoice Capture", "reference_docname": capture_name},
+			{"reference_doctype": "Document Capture", "reference_docname": capture_name},
 		)
 
 	def test_anthropic_run_logs_completed_integration_request(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._store_key()
 		self._set(ocr_provider="Anthropic Claude", ocr_model="claude-haiku-4-5-20251001")
@@ -197,7 +197,7 @@ class TestRunExtractionAuditIntegration(IntegrationTestCase):
 		self.assertIn("claude-haiku", ir.output)
 
 	def test_fake_provider_logs_nothing(self):
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import run_extraction
+		from erpnext.accounts.doctype.document_capture.document_capture import run_extraction
 
 		self._set(ocr_provider="Fake (Deterministic)")
 		cap = self._capture()

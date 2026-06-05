@@ -4,11 +4,11 @@
 
 ## 1. Feature under test
 
-A confirmed capture is classified into a `document_type` (Unpaid Bill / Already Paid / Employee Reimbursement / Manual Review) and routed to the right posting doctype: **Unpaid Bill → Purchase Invoice**, **Already Paid → PI with `is_paid=1`** (one submitted PI books the expense and its payment), **Employee Reimbursement → Manual Review** (the Expense Claim doctype ships with hrms, absent on this bench), **stream conflict → Manual Review**. A clerk override always wins. User-visible change: a Document-Type Classification section on `AP Invoice Capture`, a new `Manual Review` status, and an `Employee Supplier Group` setting.
+A confirmed capture is classified into a `document_type` (Unpaid Bill / Already Paid / Employee Reimbursement / Manual Review) and routed to the right posting doctype: **Unpaid Bill → Purchase Invoice**, **Already Paid → PI with `is_paid=1`** (one submitted PI books the expense and its payment), **Employee Reimbursement → Manual Review** (the Expense Claim doctype ships with hrms, absent on this bench), **stream conflict → Manual Review**. A clerk override always wins. User-visible change: a Document-Type Classification section on `Document Capture`, a new `Manual Review` status, and an `Employee Supplier Group` setting.
 
 ## 2. Branch / commit
 
-- **Branch:** `russ/migrateToV16` · working tree. Sanity: `classify_document_type` / `promote_already_paid` defined in `ap_invoice_capture.py`; `get_already_paid_config` in `ap_closed_loop_settings.py`; `document_type` field on the capture; `Manual Review` in the status options.
+- **Branch:** `russ/migrateToV16` · working tree. Sanity: `classify_document_type` / `promote_already_paid` defined in `document_capture.py`; `get_already_paid_config` in `ap_closed_loop_settings.py`; `document_type` field on the capture; `Manual Review` in the status options.
 
 ## 3. Environment setup
 
@@ -28,14 +28,14 @@ bench --site <test-site> migrate   # adds document_type + the classification fie
 ## 5. Numbered test cases
 
 ### TC-1 — Automated suite (pin Fake first)
-- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`
+- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture`
 - **Expected:** `Ran 134 tests … OK (skipped=1)` (the `TestAPInvoiceCaptureDocumentTypeBranching` class covers AC-07-1..14).
 - **Pass/fail:** PASS iff green.
 
 ### TC-2 — Classify Already Paid (works)
 - **Action:** create a capture whose `source_context`/OCR text is `Receipt — paid by Visa ****1234`, Confirm it, then run classification (cascade or the classify action).
 - **Expected (form):** `Document Type = Already Paid`, `Classified Stream = R`, `Detected Last 4 = 1234`, `Card Charge Marker` populated.
-- **DB check:** `SELECT document_type, classified_stream, detected_last4 FROM \`tabAP Invoice Capture\` WHERE name='<APIC>'\G`
+- **DB check:** `SELECT document_type, classified_stream, detected_last4 FROM \`tabDocument Capture\` WHERE name='<APIC>'\G`
 - **Pass/fail:** PASS iff classified Already Paid with the marker captured.
 
 ### TC-3 — Already Paid posts an is_paid Purchase Invoice (works)
@@ -73,7 +73,7 @@ bench --site <test-site> migrate   # adds document_type + the classification fie
 
 ## 6. Cleanup / rollback
 
-- Delete test `Purchase Invoice` (cancel first if submitted), `AP Invoice Capture`, Suppliers, and the Supplier Group created.
+- Delete test `Purchase Invoice` (cancel first if submitted), `Document Capture`, Suppliers, and the Supplier Group created.
 - Clear the test `Employee Supplier Group` / `Credit Card Clearing Account` settings; restore OCR Provider.
 
 ## 7. Pass/fail summary template

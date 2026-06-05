@@ -8,7 +8,7 @@
 
 The Anthropic extractor now **keeps** the numeric per-field confidence it already
 computes (it used to discard it). Each extracted field gets a row in the
-`AP Invoice Capture Confidence` child table with the score, a derived
+`Document Capture Confidence` child table with the score, a derived
 `is_above_threshold` flag, and a `score_source` (`Model` vs `Derived-Mapping`).
 Thresholds resolve as `field_thresholds[field]` → the canonical
 `ocr_confidence_threshold` (no second scalar). The raw scores are also mirrored
@@ -17,8 +17,8 @@ into `ocr_raw_response`, which must contain **no credentials**.
 ## 2. Branch / commit
 
 - **Branch:** `russ/migrateToV16` · working tree (apply spec-04 if absent). Verify
-  `erpnext/accounts/doctype/ap_invoice_capture_confidence/` exists and
-  `AP Invoice Capture` has a `field_confidences` table field.
+  `erpnext/accounts/doctype/document_capture_confidence/` exists and
+  `Document Capture` has a `field_confidences` table field.
 
 ## 3. Environment setup
 
@@ -59,13 +59,13 @@ bench --site <test-site> migrate   # creates the two child DocTypes + parent fie
 - **Precondition:** Anthropic provider + key configured (§3).
 - **Action:** upload `invoice_01.pdf` at `/app/ap-invoice-capture/new`, Save, and let
   the extraction cascade run (or call
-  `bench --site <test-site> execute erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.run_extraction --kwargs "{'capture':'<name>'}"`).
+  `bench --site <test-site> execute erpnext.accounts.doctype.document_capture.document_capture.run_extraction --kwargs "{'capture':'<name>'}"`).
 - **Expected:** the capture's **Field Confidences** grid has one row per header field
   (supplier / supplier_invoice_no / invoice_date / total_amount / currency), each with
   a numeric `confidence` and `score_source = Model`.
 - **DB check:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT field_name, confidence, is_above_threshold, score_source FROM \`tabAP Invoice Capture Confidence\` WHERE parent='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT field_name, confidence, is_above_threshold, score_source FROM \`tabDocument Capture Confidence\` WHERE parent='<name>'\\G"
   ```
 - **Pass/fail:** PASS iff one Model row per header field with a 0–1 score.
 
@@ -80,7 +80,7 @@ bench --site <test-site> migrate   # creates the two child DocTypes + parent fie
 ### TC-4 — No credentials in the audit copy
 - **Action:**
   ```bash
-  bench --site <test-site> mariadb -e "SELECT ocr_raw_response FROM \`tabAP Invoice Capture\` WHERE name='<name>'\\G"
+  bench --site <test-site> mariadb -e "SELECT ocr_raw_response FROM \`tabDocument Capture\` WHERE name='<name>'\\G"
   ```
 - **Expected:** the JSON contains `confidence` and `lines` keys but **no**
   `api_key` / `x-api-key` / `sk-ant` / `authorization` substring anywhere.

@@ -85,7 +85,7 @@ PY
     erpnext.accounts.ap_closed_loop.extractors.anthropic.smoke_test \
     --kwargs '{"file_name": "<File docname>"}'
   ```
-  (Or upload via the AP Invoice Capture form and let the cascade run.)
+  (Or upload via the Document Capture form and let the cascade run.)
 - **Expected:** returns `provider: anthropic` and a `proposal` matching the known invoice values.
 - **Pass:** real extraction routed through the setting. **Reset OCR Provider back to Fake afterward** if this is a shared site.
 
@@ -94,7 +94,7 @@ PY
 bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.extractors.test_extractors
 bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.extractors.test_anthropic
 bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 **Expected:** 15, 14 (1 skipped), 4, 66 — all `OK`. **Pass:** all green.
 

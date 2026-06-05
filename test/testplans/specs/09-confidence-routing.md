@@ -53,7 +53,7 @@ To simulate a low-confidence field, edit one `field_confidences` row's `is_above
 - **Action:** run the class programmatically (the bench-runner summary line is swallowed on this WSL bench):
   ```python
   import unittest
-  from erpnext.accounts.doctype.ap_invoice_capture import test_ap_invoice_capture as m
+  from erpnext.accounts.doctype.document_capture import test_document_capture as m
   r = unittest.TextTestRunner(verbosity=2).run(
       unittest.TestLoader().loadTestsFromTestCase(m.TestAPInvoiceCaptureConfidenceRouting))
   print(r.testsRun, len(r.failures), len(r.errors))
@@ -62,7 +62,7 @@ To simulate a low-confidence field, edit one `field_confidences` row's `is_above
 - **Pass/fail:** PASS iff all 15 green.
 
 **A-2. Full-module regression.**
-- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`.
+- **Action:** `bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture`.
 - **Expected:** `Ran 171 tests … OK` (skipped=1: poppler/PDF perceptual).
 - **Pass/fail:** PASS iff `OK` and count ≥ 171 — proves the confidence gate adds no false reroutes.
 
@@ -99,7 +99,7 @@ To simulate a low-confidence field, edit one `field_confidences` row's `is_above
 ## 6. Cleanup / rollback
 
 - Automated suite rolls back in `tearDown`.
-- For manual cases delete the AP Invoice Capture and its draft Purchase Invoice; verify with
+- For manual cases delete the Document Capture and its draft Purchase Invoice; verify with
   `bench … mariadb` that no stray rows remain. Reset `auto_post_amount_threshold` if changed.
 
 ## 7. Pass/fail summary template

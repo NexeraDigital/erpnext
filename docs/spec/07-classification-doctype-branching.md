@@ -44,15 +44,15 @@ Control-Summary row (line 129):
 
 ## 3. Current state
 
-**SPEC 07 IS GREENFIELD.** A grep across `erpnext/accounts/ap_closed_loop/**` and the `ap_invoice_capture` doctype returns zero hits for `stream`, `document_type`, `already_paid`, `journal_entry`, or `expense_claim`. The entire pipeline assumes one doctype (Purchase Invoice).
+**SPEC 07 IS GREENFIELD.** A grep across `erpnext/accounts/ap_closed_loop/**` and the `document_capture` doctype returns zero hits for `stream`, `document_type`, `already_paid`, `journal_entry`, or `expense_claim`. The entire pipeline assumes one doctype (Purchase Invoice).
 
 Anchors this spec builds on (verified by reading the files):
 
-- **The branch point — `APInvoiceCapture._determine_next_step()`** at `ap_invoice_capture.py:321-366`. It is a single linear state machine. After OCR `Confirmed` (Step 2, lines 339-344) it returns `("validate_for_purchase_invoice_for", ...)`, then a manual Promote seam, then `request_approval_for` / `issue_mock_payment_for`. **There is no document-type fork.** This is exactly where the Step-6 classification hop is inserted, before validation/promotion.
-- **`promote_to_purchase_invoice(capture, actor, defaults, save)`** at `ap_invoice_capture.py:1148-1235` — the existing Stream-I target. Preconditions enforced: `validation_status == Validated` (line 1170), `matched_supplier` set (line 1177), and the not-already-promoted **soft guard** at lines 1181-1186 (`if capture.promotion_status == PROMOTION_STATUS_PROMOTED and capture.purchase_invoice: raise CapturePromotionError`). It builds a draft PI via `frappe.new_doc("Purchase Invoice")`, maps `supplier`/`bill_no`/`bill_date`/`posting_date`/`currency`, appends one item row from `_coalesce_defaults()`, then `pi.insert(ignore_permissions=True)` (line 1222) and leaves the PI **draft**. The `assert document_type=='Unpaid Bill'` guard from the brief maps onto adding a check alongside the precondition block at ~line 1170.
+- **The branch point — `APInvoiceCapture._determine_next_step()`** at `document_capture.py:321-366`. It is a single linear state machine. After OCR `Confirmed` (Step 2, lines 339-344) it returns `("validate_for_purchase_invoice_for", ...)`, then a manual Promote seam, then `request_approval_for` / `issue_mock_payment_for`. **There is no document-type fork.** This is exactly where the Step-6 classification hop is inserted, before validation/promotion.
+- **`promote_to_purchase_invoice(capture, actor, defaults, save)`** at `document_capture.py:1148-1235` — the existing Stream-I target. Preconditions enforced: `validation_status == Validated` (line 1170), `matched_supplier` set (line 1177), and the not-already-promoted **soft guard** at lines 1181-1186 (`if capture.promotion_status == PROMOTION_STATUS_PROMOTED and capture.purchase_invoice: raise CapturePromotionError`). It builds a draft PI via `frappe.new_doc("Purchase Invoice")`, maps `supplier`/`bill_no`/`bill_date`/`posting_date`/`currency`, appends one item row from `_coalesce_defaults()`, then `pi.insert(ignore_permissions=True)` (line 1222) and leaves the PI **draft**. The `assert document_type=='Unpaid Bill'` guard from the brief maps onto adding a check alongside the precondition block at ~line 1170.
 - **Whitelisted wrappers** each call `doc._kick_next_step()` to resume the cascade: `validate_for_purchase_invoice_for` (1677), `promote_to_purchase_invoice_for` (1686-1702), `issue_mock_payment_for` (1734). A NEW `promote_to_journal_entry_for` follows the exact `promote_to_purchase_invoice_for` shape (parse `defaults` str/dict, call the pure function, reload capture, `_kick_next_step`, return the voucher name).
-- **`_match_supplier()`** at `ap_invoice_capture.py:975-1002` resolves `final_supplier` → Supplier by `name`/`supplier_name`, never auto-creates. The employee-reimbursement classifier reads `Supplier.supplier_group` off the matched supplier.
-- **Status enum** — `DF.Literal` at `ap_invoice_capture.py:182-189` is **6 values** (Pending Review / Unsupported / Rejected / Proposed / Needs Correction / Confirmed). There is **NO `Manual Review` state**. `action_required` (Check, declared line 153) + `action_required_reason` (Data, line 154) are the existing review-escalation seam — orthogonal to a status value; adding `Manual Review` to the `DF.Literal` AND the JSON `options` is a migrate-affecting schema change.
+- **`_match_supplier()`** at `document_capture.py:975-1002` resolves `final_supplier` → Supplier by `name`/`supplier_name`, never auto-creates. The employee-reimbursement classifier reads `Supplier.supplier_group` off the matched supplier.
+- **Status enum** — `DF.Literal` at `document_capture.py:182-189` is **6 values** (Pending Review / Unsupported / Rejected / Proposed / Needs Correction / Confirmed). There is **NO `Manual Review` state**. `action_required` (Check, declared line 153) + `action_required_reason` (Data, line 154) are the existing review-escalation seam — orthogonal to a status value; adding `Manual Review` to the `DF.Literal` AND the JSON `options` is a migrate-affecting schema change.
 - **Idempotency available today is the soft capture-flag guard only** (lines 1181-1186) plus enqueue-level `deduplicate=True` + per-capture-per-step `job_name` at `_enqueue_next` (~line 400; commented at 372). There is **NO DB natural-key uniqueness guard** on the inserted voucher — `_hash_bytes()` (579) only seeds fake OCR. A stronger natural-key/content-hash guard is a [[01-foundations-settings-async-idempotency]] deliverable not yet present; this spec consumes whatever 01 provides and must not assume more.
 - **`AP Closed Loop Settings`** (`ap_closed_loop_settings.py`) has `default_company`/`default_item_code`/`default_expense_account`/`default_cost_center`/`default_warehouse`/`default_uom` + OCR config. It has **NO card/cash liability account** and **NO employee_supplier_group**; both are ADDED here. `get_promote_defaults()` at `ap_closed_loop_settings.py:85` reads via `get_singles_dict` (deliberately not `get_single`, to avoid session-default auto-population — line 88-97 explains the footgun).
 - **`walking_skeleton.py`** is a parallel reference-only flow (PI → PE → closure evidence); it does not touch `document_type` and creates PIs directly. `derive_closure_evidence` (278-339) derives closure from native state (no custom closed flag) and currently understands only PI+PE — [[14-closure-audit-retention]] must learn the JE voucher the same way.
@@ -79,9 +79,9 @@ Local source-of-truth confirmations (re-verified on this `russ/migrateToV16` che
 
 ### 5.1 Data model
 
-#### DocType `AP Invoice Capture` — ADD fields
+#### DocType `Document Capture` — ADD fields
 
-Declared in `ap_invoice_capture.json`; mirrored in the `DF.Literal`/`DF.Link` auto-types block (`ap_invoice_capture.py:150-235`) to match existing convention. Add a module-level constant block alongside `STATUS_*` / `VALIDATION_STATUS_*` (lines 36-90).
+Declared in `document_capture.json`; mirrored in the `DF.Literal`/`DF.Link` auto-types block (`document_capture.py:150-235`) to match existing convention. Add a module-level constant block alongside `STATUS_*` / `VALIDATION_STATUS_*` (lines 36-90).
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
@@ -114,7 +114,7 @@ JE_VOUCHER_TYPE_CREDIT_CARD = "Credit Card Entry"
 JE_VOUCHER_TYPE_CASH = "Cash Entry"
 ```
 
-**Permissions:** no new permission rule on `AP Invoice Capture` itself — `document_type`/`classification_override` are writable by the roles that already write the capture (`Accounts User` / `Accounts Manager`, and the new `AP Clerk` from the bible when [[11-approval-sod-workflow]] lands). The whitelisted classify/promote wrappers gate with `frappe.only_for(...)` matching the existing convention (see §5.2).
+**Permissions:** no new permission rule on `Document Capture` itself — `document_type`/`classification_override` are writable by the roles that already write the capture (`Accounts User` / `Accounts Manager`, and the new `AP Clerk` from the bible when [[11-approval-sod-workflow]] lands). The whitelisted classify/promote wrappers gate with `frappe.only_for(...)` matching the existing convention (see §5.2).
 
 #### DocType `AP Closed Loop Settings` — ADD fields
 
@@ -186,7 +186,7 @@ def _build_already_paid_voucher(capture, defaults) -> "Document":
 ### 5.3 Logic
 
 #### `classify_document_type(capture, override=None, actor=None, save=True) -> str`
-New pure function, co-located near `_classify_purchase_reference` (`ap_invoice_capture.py:1005`).
+New pure function, co-located near `_classify_purchase_reference` (`document_capture.py:1005`).
 
 1. **Resolve capture** (str → doc) as the other pure functions do.
 2. **Precondition:** capture must be OCR `Confirmed` (`status == STATUS_CONFIRMED`) so structured fields are reliable; else raise `CaptureValidationError` (reuse the existing exception, subclasses `frappe.ValidationError`).
@@ -213,7 +213,7 @@ New pure function, co-located near `_classify_purchase_reference` (`ap_invoice_c
 **Idempotency:** classification is naturally re-runnable — a clerk override re-runs it and supersedes the prior result. No DB voucher is created here, so no natural-key concern.
 
 #### `promote_to_journal_entry(capture, actor=None, defaults=None, save=True) -> Document`
-New pure function mirroring `promote_to_purchase_invoice` (`ap_invoice_capture.py:1148-1235`).
+New pure function mirroring `promote_to_purchase_invoice` (`document_capture.py:1148-1235`).
 
 1. **Resolve capture** (str → doc).
 2. **Preconditions** (raise `CapturePromotionError` on each):
@@ -246,7 +246,7 @@ if capture.document_type and capture.document_type != DOCUMENT_TYPE_UNPAID_BILL:
 
 ### 5.4 Cascade & stream-awareness
 
-Insert a **classification hop** into `_determine_next_step()` (`ap_invoice_capture.py:321-366`), **after** Step 2's OCR-Confirmed check and **before** validation/promotion:
+Insert a **classification hop** into `_determine_next_step()` (`document_capture.py:321-366`), **after** Step 2's OCR-Confirmed check and **before** validation/promotion:
 
 ```
 # Step 2b (NEW): Confirmed OCR, not yet classified → classify
@@ -301,7 +301,7 @@ Test flags are unchanged: `frappe.flags.ap_auto_progress_enabled` opts the casca
 ## 7. Tests
 
 ### 7.1 Automated
-Module: `erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture` — add a new class `TestAPInvoiceCaptureDocumentTypeBranching` (mirror `TestAPInvoiceCaptureValidationAndPromotion` at line 536; idempotency-guard pattern at `test_promote_is_idempotent_guard` line 715; cascade pattern at `TestAPInvoiceCaptureAutoProgress` line 1296). Base `from frappe.tests import IntegrationTestCase` (line 8). Roll back DB writes in `tearDown` (delete any created JE/PI/captures + the `AP Review Event`).
+Module: `erpnext.accounts.doctype.document_capture.test_document_capture` — add a new class `TestAPInvoiceCaptureDocumentTypeBranching` (mirror `TestAPInvoiceCaptureValidationAndPromotion` at line 536; idempotency-guard pattern at `test_promote_is_idempotent_guard` line 715; cascade pattern at `TestAPInvoiceCaptureAutoProgress` line 1296). Base `from frappe.tests import IntegrationTestCase` (line 8). Roll back DB writes in `tearDown` (delete any created JE/PI/captures + the `AP Review Event`).
 
 `classify_document_type()` cases:
 - **Positive:** card marker → `Already Paid` (AC-07-1); employee-group supplier → `Employee Reimbursement` (AC-07-2); plain bill → `Unpaid Bill` (AC-07-3).
@@ -320,7 +320,7 @@ Settings cases: `get_je_defaults()` positive + missing-config negative (AC-07-13
 
 Run locally before declaring done (per CLAUDE.md — throwaway console probes are insufficient):
 ```
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 
 ### 7.2 Clean-room test plan

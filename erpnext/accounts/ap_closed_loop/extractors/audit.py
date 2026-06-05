@@ -91,7 +91,7 @@ def write_integration_request(
 				"integration_request_service": INTEGRATION_SERVICE,
 				"status": status,
 				"url": ANTHROPIC_URL,
-				"reference_doctype": "AP Invoice Capture",
+				"reference_doctype": "Document Capture",
 				"reference_docname": getattr(capture, "name", None),
 				"data": json.dumps(_request_summary(capture, result), default=str),
 				"output": json.dumps(output, default=str) if output else None,

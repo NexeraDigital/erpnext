@@ -2,7 +2,7 @@
 
 > **Purpose:** complete map of every place a user can land in the ERPNext desk UI on this fork. Use this before recommending where new functionality should live so suggestions are grounded in the navigation users actually see.
 >
-> **Last verified against repo:** 2026-06-01 *(adds §G — the global AI chat launcher, the first fork-added always-present desk element besides the navbar, injected via `app_include_js`/`css` and gated on `frappe.boot.ai_chat_enabled`. ERPNext Settings sidebar + shortcut still include AI Provider Settings, alphabetically after System Settings; Payables still includes Invoice Capture → AP Invoice Capture; Settings tail still includes AP Closed Loop Settings)*
+> **Last verified against repo:** 2026-06-01 *(adds §G — the global AI chat launcher, the first fork-added always-present desk element besides the navbar, injected via `app_include_js`/`css` and gated on `frappe.boot.ai_chat_enabled`. ERPNext Settings sidebar + shortcut still include AI Provider Settings, alphabetically after System Settings; Payables still includes Invoice Capture → Document Capture; Settings tail still includes AP Closed Loop Settings)*
 >
 > **Update triggers** — regenerate this doc when any of the following change:
 > - `erpnext/workspace_sidebar/*.json` (primary navigation)
@@ -30,7 +30,7 @@ Every classic workspace has a sidebar equivalent. Sidebar is canonical.
 
 - **Invoicing** (`invoicing.json`) — Home, Dashboard (Accounts), Chart of Accounts
   - **Receivables**: Customer, Sales Invoice, Credit Note *(Sales Invoice w/ `is_return:1`)*, Accounts Receivable *(Report)*
-  - **Payables**: Invoice Capture *(AP Invoice Capture)*, Supplier, Purchase Invoice, Debit Note *(Purchase Invoice w/ `is_return:1`)*, Accounts Payable *(Report)*
+  - **Payables**: Invoice Capture *(Document Capture)*, Supplier, Purchase Invoice, Debit Note *(Purchase Invoice w/ `is_return:1`)*, Accounts Payable *(Report)*
   - **Payments**: Payment Entry, Journal Entry, Payment Request, Payment Order, Payment Reconciliation, Unreconcile Payment, Process Payment Reconciliation, Repost Accounting Ledger, Repost Payment Ledger
   - **Reports**: General Ledger, Trial Balance, Financial Reports *(workspace)*
   - Settings → Accounts Settings
@@ -176,4 +176,4 @@ This is the **first fork-added always-present desk element besides the standard 
 
 3. **No orphans detected.** Every classic workspace has a sidebar mirror; every sidebar item points to a valid DocType, Report, Page, Workspace, or Dashboard.
 
-4. **AP Invoice Capture (this fork's pilot DocType)** is linked from the Invoicing sidebar → Payables → "Invoice Capture". The form itself still has no custom buttons or list indicators — that's the next phase of UI work. See `docs/architecture/FORK-CHANGES.md` for the pilot's scope.
+4. **Document Capture (this fork's pilot DocType)** is linked from the Invoicing sidebar → Payables → "Invoice Capture". The form itself still has no custom buttons or list indicators — that's the next phase of UI work. See `docs/architecture/FORK-CHANGES.md` for the pilot's scope.

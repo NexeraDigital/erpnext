@@ -17,7 +17,7 @@ The intake → dedupe → OCR/extract → classify → validate → promote → 
 
 1. **Read the current diagram.** Read `docs/architecture/AP-CAPTURE-SEQUENCE.md` — note the Mermaid `sequenceDiagram` block, the participants/actors, every message/hop, and every `alt`/`opt`/note that encodes a gate, park, STOP, or branch. Note the "Last derived from code" date.
 
-2. **Read the code as it actually is.** Trace the cascade in `erpnext/accounts/ap_closed_loop/` (and the `ap_invoice_capture` controller): the routing in `_determine_next_step` / the async runner, and the body of each step function. Use Grep/Glob to find every gate, guard, branch, park, STOP, and block reason — not just the top-level hops. A new validation gate or promotion guard *inside* an existing step is a diagram-relevant change even when no hop was added and `_determine_next_step` is untouched (spec 08 added three gates inside `validate_for_purchase_invoice` + a bank-change re-check inside promotion — both required a diagram update).
+2. **Read the code as it actually is.** Trace the cascade in `erpnext/accounts/ap_closed_loop/` (and the `document_capture` controller): the routing in `_determine_next_step` / the async runner, and the body of each step function. Use Grep/Glob to find every gate, guard, branch, park, STOP, and block reason — not just the top-level hops. A new validation gate or promotion guard *inside* an existing step is a diagram-relevant change even when no hop was added and `_determine_next_step` is untouched (spec 08 added three gates inside `validate_for_purchase_invoice` + a bank-change re-check inside promotion — both required a diagram update).
 
 3. **Diff diagram vs code.** Report every drift in this shape:
    ```

@@ -25,9 +25,9 @@ from frappe import _
 from frappe.exceptions import RetryBackgroundJobError
 
 # The controller module that holds the cascade step functions. Phase-1: all
-# steps live on the AP Invoice Capture controller. Resolution is centralised in
+# steps live on the Document Capture controller. Resolution is centralised in
 # ``_resolve_step`` so tests can monkeypatch it and future specs can extend it.
-_STEP_MODULE = "erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture"
+_STEP_MODULE = "erpnext.accounts.doctype.document_capture.document_capture"
 
 _DISPATCH_PATH = "erpnext.accounts.ap_closed_loop.async_runner._dispatch_step"
 
@@ -88,7 +88,7 @@ def resolve_queue(step_name: str) -> str:
 def enqueue_step(capture: str, step_name: str, **kwargs) -> None:
 	"""Enqueue one cascade step on the right queue via the dispatcher.
 
-	Mirrors the original ``ap_invoice_capture._enqueue_next`` test handling: in
+	Mirrors the original ``document_capture._enqueue_next`` test handling: in
 	tests (``frappe.flags.in_test``) the job runs synchronously (``now=True``)
 	and WITHOUT ``enqueue_after_commit`` so its writes stay inside the test's
 	rollback boundary; in production it defers until after commit so a real
@@ -176,7 +176,7 @@ def _dispatch_step(capture: str, step_name: str, _attempt: int = 0, **kwargs) ->
 def _dead_letter(capture: str, step_name: str, exc: Exception, attempt: int) -> None:
 	"""Surface a permanent failure on the capture (``action_required``) + Error Log.
 
-	Generalises ``ap_invoice_capture._run_cascade_step``'s dead-letter behaviour.
+	Generalises ``document_capture._run_cascade_step``'s dead-letter behaviour.
 	Deliberately does NOT re-raise (avoids RQ retry loops; ``action_required`` is
 	the canonical user-visible signal).
 	"""
@@ -188,7 +188,7 @@ def _dead_letter(capture: str, step_name: str, exc: Exception, attempt: int) -> 
 	try:
 		msg = str(exc)[:160] or exc.__class__.__name__
 		frappe.db.set_value(
-			"AP Invoice Capture",
+			"Document Capture",
 			capture,
 			{
 				"action_required": 1,

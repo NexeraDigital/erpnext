@@ -1,9 +1,9 @@
 # Copyright (c) 2026, Nexera and Contributors
 # License: GNU General Public License v3. See license.txt
 
-"""AP Invoice Capture Confidence — numeric per-field extraction confidence.
+"""Document Capture Confidence — numeric per-field extraction confidence.
 
-Child rows of ``AP Invoice Capture.field_confidences``. Each row is one logical
+Child rows of ``Document Capture.field_confidences``. Each row is one logical
 field (header key, or ``line_<i>_<field>`` for line rows) with the numeric score
 the OCR provider returned (spec 04). ``is_above_threshold`` is derived at write
 time against the per-field threshold so confidence routing ([[09-confidence-routing]])
@@ -16,7 +16,7 @@ from __future__ import annotations
 from frappe.model.document import Document
 
 
-class APInvoiceCaptureConfidence(Document):
+class DocumentCaptureConfidence(Document):
 	# begin: auto-generated types
 	# This code is auto-generated. Do not modify anything in this block.
 

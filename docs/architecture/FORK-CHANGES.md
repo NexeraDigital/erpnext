@@ -18,17 +18,17 @@ Brandon's pilot (8 commits, fork base):
  erpnext/accounts/ap_closed_loop/__init__.py                            |    0
  erpnext/accounts/ap_closed_loop/walking_skeleton.py                    |  365 +++++
  erpnext/accounts/ap_closed_loop/test_walking_skeleton.py               |  130 ++
- erpnext/accounts/doctype/ap_invoice_capture/__init__.py                |    0
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json    |  662 +++++++++
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py      | 1424 ++++++++++++++++++++
- erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py | 1272 +++++++++++++++++
+ erpnext/accounts/doctype/document_capture/__init__.py                |    0
+ erpnext/accounts/doctype/document_capture/document_capture.json    |  662 +++++++++
+ erpnext/accounts/doctype/document_capture/document_capture.py      | 1424 ++++++++++++++++++++
+ erpnext/accounts/doctype/document_capture/test_document_capture.py | 1272 +++++++++++++++++
  erpnext/setup/utils.py                                                 |    4 +-
 ```
 
 Phase-2 UI + automation layer (added on top of Brandon's pilot):
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.js                |  ~400 +++
+ erpnext/accounts/doctype/document_capture/document_capture.js                |  ~400 +++
  erpnext/accounts/doctype/ap_closed_loop_settings/__init__.py                     |    0
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    |   90 ++
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      |   55 ++
@@ -63,7 +63,7 @@ OCR Phase 1 — provider adapter seam (no behaviour change):
  erpnext/accounts/ap_closed_loop/extractors/fake.py                               |   ~75 (FakeExtractor wrapping the existing deterministic proposal)
  erpnext/accounts/ap_closed_loop/extractors/registry.py                           |   ~35 (get_extractor)
  erpnext/accounts/ap_closed_loop/extractors/test_extractors.py                    |  ~150 (15 IntegrationTestCase tests)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |    +/- (run_fake_extraction -> run_extraction, dispatches via registry; alias kept)
+ erpnext/accounts/doctype/document_capture/document_capture.py                |    +/- (run_fake_extraction -> run_extraction, dispatches via registry; alias kept)
  test/testplans/ocr/phase1-adapter.md                                             |  ~200 ++ (external-instance test plan)
 ```
 
@@ -84,7 +84,7 @@ OCR Phase 3 — settings-driven provider selection (turns real OCR on in the wor
 ```
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json   |    +/- (ocr_provider/model/fallback_model/confidence_threshold/max_file_mb/force_reextract fields)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py     |    +/- (validate(): require key when Anthropic + range check; get_ocr_config() accessor)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction reads get_ocr_config(); dispatches provider/model/threshold)
+ erpnext/accounts/doctype/document_capture/document_capture.py               |    +/- (run_extraction reads get_ocr_config(); dispatches provider/model/threshold)
  erpnext/accounts/ap_closed_loop/extractors/registry.py                          |    +/- (get_extractor forwards model/confidence_threshold kwargs)
  erpnext/accounts/ap_closed_loop/extractors/fake.py                              |    +/- (FakeExtractor ignores provider-config kwargs)
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py|  ~180 (8 tests: get_ocr_config, validate, dispatch — transaction-scoped, no commits)
@@ -98,7 +98,7 @@ OCR Phase 4 — low-confidence fallback (Haiku → Sonnet):
 ```
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                         |    +/- (one-shot fallback: retry once with ocr_fallback_model when a required field is missing/ambiguous; raw_response records outcome + model)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py     |    +/- (get_ocr_config returns fallback_model)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction forwards fallback_model)
+ erpnext/accounts/doctype/document_capture/document_capture.py               |    +/- (run_extraction forwards fallback_model)
  erpnext/accounts/ap_closed_loop/extractors/test_anthropic.py                    |    +/- (5 mocked fallback tests; 23 total)
  test/testplans/ocr/phase4-fallback.md                                           |  ~150 ++ (external-instance test plan)
 ```
@@ -111,7 +111,7 @@ OCR Phase 5 — audit logging & cost tracking (via Integration Request):
  erpnext/accounts/ap_closed_loop/extractors/pricing.py                           |  ~70 (per-model token rate table + estimate_cost_usd)
  erpnext/accounts/ap_closed_loop/extractors/audit.py                             |  ~120 (write_integration_request + sanitize; never logs the key)
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                         |    +/- (accumulate per-call usage + total latency_ms into raw_response)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (run_extraction logs Completed/Failed Integration Request for the real provider)
+ erpnext/accounts/doctype/document_capture/document_capture.py               |    +/- (run_extraction logs Completed/Failed Integration Request for the real provider)
  erpnext/accounts/ap_closed_loop/extractors/test_audit.py                        |  ~190 (11 tests: pricing, sanitize, IR write, run_extraction integration)
  test/testplans/ocr/phase5-audit.md                                              |  ~150 ++ (external-instance test plan)
 ```
@@ -123,7 +123,7 @@ OCR Phase 6 — production hardening (retry + circuit breaker + size guard + non
 ```
  erpnext/accounts/ap_closed_loop/extractors/circuit.py                            |  ~75 (process-local CircuitBreaker + CircuitOpenError + shared_breaker)
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                          |    +/- (_call_model: breaker.check + retry-with-backoff on 429/5xx/timeout/conn, honour Retry-After, never retry 400; _classify_exception, _backoff_seconds, _parse_retry_after; injectable sleep/breaker, max_retries ctor arg)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               |    +/- (_source_file_size_bytes; run_extraction enforces ocr_max_file_mb pre-flight for real providers + surfaces any failure on the capture via action_required + reason)
+ erpnext/accounts/doctype/document_capture/document_capture.py               |    +/- (_source_file_size_bytes; run_extraction enforces ocr_max_file_mb pre-flight for real providers + surfaces any failure on the capture via action_required + reason)
  erpnext/accounts/ap_closed_loop/extractors/test_hardening.py                     |  ~310 (16 tests: classify, backoff, breaker, retry loop, size-guard, failure surfacing)
  test/testplans/ocr/phase6-hardening.md                                          |  ~180 ++ (external-instance test plan)
 ```
@@ -133,7 +133,7 @@ Phase 6 behaviour: the real path now tolerates transient provider trouble and ne
 OCR proposal — form field visibility:
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             |    +/- (hidden=1 on ocr_provider, ocr_status, ocr_extracted_at, ocr_raw_response)
+ erpnext/accounts/doctype/document_capture/document_capture.json             |    +/- (hidden=1 on ocr_provider, ocr_status, ocr_extracted_at, ocr_raw_response)
 ```
 
 The four diagnostic fields in the "AI / OCR Proposal" section are hidden from the form (`hidden` is a display-only DocField property — `apps/frappe/frappe/core/doctype/docfield/docfield.json`; honoured at `apps/frappe/frappe/public/js/frappe/form/controls/base_control.js:61`). Data is unchanged and still in the DB/API; the per-call audit trail remains fully visible in **Integration Request** (Phase 5). Clerks now see only the proposed values they review (supplier / invoice no / date / total / currency) plus the missing/ambiguous flags.
@@ -176,7 +176,7 @@ MCP server layer (added on `russ/mcp-server`, off `russ/migrateToV16` — see §
 ```
 
 **Net effect:**
-- Two new DocTypes: `AP Invoice Capture` (transaction), `AP Closed Loop Settings` (Single, site-wide defaults).
+- Two new DocTypes: `Document Capture` (transaction), `AP Closed Loop Settings` (Single, site-wide defaults).
 - One new service module (`ap_closed_loop/`).
 - Test modules.
 - Form UI with inline state-driven buttons (Upload, Confirm Fields, Re-run Validation, Create Supplier, Promote, Approve/Reject) anchored to the section they act on.
@@ -196,7 +196,7 @@ The fork was built as 8 issue-scoped feature commits + their merges. Each featur
 |---|---|---|
 | `c95d2d9` | feat: add AP closed loop walking skeleton | `ap_closed_loop/walking_skeleton.py` end-to-end deterministic flow against existing ERPNext PI + PE |
 | `78a5a6c` | Merge #2 walking skeleton | merge |
-| `10e3a7f` | feat: add AP invoice image intake capture | introduces `AP Invoice Capture` doctype — manual upload, supported-format gating |
+| `10e3a7f` | feat: add AP invoice image intake capture | introduces `Document Capture` doctype — manual upload, supported-format gating |
 | `bce1728` | Merge #3 image intake | merge |
 | `4e2fe5a` | feat: add OCR proposal review | deterministic fake OCR + `proposed_*` fields + AP-clerk confirm |
 | `af3c7ff` | Merge #4 OCR proposal | merge |
@@ -217,7 +217,7 @@ GitHub epic: `NexeraDigital/erpnext#1` (per `AGENTS.md`).
 
 ## 3. Core Design Principles (encoded in code & tests)
 
-Both `walking_skeleton.py` and `ap_invoice_capture.py` open with the same set of explicit guardrails, and the tests enforce them:
+Both `walking_skeleton.py` and `document_capture.py` open with the same set of explicit guardrails, and the tests enforce them:
 
 1. **Purchase Invoice is the canonical payable invoice.** The pilot never invents a parallel payable doctype.
 2. **Payment Entry is the payment/closure anchor.** Native ERPNext doctype, native lifecycle.
@@ -300,11 +300,11 @@ APPROVAL_SHORTCUT     = "walking_skeleton_auto_approve"
 
 ---
 
-## 6. New DocType — `AP Invoice Capture`
+## 6. New DocType — `Document Capture`
 
 This is the *production* shape that succeeds the walking skeleton. The DocType is **not an accounting document**; it is a pre-accounting capture record whose job is to land an invoice image, run a non-authoritative OCR proposal, get AP-clerk confirmation, validate against existing ERPNext records, and then hand off to native Purchase Invoice / Payment Entry.
 
-### 6.1 DocType definition (`ap_invoice_capture.json`)
+### 6.1 DocType definition (`document_capture.json`)
 
 - Naming: `format:APIC-{YYYY}-{#####}`
 - Engine: InnoDB
@@ -321,7 +321,7 @@ This is the *production* shape that succeeds the walking skeleton. The DocType i
 
 The DocType is intentionally rich — every step's *evidence* is persisted on the record so the audit trail is the document.
 
-### 6.2 Constants & state-machine vocabulary (from `ap_invoice_capture.py`)
+### 6.2 Constants & state-machine vocabulary (from `document_capture.py`)
 
 ```python
 SUPPORTED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
@@ -587,7 +587,7 @@ The settings-doctype lookup is wrapped in `try/except` so a missing/uninstalled 
 
 ### 6.7 Whitelisted endpoints
 
-All endpoints are reachable as `/api/method/erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.<fn>`:
+All endpoints are reachable as `/api/method/erpnext.accounts.doctype.document_capture.document_capture.<fn>`:
 
 ```
 create_capture_from_uploaded_file(file_name, source_context=None)
@@ -605,7 +605,7 @@ get_manager_approval_queue_for()
 
 The string-vs-dict normalization in each wrapper (parsing JSON `corrections`/`defaults`, coercing `approve` from `"1"|"true"|"yes"|"approve"`) lets the same surface be called from desk client scripts and external clients.
 
-### 6.8 Tests (`test_ap_invoice_capture.py`)
+### 6.8 Tests (`test_document_capture.py`)
 
 66 tests covering every state transition, every guardrail, and the auto-progression cascade. The test suite uses `EXTRA_TEST_RECORD_DEPENDENCIES = ["Supplier", "Item", "Cost Center"]` and a `_PROMOTION_DEFAULTS` dict that lines up with the ERPNext `_Test …` fixtures. The `TestAPInvoiceCaptureAutoProgress` class is the cascade suite — it sets `frappe.flags.ap_auto_progress_enabled = True` per-test and asserts pause points (Proposed, Validated, Pending Manager) and resume points (after confirm, after promote, after manager approve). Notable patterns:
 
@@ -670,9 +670,9 @@ From a `bench` that has this app installed against a test site:
 bench --site <test-site> run-tests \
     --module erpnext.accounts.ap_closed_loop.test_walking_skeleton
 
-# Full AP Invoice Capture pipeline + all state-machine guardrails
+# Full Document Capture pipeline + all state-machine guardrails
 bench --site <test-site> run-tests \
-    --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+    --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 
 Both rely on the upstream `before_tests` bootstrap (`erpnext.setup.utils.before_tests`) for `_Test Company`, `_Test Supplier`, `_Test Item`, `_Test Cost Center - _TC`, `_Test Bank - _TC`, `_Test Warehouse - _TC`, and `_Test Account Cost for Goods Sold - _TC`. Each test rolls back in `tearDown`, so the suite is reentrant.
@@ -743,7 +743,7 @@ bench --site <test-site> run-tests --module erpnext.mcp.tests.test_permissions
 
 ## 11. Spec 01 — AP Closed Loop Foundations (Settings, Idempotency, Async Runner)
 
-> **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). First slice of the v2 workflow build — see `docs/spec/01-foundations-settings-async-idempotency.md`. All 17 acceptance criteria green; **22 new automated tests** pass, and the existing **66-test `AP Invoice Capture` suite passes unchanged** (run under the Fake OCR provider — see the test-plan note below).
+> **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). First slice of the v2 workflow build — see `docs/spec/01-foundations-settings-async-idempotency.md`. All 17 acceptance criteria green; **22 new automated tests** pass, and the existing **66-test `Document Capture` suite passes unchanged** (run under the Fake OCR provider — see the test-plan note below).
 
 Cross-cutting foundation every later v2 step builds on: a single settings backbone, document-level idempotency, and a step-aware async runner. Stream-agnostic; **zero behaviour change on an unconfigured site.**
 
@@ -758,14 +758,14 @@ Cross-cutting foundation every later v2 step builds on: a single settings backbo
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    |  +/- thresholds_section, sod_section, clearing_accounts_section + 3 reserved collapsible sections; 7 new fields
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      |  +/- get_auto_post_threshold / get_dedupe_window_days / get_confidence_threshold / get_field_threshold / get_sod_config
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py |  +/- TestFoundationGetters (6 tests)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                |  +/- _resolve_approval_threshold reads settings; _enqueue_next delegates to async_runner.enqueue_step; _run_cascade_step is now a back-compat alias to _dispatch_step
+ erpnext/accounts/doctype/document_capture/document_capture.py                |  +/- _resolve_approval_threshold reads settings; _enqueue_next delegates to async_runner.enqueue_step; _run_cascade_step is now a back-compat alias to _dispatch_step
  erpnext/hooks.py                                                                 |  +1 after_migrate entry: install_ap_defaults
  test/testplans/specs/01-foundations-settings-async-idempotency.md                      |  clean-room runbook
 ```
 
 **Decisions locked (spec §8):** idempotency key = `sha256(capture, step)` ONLY, never `settings.modified` (**D9** — the double-post guarantee); `ocr_confidence_threshold` stays the single canonical confidence scalar (**D1**); `field:idempotency_key` autoname (**D3**); `_run_cascade_step` retained as an alias for one release (**D4**); phase-1 retry uses native `RetryBackgroundJobError` for immediate transients + immediate re-enqueue for delayed backoff (**D5**); defaults install via `after_migrate` (**D2**). `AUTO_APPROVAL_THRESHOLD_DEFAULT=1000.0` retained as the empty-settings fallback.
 
-**Test-environment note (important):** the existing `test_ap_invoice_capture` suite calls `run_fake_extraction_for`, which is now settings-driven (`run_fake_extraction = run_extraction`). It is deterministic **only when `AP Closed Loop Settings.ocr_provider = "Fake (Deterministic)"`** (the default). On a site configured for `Anthropic Claude` the suite invokes the real provider and fails non-deterministically — pin the Fake provider (or set it in the suite's `setUp`) before running. This is a pre-existing isolation gap in that suite, surfaced — not introduced — by this slice.
+**Test-environment note (important):** the existing `test_document_capture` suite calls `run_fake_extraction_for`, which is now settings-driven (`run_fake_extraction = run_extraction`). It is deterministic **only when `AP Closed Loop Settings.ocr_provider = "Fake (Deterministic)"`** (the default). On a site configured for `Anthropic Claude` the suite invokes the real provider and fails non-deterministically — pin the Fake provider (or set it in the suite's `setUp`) before running. This is a pre-existing isolation gap in that suite, surfaced — not introduced — by this slice.
 
 ---
 
@@ -773,14 +773,14 @@ Cross-cutting foundation every later v2 step builds on: a single settings backbo
 
 > **Status (2026-05-31):** implemented + tested on `russ/migrateToV16` (working tree). Second slice of the v2 build — see `docs/spec/02-intake-stream-tagging.md`. All 15 acceptance criteria green; **20 new automated tests** pass; the spec-01 suites and the 66-test capture suite pass unchanged (capture suite under the Fake OCR provider).
 
-Owns the **stream concept**: tags every `AP Invoice Capture` at intake as Stream R (Receipt) / Stream I (Invoice) / Unclassified, starts the 72h SimpleFIN SLA clock on Stream R, and adds the email / mobile intake adapters + a Phase-3 portal-pull base.
+Owns the **stream concept**: tags every `Document Capture` at intake as Stream R (Receipt) / Stream I (Invoice) / Unclassified, starts the 72h SimpleFIN SLA clock on Stream R, and adds the email / mobile intake adapters + a Phase-3 portal-pull base.
 
 ```
  erpnext/accounts/doctype/ap_stream_rule/{__init__,ap_stream_rule}.py + .json    | NEW child DocType — data-driven Receipt/Invoice rule rows (priority/signal/pattern/assign_stream/enabled)
  erpnext/accounts/ap_closed_loop/portal_pull.py                                  | NEW — PortalPullAdapter ABC + register/get_portal_adapter registry (Phase-3 seam; no concrete adapter)
  erpnext/accounts/ap_closed_loop/tests/{test_stream_tagging,test_portal_pull}.py | 19 new tests
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             | +/- intake_classification_section + stream / stream_provisional_source / stream_revised_from / sla_due_at; intake_channel +3 options
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               | +/- classify_stream_at_intake (pure); _apply_stream_tag in validate(); create_capture_from_file +sender_domain/body_text; create_capture_from_uploaded_file +intake_channel; create_capture_from_email + handle_inbound_ap_communication
+ erpnext/accounts/doctype/document_capture/document_capture.json             | +/- intake_classification_section + stream / stream_provisional_source / stream_revised_from / sla_due_at; intake_channel +3 options
+ erpnext/accounts/doctype/document_capture/document_capture.py               | +/- classify_stream_at_intake (pure); _apply_stream_tag in validate(); create_capture_from_file +sender_domain/body_text; create_capture_from_uploaded_file +intake_channel; create_capture_from_email + handle_inbound_ap_communication
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    | +/- fill stream_rules_section: stream_rules (Table) + ap_intake_email_account (Link)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      | +/- get_stream_rules() accessor + 1 test (get_stream_rules)
  erpnext/accounts/ap_closed_loop/install.py                                       | +/- _seed_stream_rules() (4 default rules, blank-only)
@@ -790,7 +790,7 @@ Owns the **stream concept**: tags every `AP Invoice Capture` at intake as Stream
 
 **Design notes / decisions (spec §8):** the rule table is a child DocType so non-engineers tune classification with no code change (OD-1); `body` patterns are regex, others substring/glob (OD-2); 4 seed rules ship (OD-3); sender/body reach the classifier as transient, **never-persisted** attrs (OD-4, privacy); email re-fire is guarded per-`source_file` (OD-5); the AP intake Email Account is a Settings Link, **off when empty** (OD-6); unsupported email attachments are skipped (OD-7). Native `Email Account.append_to` was considered and rejected (1:1; this slice needs one-email→many-captures fan-out + per-attachment filtering); native `Assignment Rule` was considered (it can't write a derived field); Phase-2 queue priority will reuse native `ToDo.priority` (OD-8).
 
-**Net effect:** one new child DocType (`AP Stream Rule`), one new module (`portal_pull.py`), `AP Invoice Capture` gains 4 stream fields + 3 intake channels + the email-in adapter, `AP Closed Loop Settings` fills its reserved stream section, and the global `Communication.after_insert` hook is **off by default** (a no-op until an operator sets `ap_intake_email_account`).
+**Net effect:** one new child DocType (`AP Stream Rule`), one new module (`portal_pull.py`), `Document Capture` gains 4 stream fields + 3 intake channels + the email-in adapter, `AP Closed Loop Settings` fills its reserved stream section, and the global `Communication.after_insert` hook is **off by default** (a no-op until an operator sets `ap_intake_email_account`).
 
 ## 13. Spec 03 — Pre-Extraction Deduplication (exact + perceptual)
 
@@ -799,13 +799,13 @@ Owns the **stream concept**: tags every `AP Invoice Capture` at intake as Stream
 The **firewall against double-booking**: every freshly-intaken capture is checked against the last 90 days for an **exact file-hash** re-upload and a **perceptual near-duplicate** (re-scan) *before* any billable OCR runs. Stream-agnostic — keys only on bytes/pixels + `received_at`, never on `stream`.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json             | +/- dedupe_section + content_hash (Data, search_index, NOT unique) / perceptual_hash (Data, search_index) / duplicate_of (Link self) / duplicate_detected_at (Datetime); status +Duplicate
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py               | + STATUS_DUPLICATE; detect_duplicates_for / run_dedupe_for (whitelisted) / _compute_phash / _phash_distance / _dedupe_checked; Step 0 (pre-OCR dedupe) in _determine_next_step; content_hash copied from File in _hydrate_from_linked_file
+ erpnext/accounts/doctype/document_capture/document_capture.json             | +/- dedupe_section + content_hash (Data, search_index, NOT unique) / perceptual_hash (Data, search_index) / duplicate_of (Link self) / duplicate_detected_at (Datetime); status +Duplicate
+ erpnext/accounts/doctype/document_capture/document_capture.py               | + STATUS_DUPLICATE; detect_duplicates_for / run_dedupe_for (whitelisted) / _compute_phash / _phash_distance / _dedupe_checked; Step 0 (pre-OCR dedupe) in _determine_next_step; content_hash copied from File in _hydrate_from_linked_file
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json    | +/- dedupe_section + dedupe_enabled (Check, 1) / dedupe_phash_max_distance (Int, 6); relocated dedupe_window_days into it
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py      | + get_dedupe_config() {enabled, window_days, phash_max_distance}
  erpnext/accounts/ap_closed_loop/async_runner.py                                  | +1 QUEUE_BY_STEP: run_dedupe_for -> short
  erpnext/accounts/ap_closed_loop/install.py                                       | +2 backfill defaults: dedupe_enabled=1, dedupe_phash_max_distance=6
- erpnext/accounts/doctype/ap_invoice_capture/test_ap_invoice_capture.py          | +13 tests (TestAPInvoiceCaptureDedup x11, TestAPInvoiceCaptureDedupCascade x2)
+ erpnext/accounts/doctype/document_capture/test_document_capture.py          | +13 tests (TestAPInvoiceCaptureDedup x11, TestAPInvoiceCaptureDedupCascade x2)
  erpnext/accounts/doctype/ap_closed_loop_settings/test_ap_closed_loop_settings.py | +1 test (get_dedupe_config)
  pyproject.toml                                                                   | +imagehash, +pdf2image (NEW pip deps); poppler-utils is a NEW *system* dep (worker host) — degrades gracefully when absent
  test/testplans/specs/03-deduplication.md                                          | clean-room runbook
@@ -813,7 +813,7 @@ The **firewall against double-booking**: every freshly-intaken capture is checke
 
 **Design notes / decisions (spec §8):** the exact key is the **MD5 `content_hash` copied from Frappe's `File`** (never recomputed; per upstream `frappe/core/doctype/file/utils.py:get_content_hash`), so `content_hash` / `perceptual_hash` must be fieldtype **Data** for the `search_index` to emit a real DB index (a `text`/`longtext` column silently drops it). `content_hash` is **NOT unique** — a legitimate duplicate is a *second row* with the same hash, flagged and surfaced rather than rejected at insert. An **exact hit** sets `status=Duplicate` (terminal; the existing `_determine_next_step` status guard stops the cascade — no OCR cost) + `duplicate_of` = the **oldest** matching original (`received_at asc, limit 1`). A **perceptual suspect** (Hamming distance ≤ `dedupe_phash_max_distance`, default 6) only sets `action_required` and stays `Pending Review` so it still gets OCR'd (D1=(b)); a human (and the follow-on body-text fingerprint, D2) confirms. Dedupe runs as a **Step-0 async cascade hop** before OCR (D4); the `duplicate_detected_at` stamp is the single idempotency flag (D5). `_compute_phash` (first-page-only, 150 DPI; D7) **never raises** — when poppler/imagehash is absent it returns `None` and dedupe **degrades to exact-only**, so intake never stalls (AC-03-8). Native `PurchaseInvoice` duplicate control (`check_supplier_invoice_uniqueness`, **off by default**) is **complementary**, not a substitute (different key — parsed `bill_no` vs raw bytes; different timing — post-OCR at PI insert vs pre-OCR at intake; different window — per-fiscal-year vs 90-day); the pilot is **recommended to enable it** as a second promote-time firewall.
 
-**Net effect:** `AP Invoice Capture` gains 4 read-only dedupe audit fields + a `Duplicate` terminal status; `AP Closed Loop Settings` gains a dedupe config section (kill switch + window + pHash distance); a new pre-OCR Step-0 hop runs on every supported-file intake; two NEW pip deps (`imagehash`, `pdf2image`) and one NEW **system** dep (`poppler-utils`, the #1 deploy risk) — all **non-blocking** because the perceptual pass degrades to exact-hash-only when they are absent.
+**Net effect:** `Document Capture` gains 4 read-only dedupe audit fields + a `Duplicate` terminal status; `AP Closed Loop Settings` gains a dedupe config section (kill switch + window + pHash distance); a new pre-OCR Step-0 hop runs on every supported-file intake; two NEW pip deps (`imagehash`, `pdf2image`) and one NEW **system** dep (`poppler-utils`, the #1 deploy risk) — all **non-blocking** because the perceptual pass degrades to exact-hash-only when they are absent.
 
 ## 14. Spec 04 — Extraction: Numeric Per-Field Confidence + Line Items
 
@@ -822,21 +822,21 @@ The **firewall against double-booking**: every freshly-intaken capture is checke
 Stops **discarding** the per-field confidence the Anthropic tool already returns, and adds **line-item extraction**. Two new child tables persist the numeric scores (the routing/query index for spec 09) and the extracted lines (the join surface for spec 08 and the Stream-R JE path); promote becomes **line-aware** with a totals-reconciliation guard.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture_confidence/{__init__,ap_invoice_capture_confidence}.py + .json | NEW child DocType (istable) — field_name / confidence (Float) / is_above_threshold (Check, derived) / score_source (Model|Derived-Mapping)
- erpnext/accounts/doctype/ap_invoice_capture_item/{__init__,ap_invoice_capture_item}.py + .json             | NEW child DocType (istable) — mirrors Purchase Invoice Item (description/qty/rate/amount/tax_amount/expense_account/cost_center/po_reference/pr_reference/currency/confidence_summary)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                                       | +/- extraction_detail_section + subtotal_amount/tax_amount (Currency, options=proposed_currency so they display in the extracted currency like the line items, not the pre-review-empty final_currency) + line_items (Table) + field_confidences (Table)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                                         | +/- run_extraction write-back (_write_extraction_detail / _resolve_above / _base_field / _existing_link); promote_to_purchase_invoice line-aware branch + reconciliation guard; ocr_raw_response gains confidence/lines (no creds)
+ erpnext/accounts/doctype/document_capture_confidence/{__init__,document_capture_confidence}.py + .json | NEW child DocType (istable) — field_name / confidence (Float) / is_above_threshold (Check, derived) / score_source (Model|Derived-Mapping)
+ erpnext/accounts/doctype/document_capture_item/{__init__,document_capture_item}.py + .json             | NEW child DocType (istable) — mirrors Purchase Invoice Item (description/qty/rate/amount/tax_amount/expense_account/cost_center/po_reference/pr_reference/currency/confidence_summary)
+ erpnext/accounts/doctype/document_capture/document_capture.json                                       | +/- extraction_detail_section + subtotal_amount/tax_amount (Currency, options=proposed_currency so they display in the extracted currency like the line items, not the pre-review-empty final_currency) + line_items (Table) + field_confidences (Table)
+ erpnext/accounts/doctype/document_capture/document_capture.py                                         | +/- run_extraction write-back (_write_extraction_detail / _resolve_above / _base_field / _existing_link); promote_to_purchase_invoice line-aware branch + reconciliation guard; ocr_raw_response gains confidence/lines (no creds)
  erpnext/accounts/ap_closed_loop/extractors/base.py                                                        | +/- ExtractionResult gains confidence / lines / score_sources (default factories)
  erpnext/accounts/ap_closed_loop/extractors/anthropic.py                                                   | +/- tool schema (subtotal/tax_total/po_reference + line_items array); _to_extraction_result keeps numeric scores + emits lines + line_<i>_<field> keys + mapping fallback
  erpnext/accounts/ap_closed_loop/extractors/fake.py                                                        | +/- derives confidence (missing 0.0 / ambiguous 0.5 / clear 0.95), all Derived-Mapping; lines stay []
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py                               | +/- get_ocr_config surfaces field_thresholds (parsed dict)
- test_*.py across extractors / settings / ap_invoice_capture                                               | +13 tests (AC-04-1..15)
+ test_*.py across extractors / settings / document_capture                                               | +13 tests (AC-04-1..15)
  test/testplans/{extraction-per-field-confidence,extraction-line-items-promote}.md                        | clean-room runbooks
 ```
 
 **Design notes / decisions (spec §8):** the per-field threshold reuses spec-01's `field_thresholds` + the canonical `ocr_confidence_threshold` — **no second scalar** was added (honoring locked gating decision #4); `_resolve_above` resolves `field_thresholds[base] → confidence_threshold`, with `line_<i>_<field>` keys stripped to their base field (D2). Child table vs `ocr_raw_response` JSON is a deliberate split: **child table = filterable/reportable routing surface; JSON = immutable audit-of-record** (the same numbers land in both). `score_source` distinguishes a real `Model` number from a `Derived-Mapping` stand-in so spec-09 routing never over-trusts a fallback (D3). Promote reconciliation **surfaces** a line/total mismatch (>0.01) as `CapturePromotionError` + `action_required` rather than silently mutating the ledger (D1). The check is **tax-aware** — a real-Anthropic e2e on a 19%-VAT invoice showed lines sum to the *pre-tax subtotal* while `final_total_amount` is *tax-inclusive*, so it accepts either `sum(lines) == total` (tax-inclusive lines) **or** `sum(lines) + tax_amount == total` (pre-tax lines + separate tax); a genuine misread reconciles under neither and still raises. line item identity uses the default `item_code` + the extracted description (D4); the child `tax_amount` is plain `Currency` bound to the capture currency, deferring company-currency conversion to promote (D5). All Link writes (`po_reference`/`pr_reference`/`expense_account`/`cost_center` + the header PO) are guarded with `frappe.db.exists` so a hallucinated OCR string never creates a dangling Link. The cascade shape is **unchanged** — the write-back runs inside the already-enqueued `run_extraction` job; the header-line promote fallback is byte-for-byte preserved for captures with no lines.
 
-**Net effect:** `AP Invoice Capture` gains two child grids (line items + per-field confidence) and surfaced subtotal/tax; the Anthropic extractor stops throwing away the scores it already computes and now reads line items; promote maps one capture line → one PI item (Stream I) with a reconciliation guard; `get_ocr_config` gains `field_thresholds`. No new DocTypes beyond the two child tables, no new posting logic, no cascade-shape change.
+**Net effect:** `Document Capture` gains two child grids (line items + per-field confidence) and surfaced subtotal/tax; the Anthropic extractor stops throwing away the scores it already computes and now reads line items; promote maps one capture line → one PI item (Stream I) with a reconciliation guard; `get_ocr_config` gains `field_thresholds`. No new DocTypes beyond the two child tables, no new posting logic, no cascade-shape change.
 
 ## 15. AI Chat Panel — context-aware desk assistant (read-only v1)
 
@@ -908,8 +908,8 @@ Replaces today's single-tier `_match_supplier` with a **three-tier supplier reso
 ```
  erpnext/accounts/doctype/ap_supplier_alias/{__init__,ap_supplier_alias}.py + .json + test_ap_supplier_alias.py | NEW master DocType (Tier 1) — canonical_supplier/alias_pattern/match_type(exact|glob|regex)/is_active/priority/source_capture; AM-curated, AU read; 8 tests
  erpnext/accounts/doctype/supplier_master_change_request/{__init__,supplier_master_change_request}.py + .json + test_*.py | NEW submittable DocType (Tier 3) — the gated vehicle for supplier-master mutations; controller approve/reject with role gate + requester≠approver SoD + idempotent Supplier insert + capture re-validation; 6 tests
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                 | +/- supplier_match_tier (Select None|Alias|Fuzzy|Exact) + supplier_match_confidence (Float) + supplier_change_request (Link) + proposed_supplier_confidence (Float); supplier_match_status Literal gains "Alias"
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                   | +/- _resolve_supplier (3-tier) + _resolve_alias + _resolve_fuzzy; _match_supplier kept as back-compat shim; queue_supplier_create_request + _maybe_queue_supplier_create (Tier-3); validate_for_purchase_invoice rewritten with stream-aware branching; resolve_supplier_for whitelisted wrapper; _write_extraction_detail derives proposed_supplier_confidence
+ erpnext/accounts/doctype/document_capture/document_capture.json                 | +/- supplier_match_tier (Select None|Alias|Fuzzy|Exact) + supplier_match_confidence (Float) + supplier_change_request (Link) + proposed_supplier_confidence (Float); supplier_match_status Literal gains "Alias"
+ erpnext/accounts/doctype/document_capture/document_capture.py                   | +/- _resolve_supplier (3-tier) + _resolve_alias + _resolve_fuzzy; _match_supplier kept as back-compat shim; queue_supplier_create_request + _maybe_queue_supplier_create (Tier-3); validate_for_purchase_invoice rewritten with stream-aware branching; resolve_supplier_for whitelisted wrapper; _write_extraction_detail derives proposed_supplier_confidence
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- supplier_resolution_section: supplier_fuzzy_threshold(90)/supplier_fuzzy_min_length(4)/enable_gated_supplier_creation(0)/supplier_autocreate_confidence_threshold(0.85)/supplier_change_approver_role(Accounts Manager); get_supplier_resolution_settings() helper; validate() rejects a group/non-existent unmapped_card_spend_account (AC-05-23)
  test/testplans/specs/05-supplier-resolution-3tier.md                                         | clean-room runbook
 ```
@@ -926,7 +926,7 @@ Replaces today's single-tier `_match_supplier` with a **three-tier supplier reso
 #   AP Closed Loop Settings -> OCR Provider = Fake (Deterministic)
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_alias.test_ap_supplier_alias                       # 8
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.supplier_master_change_request.test_supplier_master_change_request  # 6
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                     # 107
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture                     # 107
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings           # 20
 ```
 
@@ -939,8 +939,8 @@ Adds the **auto-coding layer** for routine vendors: a per-supplier `AP Supplier 
 ```
  erpnext/accounts/doctype/ap_supplier_coding_profile/{__init__,ap_supplier_coding_profile}.py + .json + test_*.py | NEW master DocType (autoname field:supplier, unique) — default expense/cost-center/tax-template/payment-terms + dimensions table; 5 tests
  erpnext/accounts/doctype/ap_supplier_coding_dimension/{__init__,ap_supplier_coding_dimension}.py + .json       | NEW child DocType (istable) — (dimension, value) via Dynamic Link off the Accounting Dimension's document_type
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json                | +/- coding_section + coding_status(Pending|Coded|Ambiguous|Flagged)/coding_review_reason/applied_expense_account/applied_cost_center/applied_tax_template/applied_payment_terms_template/coding_source/card_last4/receipt_location
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py                  | +/- apply_coding_profile_for + is_fully_coded + _resolve_supplier_coding + _infer_cost_center (+ _location/_card_cost_center stubs) + _validate_coding_tax + _apply_dimensions_to_row + _apply_coding_to_draft_pi; promote consumes capture.applied_* + sets pi.taxes_and_charges/payment_terms_template; submitted-PI guard; cascade Step-2b hop (gated on _coding_configured); apply_coding_profile_for_ui + get_coding_review_queue_for whitelisted
+ erpnext/accounts/doctype/document_capture/document_capture.json                | +/- coding_section + coding_status(Pending|Coded|Ambiguous|Flagged)/coding_review_reason/applied_expense_account/applied_cost_center/applied_tax_template/applied_payment_terms_template/coding_source/card_last4/receipt_location
+ erpnext/accounts/doctype/document_capture/document_capture.py                  | +/- apply_coding_profile_for + is_fully_coded + _resolve_supplier_coding + _infer_cost_center (+ _location/_card_cost_center stubs) + _validate_coding_tax + _apply_dimensions_to_row + _apply_coding_to_draft_pi; promote consumes capture.applied_* + sets pi.taxes_and_charges/payment_terms_template; submitted-PI guard; cascade Step-2b hop (gated on _coding_configured); apply_coding_profile_for_ui + get_coding_review_queue_for whitelisted
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- coding_section + default_purchase_tax_template; get_coding_settings() accessor (unmapped_card_spend_account + purchase_tax_template)
  test/testplans/specs/06-gl-coding-tax-costcenter.md                                 | clean-room runbook
 ```
@@ -955,7 +955,7 @@ Adds the **auto-coding layer** for routine vendors: a per-supplier `AP Supplier 
 ```bash
 # Pin Fake OCR first (the capture suite calls run_fake_extraction; spec-01 note).
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_supplier_coding_profile.test_ap_supplier_coding_profile   # 5
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture                    # 120
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture                    # 120
 ```
 
 ## 18. Spec 07 — Document-Type Classification & Doctype Branching (stream-aware)
@@ -965,8 +965,8 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 Adds the Step-6 fork that classifies a confirmed capture and routes it to the right posting doctype — **Unpaid Bill → Purchase Invoice** (existing path), **Already Paid → Purchase Invoice with `is_paid=1`** (NEW Stream-R path: one submitted PI books the invoice legs *and* the payment legs, netting the supplier to zero while keeping it visible in spend-by-supplier/AP), **Employee Reimbursement → Manual Review** (hrms absent), **Other / stream conflict → Manual Review**. Routing everything to one doctype double-counts liabilities; this branch is the heart of correct AP automation.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- classification_section + document_type/classified_stream/stream_tag_agreement/classification_override/card_charge_marker/detected_last4/expense_claim(Data)/classified_at/by/source; status +Manual Review
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- classify_document_type (+_for) + _detect_card_marker/_provisional_stream/_finalize_classification; promote_already_paid (+_for) + _build_already_paid_voucher (Option-C swap seam); promote_to_purchase_invoice gains _already_paid param + the document_type guard + is_paid fields; cascade Step-1b classify hop + Already-Paid posting hop + Step-3 approval guard (Already-Paid skips approval/payment)
+ erpnext/accounts/doctype/document_capture/document_capture.json | +/- classification_section + document_type/classified_stream/stream_tag_agreement/classification_override/card_charge_marker/detected_last4/expense_claim(Data)/classified_at/by/source; status +Manual Review
+ erpnext/accounts/doctype/document_capture/document_capture.py   | +/- classify_document_type (+_for) + _detect_card_marker/_provisional_stream/_finalize_classification; promote_already_paid (+_for) + _build_already_paid_voucher (Option-C swap seam); promote_to_purchase_invoice gains _already_paid param + the document_type guard + is_paid fields; cascade Step-1b classify hop + Already-Paid posting hop + Step-3 approval guard (Already-Paid skips approval/payment)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- employee_supplier_group + get_already_paid_config() (reuses credit_card_clearing_account as the paid-from account)
  test/testplans/specs/07-classification-doctype-branching.md | clean-room runbook
 ```
@@ -978,7 +978,7 @@ Adds the Step-6 fork that classifies a confirmed capture and routes it to the ri
 ### 18.1 Running the spec-07 tests
 ```bash
 # Pin Fake OCR first.
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 134
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 134
 ```
 
 ## 19. Spec 08 — Validation Gates: Three-Way Match, Amount Anomaly, Vendor Bank-Change
@@ -992,8 +992,8 @@ Adds three **stream-aware** validation gates that run inside `validate_for_purch
 - **Vendor bank-change** — a watched bank field (`Bank Account.iban`/`bank_account_no`/`branch_code`, `Bank.swift_number`/`bank_name`, `Supplier.default_bank_account`) changed **after** the supplier's last submitted Payment Entry, read from Frappe's native `Version` audit. Detection blocks **promotion** (`CapturePromotionError`) until a Posted Update-Bank-Details `Supplier Master Change Request` decided by someone other than the requester lifts it. No prior PE → soft-skip (no false block).
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- validation_gates_section + three_way_match_status/result/checked_at/override_by/override_at/override_notes + anomaly_status/result/checked_at + vendor_bank_change_detected/result/checked_at
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- _is_stream_i/_resolve_gate_config + three_way_match_for + detect_amount_anomaly_for + _anomaly_baseline + detect_vendor_bank_change_for + has_approved_bank_change + override_three_way_match + refresh_anomaly_baselines/_upsert_anomaly_baseline; gate-run + Stream-I issue wiring inside validate_for_purchase_invoice; bank-change block inside promote_to_purchase_invoice; gates block added to build_closure_evidence; 4 whitelisted wrappers (three_way_match_for_capture/detect_amount_anomaly_for_capture/detect_vendor_bank_change_for_capture/override_three_way_match_for)
+ erpnext/accounts/doctype/document_capture/document_capture.json | +/- validation_gates_section + three_way_match_status/result/checked_at/override_by/override_at/override_notes + anomaly_status/result/checked_at + vendor_bank_change_detected/result/checked_at
+ erpnext/accounts/doctype/document_capture/document_capture.py   | +/- _is_stream_i/_resolve_gate_config + three_way_match_for + detect_amount_anomaly_for + _anomaly_baseline + detect_vendor_bank_change_for + has_approved_bank_change + override_three_way_match + refresh_anomaly_baselines/_upsert_anomaly_baseline; gate-run + Stream-I issue wiring inside validate_for_purchase_invoice; bank-change block inside promote_to_purchase_invoice; gates block added to build_closure_evidence; 4 whitelisted wrappers (three_way_match_for_capture/detect_amount_anomaly_for_capture/detect_vendor_bank_change_for_capture/override_three_way_match_for)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.json + .py | +/- three_way_match_section (qty/amount tolerance, respect_over_billing_allowance, require_po_for_invoices) + anomaly_section fields (lookback_months/multiple/sigma/min_sample) + get_validation_gate_config()
  erpnext/accounts/doctype/ap_supplier_coding_profile/*.json + .py | +/- per-supplier gate overrides (qty/amount tolerance, anomaly multiple/sigma/min_sample)
  erpnext/accounts/doctype/ap_supplier_anomaly_baseline/* | NEW derived cache doctype (supplier-keyed mean/stddev/sample_count/window/computed_at)
@@ -1007,7 +1007,7 @@ Adds three **stream-aware** validation gates that run inside `validate_for_purch
 ### 19.1 Running the spec-08 tests
 ```bash
 # Pin Fake OCR first (run_fake_extraction is explicit, but the site provider should be Fake for the suite).
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 156
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 156
 ```
 
 ## 20. Spec 09 — Confidence-Based Routing (Auto-Advance vs Needs-Review Queue)
@@ -1017,8 +1017,8 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 Replaces the amount-only auto-approve decision in `request_approval` with a **three-axis combined-signal evaluator**: (1) amount vs the canonical `auto_post_amount_threshold`, (2) every `MANDATORY_HEADER_FIELDS` per-field confidence above threshold (spec 04's `is_above_threshold`), (3) zero open validation flags (spec 08). A clean+confident capture auto-advances exactly as before (Auto Approved at/under threshold, Pending Manager over it); **any** low-confidence field or open flag parks it at the new **`Needs Review`** approval state with the *specific* failing field/flag named in `routing_reason`, and emits a guarded `AP Review Event` (spec-10 telemetry seam). A sanctioned `reroute_after_review` re-routes once the clerk clears the flags.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- approval_status Select += "Needs Review"
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py   | +/- APPROVAL_STATUS_NEEDS_REVIEW + ROUTING_AXIS_* consts; RoutingDecision namedtuple + _evaluate_routing_signals + _residual_gate_flag + _emit_review_event (guarded seam); request_approval gains the not-clean → Needs Review branch (names failing axis/field/flag); reroute_after_review (+ _for wrapper)
+ erpnext/accounts/doctype/document_capture/document_capture.json | +/- approval_status Select += "Needs Review"
+ erpnext/accounts/doctype/document_capture/document_capture.py   | +/- APPROVAL_STATUS_NEEDS_REVIEW + ROUTING_AXIS_* consts; RoutingDecision namedtuple + _evaluate_routing_signals + _residual_gate_flag + _emit_review_event (guarded seam); request_approval gains the not-clean → Needs Review branch (names failing axis/field/flag); reroute_after_review (+ _for wrapper)
  erpnext/accounts/doctype/ap_closed_loop_settings/ap_closed_loop_settings.py | +/- get_routing_config() (composes auto_post_amount_threshold + spec-04 confidence threshold/field_thresholds)
  docs/architecture/AP-CAPTURE-SEQUENCE.md + .png | Step 3 now shows the confidence/flag → Needs Review branch + the reroute hop
  test/testplans/specs/09-confidence-routing.md | clean-room runbook
@@ -1033,7 +1033,7 @@ Replaces the amount-only auto-approve decision in `request_approval` with a **th
 
 ### 20.1 Running the spec-09 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 171
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 171
 ```
 
 ## 21. Spec 10 — AP Review (Exception Handling) — instrumented feedback gate
@@ -1045,8 +1045,8 @@ Turns Step 9 from a silent exception handler into an instrumented **feedback gat
 ```
  erpnext/accounts/doctype/ap_review_event/* | NEW append-only log DocType (capture, action_taken, root_cause_tag [fixed 8-value vocab], fields_changed JSON, time_to_resolve_seconds, exception_reason_code, note, clerk, created; autoname APRE-{YYYY}-{#####}; clerk-read-only)
  erpnext/accounts/doctype/ap_capture_rejection_log/* | NEW child table (action Rejected/Reopened, reason, from_status, to_status, actor, timestamp)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- rejection_section + rejection_log Table; status "Rejected" already existed (no enum migration)
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- emit_review_event (shared primitive) + _safe_emit_review_event; reject_capture / reopen_capture (+ _for wrappers + get_rejection_log_for); validate() Rejected short-circuit; _determine_next_step Rejected→None guard; instrumentation on confirm_extracted_fields (field_corrected/coding_completed) + record_manager_decision reject (rejected, Stream I only); spec-09 _emit_review_event reconciled onto the canonical primitive
+ erpnext/accounts/doctype/document_capture/document_capture.json | +/- rejection_section + rejection_log Table; status "Rejected" already existed (no enum migration)
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- emit_review_event (shared primitive) + _safe_emit_review_event; reject_capture / reopen_capture (+ _for wrappers + get_rejection_log_for); validate() Rejected short-circuit; _determine_next_step Rejected→None guard; instrumentation on confirm_extracted_fields (field_corrected/coding_completed) + record_manager_decision reject (rejected, Stream I only); spec-09 _emit_review_event reconciled onto the canonical primitive
  erpnext/accounts/report/ap_top_step_9_root_causes/* | NEW Query Report (GROUP BY root_cause_tag, % of total, distinct captures; date filters)
  erpnext/accounts/dashboard_chart/ap_review_root_causes/* | NEW Group-By chart over AP Review Event by root_cause_tag
  docs/architecture/AP-CAPTURE-SEQUENCE.md | notes: reject/reopen clerk action + AP Review Event sink now built
@@ -1059,7 +1059,7 @@ Turns Step 9 from a silent exception handler into an instrumented **feedback gat
 
 ### 21.1 Running the spec-10 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 185
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 185
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_review_event.test_ap_review_event          # 4
 ```
 
@@ -1071,7 +1071,7 @@ The whole pipeline already auto-advances the common case **except** the OCR-conf
 
 ```
  erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- auto_confirm_enabled Check (default OFF) + is_auto_confirm_enabled()
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _confidence_fields_ok (shared confidence axis, extracted from _evaluate_routing_signals — one copy of the gate) + _evaluate_confirm_signals (ConfirmDecision; fields_ok + residual-gate flags_ok, no amount axis); _determine_next_step Step 1a auto-confirm hop; auto_confirm_extracted_fields_for wrapper (re-checks the gate, suppresses the AP Review Event); confirm_extracted_fields gains emit_event param
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- _confidence_fields_ok (shared confidence axis, extracted from _evaluate_routing_signals — one copy of the gate) + _evaluate_confirm_signals (ConfirmDecision; fields_ok + residual-gate flags_ok, no amount axis); _determine_next_step Step 1a auto-confirm hop; auto_confirm_extracted_fields_for wrapper (re-checks the gate, suppresses the AP Review Event); confirm_extracted_fields gains emit_event param
  docs/architecture/AP-CAPTURE-SEQUENCE.md + .png | new Step 1a auto-confirm branch at the OCR-review pause
 ```
 
@@ -1081,7 +1081,7 @@ The whole pipeline already auto-advances the common case **except** the OCR-conf
 
 ### 22.1 Running the T-015 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 195
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 195
 ```
 
 ## 23. T-016 — Coding bootstrap from history (self-coding routine vendors)
@@ -1092,7 +1092,7 @@ Shipped auto-coding (spec 06) only fired when a human pre-built an `AP Supplier 
 
 ```
  erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- enable_coding_history_bootstrap (default ON) + consensus/min_samples/lookback + get_coding_history_config()
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _derive_coding_from_history (per-field consensus over the supplier's docstatus=1 PIs → derived + ambiguous); apply_coding_profile_for gains Layer-1.5 merge (below profile+caller, above Settings) + split-history → Coding Review escalation; _coding_configured fires the coding hop for a history-codable supplier with no profile
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- _derive_coding_from_history (per-field consensus over the supplier's docstatus=1 PIs → derived + ambiguous); apply_coding_profile_for gains Layer-1.5 merge (below profile+caller, above Settings) + split-history → Coding Review escalation; _coding_configured fires the coding hop for a history-codable supplier with no profile
 ```
 
 **The gate.** For each codable field independently (`expense_account` / `cost_center` / `taxes_and_charges`) over the supplier's last `lookback` posted PIs: a value is derived only when it covers `>= consensus` (default 0.8) of the non-empty observations AND there are `>= min_samples` (default 3). A confidently-derived field is merged **below** the profile and the caller `defaults` (they always win) but **above** Settings — history only fills what no human pinned. A **split** field (no consensus), that neither a profile nor the caller pinned and nothing else resolved, routes to **Coding Review** naming the competing values (escalate only the doubtful). **Thin** history derives nothing (no auto-post on shaky evidence).
@@ -1101,7 +1101,7 @@ Shipped auto-coding (spec 06) only fired when a human pre-built an `AP Supplier 
 
 ### 23.1 Running the T-016 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 199
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 199
 ```
 
 ## 24. T-017 — Classification trusts confident content over a disagreeing intake tag
@@ -1112,14 +1112,14 @@ Shipped classification sent **every** intake-vs-content stream disagreement to M
 
 ```
  erpnext/accounts/doctype/ap_closed_loop_settings/* | +/- enable_classification_trust_content (default OFF) + is_classification_trust_content_enabled()
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _content_classification_confident (decisive marker OR _confidence_fields_ok); classify_document_type disagreement branch now trusts confident content (records a stream_mistag AP Review Event, no halt) instead of unconditional Manual Review
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- _content_classification_confident (decisive marker OR _confidence_fields_ok); classify_document_type disagreement branch now trusts confident content (records a stream_mistag AP Review Event, no halt) instead of unconditional Manual Review
 ```
 
 **The gate.** In the classifier's disagreement branch: when `enable_classification_trust_content` is ON AND the content is confident (`card_charge_marker` is itself decisive, else the spec-04 mandatory-field confidence passes), keep the content's `document_type`/`classified_stream`, set `stream_tag_agreement='Disagree'`, emit one `AP Review Event` (`classified_other` / `stream_mistag`), and **do not halt** (`reason` stays None → status remains Confirmed, cascade continues). Otherwise → Manual Review exactly as shipped. **Default OFF** — the disagreement→Manual-Review behaviour (AC-07-5) is unchanged until a site opts in. Disagreement is a *tuning signal* (the `stream_mistag` rate feeds the spec-10 report), not an exception.
 
 ### 24.1 Running the T-017 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 202
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 202
 ```
 
 ## 25. T-018 — Gated supplier auto-create defaults ON for high-confidence names
@@ -1136,7 +1136,7 @@ One-line default flip — no new desk surface (the auto-filed-request behaviour 
 
 ### 25.1 Running the T-018 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 205
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 205
 ```
 
 ## 26. Spec 11 — Approval & Segregation of Duties (automation-first pilot)
@@ -1146,7 +1146,7 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 Closes the real control gap: **the person who prepared an invoice may not also approve it.** The shipped engine only checked a *role* (`frappe.only_for`) — it could not stop a manager from approving an invoice they themselves entered. The pilot keeps the engine (in-policy invoices still auto-approve, spec 09) and adds the identity control; the company-wide native `Workflow` on Purchase Invoice is a **deferred, opt-in upgrade** (§5.6 / D-2/D-8 — it would govern every PI company-wide).
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- record_manager_decision app-code SoD guard (above-threshold approve by reviewed_by/validated_by raises; self-reject allowed; Administrator break-glass exempt); resolve_approver_role (pilot default; matrix deferred); has_approved_bank_change now requires a non-requester Treasury Approver (T-012)
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- record_manager_decision app-code SoD guard (above-threshold approve by reviewed_by/validated_by raises; self-reject allowed; Administrator break-glass exempt); resolve_approver_role (pilot default; matrix deferred); has_approved_bank_change now requires a non-requester Treasury Approver (T-012)
  erpnext/accounts/ap_closed_loop/install.py | +/- _seed_ap_roles — AP Clerk / Treasury Approver / Auditor (Read Only), idempotent, on after_migrate
  test/testplans/specs/11-approval-sod-workflow.md | clean-room runbook
 ```
@@ -1155,7 +1155,7 @@ Closes the real control gap: **the person who prepared an invoice may not also a
 
 ### 26.1 Running the spec-11 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 211
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 211
 ```
 
 ## 27. Spec 12 — Payment Execution (auto-pay opt-in per vendor)
@@ -1166,14 +1166,14 @@ Payment moves real money, so the safe default is **human-triggered**. The automa
 
 ```
  erpnext/accounts/ap_closed_loop/install.py | +/- _seed_supplier_custom_fields — Supplier.auto_pay_eligible Check (default OFF), on after_migrate
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _determine_next_step Step 4 now gates on _auto_pay_eligible() — only a per-supplier auto_pay_eligible vendor auto-issues the (mock) Payment Entry; everyone else pauses at payment_readiness=Ready
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- _determine_next_step Step 4 now gates on _auto_pay_eligible() — only a per-supplier auto_pay_eligible vendor auto-issues the (mock) Payment Entry; everyone else pauses at payment_readiness=Ready
 ```
 
 Previously the cascade auto-paid **every** approved+ready capture (gated only by test flags). Now an approved, non-eligible capture stops at `Ready` until a human calls `issue_mock_payment` — and `issue_mock_payment` itself is unchanged (still `frappe.only_for(Accounts Manager)` + the `payment_entry` idempotency guard). Stream-R already-paid captures never reach Step 4 (they skip approval/payment at spec 07). **Deferred (phase 2):** the real external rail seam `issue_real_payment_for(capture, rail)` — real money warrants extra care; the mock/dev path flows freely.
 
 ### 27.1 Running the spec-12 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 213
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 213
 ```
 
 ## 28. Spec 13 — Bank-Feed Match & dual-signal closure (the external close signal)
@@ -1183,15 +1183,15 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 "Closure comes from outside." A document isn't truly closed until the **bank feed confirms the money moved**. This reuses ERPNext's **native** Bank Reconciliation (no matching rebuilt), reads the result, and splits closure into `settled` (internal) + `bank_cleared` (external).
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | +/- bank_reconciliation_section + bank_cleared (Check) + bank_transaction (Link → Bank Transaction); payment_lifecycle_status += "Bank Cleared"
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | +/- _matched_bank_transaction (reads native Bank Transaction Payments) + reconcile_bank_for (stamps bank_cleared + the BT + lifecycle); build_closure_evidence now derives settled + bank_cleared and closed = settled AND bank_cleared; "no Bank Transaction" guardrail retired
+ erpnext/accounts/doctype/document_capture/document_capture.json | +/- bank_reconciliation_section + bank_cleared (Check) + bank_transaction (Link → Bank Transaction); payment_lifecycle_status += "Bank Cleared"
+ erpnext/accounts/doctype/document_capture/document_capture.py | +/- _matched_bank_transaction (reads native Bank Transaction Payments) + reconcile_bank_for (stamps bank_cleared + the BT + lifecycle); build_closure_evidence now derives settled + bank_cleared and closed = settled AND bank_cleared; "no Bank Transaction" guardrail retired
 ```
 
 **Dual-signal closure.** `closed = settled AND bank_cleared`. `settled` = submitted PI (Paid, outstanding 0) + submitted PE; `bank_cleared` = the native bank feed matched a `Bank Transaction` to the disbursing voucher. The Phase-1 guardrail ("Bank Transaction count must remain 0") is **retired** — a Bank Transaction now *enables* closure. **Deferred to cutover:** the live feed connection (native **Plaid** default, decision #8); dev uses fixture Bank Transactions. Verified with a real `Bank Transaction` matched to the PE (`TestAPBankReconciliation`).
 
 ### 28.1 Running the spec-13 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 217
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 217
 ```
 
 ## 29. Spec 14 — Closure & Audit Trail (pilot: audit composite, flag-only retention, TB-drift report)
@@ -1201,7 +1201,7 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 "Closure is **derived, not declared**, and audit-readiness costs no routine human effort." There is **no human 'mark closed' step** — `payment_lifecycle_status` flips passively to `Bank Cleared` the moment `settled AND bank_cleared` agree (re-derived each time evidence is built). The audit trail, retention flag, and TB-drift report are **automated outputs**; a human is pulled in only for a surfaced exception.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | + build_audit_trail_for (closure evidence + Frappe Version field-level history) + build_audit_trail_for_capture (whitelisted) + AP_RETENTION_YEARS=7 + enforce_retention_policy (flag-only 7-year IRS scan — logs, NEVER deletes); reject_capture now saves ignore_version=False (audit Version always written — v16 in_test parity)
+ erpnext/accounts/doctype/document_capture/document_capture.py | + build_audit_trail_for (closure evidence + Frappe Version field-level history) + build_audit_trail_for_capture (whitelisted) + AP_RETENTION_YEARS=7 + enforce_retention_policy (flag-only 7-year IRS scan — logs, NEVER deletes); reject_capture now saves ignore_version=False (audit Version always written — v16 in_test parity)
  erpnext/accounts/report/accounts_payable_trial_balance_drift/* | + pilot "Accounts Payable Trial Balance Drift" Query Report (current AP-control-account GL balances; PCV-snapshot drift comparison deferred — T-020)
  erpnext/hooks.py | + scheduler_events["monthly"] → enforce_retention_policy
 ```
@@ -1212,7 +1212,7 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 
 ### 29.1 Running the spec-14 tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 223 OK
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 223 OK
 ```
 
 ## 30. Fix — mock Payment Entry account is company-scoped (multi-company)
@@ -1222,14 +1222,14 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 `issue_mock_payment` hardcoded the disbursing account to `MOCK_CLEARING_ACCOUNT_DEFAULT = "_Test Bank - _TC"` when no override was given. Payment Entry enforces that the bank/cash account belongs to the document's company, so the mock payment failed for **any company other than _Test Company**.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py | + _resolve_mock_pay_account(company, paid_from): explicit override → legacy default IFF it belongs to this company → company default bank then cash (native get_default_bank_cash_account) → company's single non-group Bank/Cash account → else CapturePaymentError. issue_mock_payment now calls it instead of the hardcoded constant.
+ erpnext/accounts/doctype/document_capture/document_capture.py | + _resolve_mock_pay_account(company, paid_from): explicit override → legacy default IFF it belongs to this company → company default bank then cash (native get_default_bank_cash_account) → company's single non-group Bank/Cash account → else CapturePaymentError. issue_mock_payment now calls it instead of the hardcoded constant.
 ```
 
 Resolution is company-aware and preserves existing behaviour: `_Test Company` still resolves `_Test Bank - _TC` (so the suite is unchanged), while `DevCompany` (no Bank account) resolves `Cash - DC`. Not flow-visible — no new cascade hop/gate — so the sequence diagram is unchanged.
 
 ### 30.1 Running the tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture   # 226 OK
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture   # 226 OK
 ```
 
 ## 31. UI — `source_context` is read-only and shown only when populated
@@ -1239,7 +1239,7 @@ bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_
 `source_context` is intake-provenance metadata (set via `create_capture_from_file(..., source_context=...)`), not a user-edited field. It was rendering as an empty, editable textbox on every capture. Marked **`read_only: 1`** and gated both it and its `Context` section on **`depends_on: "eval:doc.source_context"`** so the section only appears when a value exists.
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | source_context += read_only:1, depends_on; context_section += depends_on
+ erpnext/accounts/doctype/document_capture/document_capture.json | source_context += read_only:1, depends_on; context_section += depends_on
 ```
 
 No controller/test change (field properties only). Verified in desk: hidden when empty, read-only when set — `test/testplans/screenshots/source-context-readonly-hidden/`.
@@ -1251,7 +1251,7 @@ No controller/test change (field properties only). Verified in desk: hidden when
 `stream` is the *provisional* intake Receipt-vs-Invoice tag (spec 02), system-owned and superseded by Step-6 (`classified_stream`/`document_type`). It was the only classification-result field still editable (`document_type` and `classified_stream` are already `read_only`). Hand-editing it bypasses the audited override path and can desync from the authoritative classification or trip the Step-6 disagreement guard. Marked **`read_only: 1`**; the single human-override lever remains **`classification_override`** (editable, routes through `classify_document_type`, stamps `classification_source = "clerk-override"`).
 
 ```
- erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.json | stream += read_only:1 (+ description note pointing to Classification Override)
+ erpnext/accounts/doctype/document_capture/document_capture.json | stream += read_only:1 (+ description note pointing to Classification Override)
 ```
 
 `stream` stays `reqd` with default `Unclassified` and is always set at intake, so read-only does not block saves. Verified in desk — `test/testplans/screenshots/stream-readonly/`.
@@ -1270,8 +1270,8 @@ Now, when `promote_to_purchase_invoice` promotes a capture whose coding engine n
 **Mark-and-continue (not park):** the cascade gates on promotion/approval status, *not* `coding_status`/`action_required`, so the capture keeps advancing while a human reviews the defaulted coding after the fact. Real coding outcomes (Coded/Ambiguous/Flagged) and the already-paid stream are untouched. Also dropped the misleading static `ap-coding-v1` default on the `coding_source` field (empty until coding genuinely runs).
 
 ```
- ap_invoice_capture.py   | + CODING_SOURCE_NATIVE_DEFAULT; + _reflect_default_coding(); promote_to_purchase_invoice stamps it when uncoded
- ap_invoice_capture.json | coding_source: removed static default "ap-coding-v1" (now empty until coding runs)
+ document_capture.py   | + CODING_SOURCE_NATIVE_DEFAULT; + _reflect_default_coding(); promote_to_purchase_invoice stamps it when uncoded
+ document_capture.json | coding_source: removed static default "ap-coding-v1" (now empty until coding runs)
 ```
 
 Not flow-visible (no new cascade hop/pause/STOP — routing unchanged; the coding-skip already existed, this only makes it visible), so the sequence diagram is unchanged. Verified in desk — `test/testplans/screenshots/default-coding-reflection/`. **Note:** pre-existing captures that promoted on defaults before this change keep the old silent state (not retroactively backfilled).
@@ -1289,8 +1289,8 @@ Two orthogonal axes — **genre** (receipt / invoice / other) and **payment stat
 - **Dispatcher (`classify_document_content`).** Rule by default; LLM only when enabled AND provider=Anthropic; **degrades to the rule scorer on any LLM failure** (no key, API down) — selecting the LLM never blocks classification.
 
 ```
- ap_invoice_capture.py   | + _score_document_content / _classify_text_anthropic / classify_document_content / _content_rationale; classify_document_type consumes the dispatcher; + CLASSIFICATION_SOURCE_CONTENT(_LLM); records confidence/rationale always, only DECIDES when enabled
- ap_invoice_capture.json | + classification_confidence (Float, ro) + classification_rationale (Small Text, ro)
+ document_capture.py   | + _score_document_content / _classify_text_anthropic / classify_document_content / _content_rationale; classify_document_type consumes the dispatcher; + CLASSIFICATION_SOURCE_CONTENT(_LLM); records confidence/rationale always, only DECIDES when enabled
+ document_capture.json | + classification_confidence (Float, ro) + classification_rationale (Small Text, ro)
  ap_closed_loop_settings.{py,json} | + enable_content_classifier (Check, default 0) + content_classifier_provider (Select Rule|Anthropic, default Rule); getters is_content_classifier_enabled / get_content_classifier_provider
 ```
 
@@ -1300,6 +1300,6 @@ Two orthogonal axes — **genre** (receipt / invoice / other) and **payment stat
 
 ### 34.1 Running the tests
 ```bash
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture --test TestAPContentClassifier      # 8
-bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture --test TestAPContentClassifierLLM   # 6 (mocked — no API cost)
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPContentClassifier      # 8
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPContentClassifierLLM   # 6 (mocked — no API cost)
 ```

@@ -2,8 +2,8 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "format:ALIAS-{#####}",
- "creation": "2026-06-01 00:00:00.000000",
- "description": "Tier-1 deterministic supplier alias: maps a vendor-string pattern (exact / glob / regex) to a canonical Supplier. Curated by Accounts Managers; consumed by the 3-tier resolver in AP Invoice Capture (spec 05). Match precedence is exact > glob > regex, then priority asc, then name asc.",
+ "creation": "2026-06-01 00:00:00",
+ "description": "Tier-1 deterministic supplier alias: maps a vendor-string pattern (exact / glob / regex) to a canonical Supplier. Curated by Accounts Managers; consumed by the 3-tier resolver in Document Capture (spec 05). Match precedence is exact > glob > regex, then priority asc, then name asc.",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -70,7 +70,7 @@
    "fieldname": "source_capture",
    "fieldtype": "Link",
    "label": "Source Capture",
-   "options": "AP Invoice Capture"
+   "options": "Document Capture"
   },
   {
    "fieldname": "notes",
@@ -81,11 +81,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-01 00:00:00.000000",
+ "modified": "2026-06-05 21:36:42.128730",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Supplier Alias",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
   {

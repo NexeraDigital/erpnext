@@ -1,12 +1,12 @@
 # Copyright (c) 2026, Nexera and Contributors
 # License: GNU General Public License v3. See license.txt
 
-"""OCR provider abstraction for AP Invoice Capture.
+"""OCR provider abstraction for Document Capture.
 
 Phase 1 of the real-OCR work (see docs/planning/real-ocr-implementation-plan.md):
 introduces a thin seam so the deterministic fake extractor and a future real
 provider (Anthropic Claude, etc.) are interchangeable. The state machine,
-cascade, field-writing, and human-review flow in ``ap_invoice_capture.py`` do
+cascade, field-writing, and human-review flow in ``document_capture.py`` do
 NOT change — they consume an ``ExtractionResult`` regardless of which provider
 produced it.
 
@@ -24,11 +24,11 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
-		APInvoiceCapture,
+	from erpnext.accounts.doctype.document_capture.document_capture import (
+		DocumentCapture,
 	)
 
-# Logical proposal keys, mirroring MANDATORY_HEADER_FIELDS in ap_invoice_capture.
+# Logical proposal keys, mirroring MANDATORY_HEADER_FIELDS in document_capture.
 PROPOSAL_KEYS = (
 	"supplier",
 	"supplier_invoice_no",
@@ -76,7 +76,7 @@ class ExtractionResult:
 	lines: list[dict] = field(default_factory=list)
 	# Per-field provenance, keyed like ``confidence``: "Model" (a real numeric
 	# score from the provider) or "Derived-Mapping" (a clarity-derived stand-in).
-	# The controller writes it to AP Invoice Capture Confidence.score_source so
+	# The controller writes it to Document Capture Confidence.score_source so
 	# routing (spec 09) never over-trusts a fallback score.
 	score_sources: dict = field(default_factory=dict)
 
@@ -91,7 +91,7 @@ class OCRProvider(ABC):
 	@abstractmethod
 	def extract(
 		self,
-		capture: "APInvoiceCapture",
+		capture: "DocumentCapture",
 		*,
 		simulate_missing: list[str] | tuple[str, ...] | None = None,
 		simulate_ambiguous: list[str] | tuple[str, ...] | None = None,

@@ -18,7 +18,7 @@ related: [00-overview, 02-intake-stream-tagging, 06-gl-coding-tax-costcenter, 07
 > **Automation growth target:** today a confident-but-unknown vendor *dead-stops* at a human because the gated auto-create request **defaults OFF** (`enable_gated_supplier_creation=0`) — so a human must both *notice* the unknown **and** *file* the request. The target is to **default the gate ON for high-OCR-confidence vendor names**: the system auto-files the `Supplier Master Change Request` (Draft), and the human only **approves** it (SoD preserved). The alias table then learns the mapping (OD-05-3) so the next variant resolves at Tier 1 with no human at all. The escalation shrinks from "notice + file + approve" to a single approval click, and trends toward zero as aliases accrete.
 
 ## 1. Summary
-This spec builds a three-tier supplier resolver — deterministic alias table, fuzzy match, then a **gated** create-new-supplier request — that replaces today's single-tier `_match_supplier`, while preserving the existing **never-auto-create** guarantee. It serves **both** streams but diverges sharply: on **Stream I** an unresolved supplier is a *blocking* in-process step (no payable against an unknown vendor); on **Stream R** it is a *soft* flag (the JE posts to an "Unmapped Card Spend" account with the raw vendor string as memo). It implements plan **Step 4**. Current-state delta: today there is exactly one tier (exact name → unique `supplier_name` → Unknown/Ambiguous) at `ap_invoice_capture.py:975-1002`, no alias table, no fuzzy match, no creation gate, and no stream awareness anywhere in the fork.
+This spec builds a three-tier supplier resolver — deterministic alias table, fuzzy match, then a **gated** create-new-supplier request — that replaces today's single-tier `_match_supplier`, while preserving the existing **never-auto-create** guarantee. It serves **both** streams but diverges sharply: on **Stream I** an unresolved supplier is a *blocking* in-process step (no payable against an unknown vendor); on **Stream R** it is a *soft* flag (the JE posts to an "Unmapped Card Spend" account with the raw vendor string as memo). It implements plan **Step 4**. Current-state delta: today there is exactly one tier (exact name → unique `supplier_name` → Unknown/Ambiguous) at `document_capture.py:975-1002`, no alias table, no fuzzy match, no creation gate, and no stream awareness anywhere in the fork.
 
 ## 2. Plan alignment
 
@@ -46,22 +46,22 @@ Tier-2/Tier-3 disagreement and the unknown-supplier rate are tuning signals cons
 
 Single-tier resolver, **no auto-create** — this is the invariant the new design must keep:
 
-`_match_supplier(supplier_name: str | None) -> tuple[str | None, str]` at `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py:975-1002`. In order:
+`_match_supplier(supplier_name: str | None) -> tuple[str | None, str]` at `erpnext/accounts/doctype/document_capture/document_capture.py:975-1002`. In order:
 1. `None`/blank candidate → `(None, "Unknown")`. Constants: `SUPPLIER_MATCH_NOT_VALIDATED="Not Validated"` (py:48), `SUPPLIER_MATCH_MATCHED="Matched"` (py:49), `SUPPLIER_MATCH_UNKNOWN="Unknown"` (py:50), `SUPPLIER_MATCH_AMBIGUOUS="Ambiguous"` (py:51).
 2. `frappe.db.exists("Supplier", candidate)` (exact PK/name) → `(candidate, "Matched")` (py:989-990).
 3. `frappe.get_all("Supplier", filters={"supplier_name": candidate}, pluck="name")`: `len==1` → Matched; `len>1` → Ambiguous; `len==0` → Unknown (py:992-1002).
 
 **No branch ever creates a Supplier.** This is the no-auto-create guarantee.
 
-Caller / orchestration: `validate_for_purchase_invoice(capture, actor=None, source=None, save=True)` at `ap_invoice_capture.py:1020-1102`. It requires `status == STATUS_CONFIRMED` (raises `CaptureValidationError`, py:1041-1047), computes `final_supplier_value = (capture.final_supplier or "").strip() or None` (py:1049), calls `_match_supplier`, writes `capture.matched_supplier` / `capture.supplier_match_status` (py:1051-1052), and appends to `issues[]`: Unknown → "Supplier '{0}' is unknown — AP correction required (no auto-create)." (py:1066-1071); Ambiguous → "Supplier '{0}' is ambiguous — multiple existing Suppliers share this name." (py:1072-1077). Any issue ⇒ `validation_status=BLOCKED` + `action_required=1` (py:1083-1089); else `VALIDATED` (py:1090-1098). **No stream branching exists today** — every unknown is treated identically (effectively the future Stream-I blocking path).
+Caller / orchestration: `validate_for_purchase_invoice(capture, actor=None, source=None, save=True)` at `document_capture.py:1020-1102`. It requires `status == STATUS_CONFIRMED` (raises `CaptureValidationError`, py:1041-1047), computes `final_supplier_value = (capture.final_supplier or "").strip() or None` (py:1049), calls `_match_supplier`, writes `capture.matched_supplier` / `capture.supplier_match_status` (py:1051-1052), and appends to `issues[]`: Unknown → "Supplier '{0}' is unknown — AP correction required (no auto-create)." (py:1066-1071); Ambiguous → "Supplier '{0}' is ambiguous — multiple existing Suppliers share this name." (py:1072-1077). Any issue ⇒ `validation_status=BLOCKED` + `action_required=1` (py:1083-1089); else `VALIDATED` (py:1090-1098). **No stream branching exists today** — every unknown is treated identically (effectively the future Stream-I blocking path).
 
-Capture DocType supplier/validation fields (auto-generated DF block, `ap_invoice_capture.py:185-229`): `matched_supplier` (`DF.Link`, py:191), `supplier_match_status` (`DF.Literal["Not Validated","Matched","Unknown","Ambiguous"]`, py:192-194), `validation_status` (`DF.Literal["Not Validated","Validated","Blocked"]`, py:203), `validation_result` (`DF.SmallText`, py:204). `proposed_supplier` (`DF.Data`, py:171) and `final_supplier` (`DF.Link`) carry the OCR proposal / AP-reviewed value. **There is no `supplier_match_confidence`, no `supplier_change_request`, and no `proposed_supplier_confidence` field today** (grep confirmed empty). **No `stream` field exists anywhere in the fork.**
+Capture DocType supplier/validation fields (auto-generated DF block, `document_capture.py:185-229`): `matched_supplier` (`DF.Link`, py:191), `supplier_match_status` (`DF.Literal["Not Validated","Matched","Unknown","Ambiguous"]`, py:192-194), `validation_status` (`DF.Literal["Not Validated","Validated","Blocked"]`, py:203), `validation_result` (`DF.SmallText`, py:204). `proposed_supplier` (`DF.Data`, py:171) and `final_supplier` (`DF.Link`) carry the OCR proposal / AP-reviewed value. **There is no `supplier_match_confidence`, no `supplier_change_request`, and no `proposed_supplier_confidence` field today** (grep confirmed empty). **No `stream` field exists anywhere in the fork.**
 
-Settings: `AP Closed Loop Settings` is a Single at `erpnext/accounts/doctype/ap_closed_loop_settings/`. Existing fields: `default_company/default_item_code/default_expense_account/default_cost_center/default_warehouse/default_uom` (Links), `ocr_provider`, `ocr_model`, `ocr_fallback_model`, `ocr_confidence_threshold` (Float), `ocr_max_file_mb` (Int), `ocr_force_reextract` (Check). The established extension pattern is `get_promote_defaults()` (`ap_closed_loop_settings.py:85-108`) reading via `frappe.db.get_singles_dict` and consumed by `_coalesce_defaults` (`ap_invoice_capture.py:1116-1145`). **No `unmapped_card_spend_account`, no fuzzy-threshold, no auto-create flag exist yet.**
+Settings: `AP Closed Loop Settings` is a Single at `erpnext/accounts/doctype/ap_closed_loop_settings/`. Existing fields: `default_company/default_item_code/default_expense_account/default_cost_center/default_warehouse/default_uom` (Links), `ocr_provider`, `ocr_model`, `ocr_fallback_model`, `ocr_confidence_threshold` (Float), `ocr_max_file_mb` (Int), `ocr_force_reextract` (Check). The established extension pattern is `get_promote_defaults()` (`ap_closed_loop_settings.py:85-108`) reading via `frappe.db.get_singles_dict` and consumed by `_coalesce_defaults` (`document_capture.py:1116-1145`). **No `unmapped_card_spend_account`, no fuzzy-threshold, no auto-create flag exist yet.**
 
-OCR confidence source for the Tier-3 gate: the Anthropic extractor's tool schema emits `confidence_per_field` including `supplier_name` (`erpnext/accounts/ap_closed_loop/extractors/anthropic.py:152` schema; `_to_extraction_result` at ~py:420-431 reads it). **Correction to the brief:** the per-field confidence is consumed only to populate the `ambiguous_fields` *set* and is then **dropped** — it is never threaded into `ExtractionResult` as a numeric value (`ExtractionResult` at `extractors/base.py:41-66` carries `proposal`, `missing_fields`, `ambiguous_fields`, `provider_name`, `raw_response` — **no numeric confidence map**). `run_extraction` persists `proposed_*` fields at `ap_invoice_capture.py:790-834` but writes **no** supplier confidence. So Tier-3's "OCR supplier confidence ≥ threshold" gate has **no data today**; persisting it is a hard dependency on [[04-extraction-confidence-line-items]] (or a minimal field added here — see §8).
+OCR confidence source for the Tier-3 gate: the Anthropic extractor's tool schema emits `confidence_per_field` including `supplier_name` (`erpnext/accounts/ap_closed_loop/extractors/anthropic.py:152` schema; `_to_extraction_result` at ~py:420-431 reads it). **Correction to the brief:** the per-field confidence is consumed only to populate the `ambiguous_fields` *set* and is then **dropped** — it is never threaded into `ExtractionResult` as a numeric value (`ExtractionResult` at `extractors/base.py:41-66` carries `proposal`, `missing_fields`, `ambiguous_fields`, `provider_name`, `raw_response` — **no numeric confidence map**). `run_extraction` persists `proposed_*` fields at `document_capture.py:790-834` but writes **no** supplier confidence. So Tier-3's "OCR supplier confidence ≥ threshold" gate has **no data today**; persisting it is a hard dependency on [[04-extraction-confidence-line-items]] (or a minimal field added here — see §8).
 
-Approval/threshold precedent to mirror: `request_approval` + `_resolve_approval_threshold` (`ap_invoice_capture.py:1243-1318`), with the SoD guard `frappe.only_for(capture.assigned_approver_role …)` in `record_manager_decision` (py:1336). Capture fields `approval_threshold` (`DF.Float`, py:217) and `approval_threshold_source` (py:218) show the Settings-driven-threshold + role-gated-decision pattern the gated-creation flow should follow.
+Approval/threshold precedent to mirror: `request_approval` + `_resolve_approval_threshold` (`document_capture.py:1243-1318`), with the SoD guard `frappe.only_for(capture.assigned_approver_role …)` in `record_manager_decision` (py:1336). Capture fields `approval_threshold` (`DF.Float`, py:217) and `approval_threshold_source` (py:218) show the Settings-driven-threshold + role-gated-decision pattern the gated-creation flow should follow.
 
 Whitelisted-wrapper convention to mirror: `validate_for_purchase_invoice_for(capture, source=None)` (py:1677-1683) and `promote_to_purchase_invoice_for(capture, defaults=None)` (py:1686-1702) — thin `@frappe.whitelist()` wrappers that normalize string args, call the pure function, then `_kick_next_step()`, and return a name (str). Back-compat alias convention: `run_fake_extraction = run_extraction` at py:840.
 
@@ -91,7 +91,7 @@ Module: Accounts. `autoname`: `format:ALIAS-{#####}` (or script autoname; unique
 | `is_active` | Check | default `1` | inactive aliases never match |
 | `priority` | Int | default `0` | tie-break when two patterns of the same type could match (lower = earlier) |
 | `notes` | Small Text | optional | human rationale for the alias |
-| `source_capture` | Link | → AP Invoice Capture, optional | provenance when the alias was born from an approved Create request |
+| `source_capture` | Link | → Document Capture, optional | provenance when the alias was born from an approved Create request |
 
 Permissions: read for `Accounts User`, `Accounts Manager`, `Auditor (Read Only)` (new role, see bible); create/write/delete for `Accounts Manager` only (aliases are master data — clerks propose via Tier-3, managers curate the table). Match precedence is **exact > glob > regex**, then `priority` asc, then `name` asc. `glob` uses `fnmatch.fnmatchcase` (case-sensitive on the literal). `regex` is compiled defensively (catch `re.error` → skip that alias + log; a bad pattern must never block validation).
 
@@ -108,7 +108,7 @@ Module: Accounts. The gated vehicle for **all** supplier-master mutations — cr
 | `requested_supplier_name` | Data | — | the unresolved vendor string (Create); display name for Update/Disable |
 | `target_supplier` | Link | → Supplier | empty for Create; populated for Update/Disable variants (and for Update Bank Details, where it keys the `Bank Account` row via `party`) |
 | `proposed_payload` | Code | options `JSON` | the fields to write on approval (Supplier fields for Create/Disable; **`Bank Account` fields for Update Bank Details** — see payload contract below) |
-| `evidence_capture` | Link | → AP Invoice Capture | the originating capture (drives re-validation on Posted) |
+| `evidence_capture` | Link | → Document Capture | the originating capture (drives re-validation on Posted) |
 | `requested_by` | Link | → User, default `frappe.session.user` (set on insert) | the requester — anchors the SoD check |
 | `approver_role` | Link | → Role | the role permitted to approve (default from settings, see §5.5) |
 | `workflow_state` | Select | `Draft`\|`Pending Approval`\|`Approved`\|`Posted`\|`Rejected`, default `Draft` | declared explicitly so it shows on the form; Workflow record (spec 11) drives transitions |
@@ -123,7 +123,7 @@ Module: Accounts. The gated vehicle for **all** supplier-master mutations — cr
 
 Permissions: create/read/write for `Accounts User` and `Accounts Manager` (a clerk can raise a request); **submit/cancel and the approve transition** restricted to the `approver_role` (default `Accounts Manager`; bank-detail changes may demand `Treasury Approver`, a new role — see bible). `Auditor (Read Only)` gets read. The submit/approve gate is enforced both by the Workflow transition's Allowed Role (spec 11) **and** by the controller's SoD backstop (§5.3, §5.5).
 
-#### CHANGED — capture DocType additions (`ap_invoice_capture.json` + DF block ~py:185-229)
+#### CHANGED — capture DocType additions (`document_capture.json` + DF block ~py:185-229)
 
 | fieldname | fieldtype | options / default | purpose |
 |---|---|---|---|
@@ -152,10 +152,10 @@ Stream field — **net-new to the fork.** The capture-level stream enum is defin
 
 ### 5.2 Endpoints
 
-All new whitelisted methods follow the existing `*_for` convention (`ap_invoice_capture.py:1677-1702`): normalize string args, call the pure function, `_kick_next_step()` where a cascade continuation applies, return the capture/request **name** (str).
+All new whitelisted methods follow the existing `*_for` convention (`document_capture.py:1677-1702`): normalize string args, call the pure function, `_kick_next_step()` where a cascade continuation applies, return the capture/request **name** (str).
 
 ```python
-# erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py
+# erpnext/accounts/doctype/document_capture/document_capture.py
 
 @frappe.whitelist()
 def resolve_supplier_for(capture: str, stream: str | None = None) -> str:
@@ -222,7 +222,7 @@ Persisted on every resolution: `matched_supplier`, `supplier_match_status`, `sup
 
 ### 5.4 Cascade & stream-awareness
 
-This spec touches the existing cascade at the **validation hop** (`_determine_next_step` Step 2, `ap_invoice_capture.py:338-343`): `ocr_status == Confirmed` and `validation_status in (None, Not Validated)` → `validate_for_purchase_invoice_for`. The richer resolver runs **inside** that step; the cascade graph is unchanged for the happy path.
+This spec touches the existing cascade at the **validation hop** (`_determine_next_step` Step 2, `document_capture.py:338-343`): `ocr_status == Confirmed` and `validation_status in (None, Not Validated)` → `validate_for_purchase_invoice_for`. The richer resolver runs **inside** that step; the cascade graph is unchanged for the happy path.
 
 - **Stream I, resolved (Matched/Alias):** cascade proceeds exactly as today — validation → (manual Promote seam, py:345-347) → approval routing → … No new pause point.
 - **Stream I, Unknown/Ambiguous:** `validate_for_purchase_invoice` sets `BLOCKED` + `action_required`; `_determine_next_step` returns `None` (no auto-step matches a blocked capture) and the capture **pauses in review**. This is a *new pause reason* but not a new cascade branch. When `approve_supplier_master_change_request` posts the Supplier, it re-invokes `validate_for_purchase_invoice` which flips to `VALIDATED`; the caller then `_kick_next_step()`s to resume the cascade toward promotion.
@@ -275,7 +275,7 @@ Async: re-validation and Tier-3 request creation are synchronous within the trig
 
 Use `from frappe.tests import IntegrationTestCase`; roll back all DB writes in `tearDown` so suites are reentrant. Set `frappe.flags.in_test = True` and `frappe.flags.skip_ap_auto_progress` / `ap_auto_progress_enabled` as the existing suite does to control the cascade.
 
-- **`erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture`** (extend the existing module):
+- **`erpnext.accounts.doctype.document_capture.test_document_capture`** (extend the existing module):
   - Resolver: AC-05-1..AC-05-11 (Tier-1 exact/glob/regex/bad-regex/ambiguous/inactive; Tier-2 single/boundary-90/multiple/none; exact-still-wins regression).
   - No-auto-create invariant: AC-05-12 — assert `frappe.db.count("Supplier")` unchanged across each Unknown path.
   - Stream branching: AC-05-13 (Stream I BLOCKED), AC-05-14 (Stream R soft, vendor string retained).

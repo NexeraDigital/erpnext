@@ -2,7 +2,7 @@
 
 ## 1. Feature under test
 
-Three **stream-aware** validation gates that run automatically when an AP Invoice Capture is
+Three **stream-aware** validation gates that run automatically when an Document Capture is
 validated (`validate_for_purchase_invoice`), plus one promotion-time re-check:
 
 1. **Three-way match** — invoiced qty/amount vs the referenced Purchase Order's cumulative
@@ -26,7 +26,7 @@ Planning context: `docs/spec/08-validation-gates.md`. Do not restate it here.
 
 - **Branch:** `russ/migrateToV16`
 - **Commit:** the commit that adds the `AP Supplier Anomaly Baseline` DocType and the
-  `validation_gates_section` fields to `AP Invoice Capture` (run `git log --oneline -1` after
+  `validation_gates_section` fields to `Document Capture` (run `git log --oneline -1` after
   checkout and record it here).
 
 ## 3. Environment setup
@@ -58,7 +58,7 @@ The automated suite builds everything it needs and rolls back. For the **manual 
   (ordered amount 1000). Set its PO-item `received_qty` to 10
   (`bench --site <site> execute frappe.db.set_value --args '["Purchase Order Item","<row>","received_qty",10]'`
   or receive it via a Purchase Receipt).
-- A confirmed **AP Invoice Capture** for `_Test Supplier` referencing that PO (Phase-1 promote
+- A confirmed **Document Capture** for `_Test Supplier` referencing that PO (Phase-1 promote
   helper or the desk form), `final_total_amount = 1100`, one line qty 10 rate 110.
 
 ## 5. Numbered test cases
@@ -68,13 +68,13 @@ The automated suite builds everything it needs and rolls back. For the **manual 
 **A-1. Spec-08 gate suite.**
 - **Action:**
   ```bash
-  bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture --test TestAPInvoiceCaptureValidationGates
+  bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPInvoiceCaptureValidationGates
   ```
   > If the bench runner's summary line is swallowed by your terminal, run the class
   > programmatically inside `bench console`:
   > ```python
   > import unittest
-  > from erpnext.accounts.doctype.ap_invoice_capture import test_ap_invoice_capture as m
+  > from erpnext.accounts.doctype.document_capture import test_document_capture as m
   > r = unittest.TextTestRunner(verbosity=2).run(
   >     unittest.TestLoader().loadTestsFromTestCase(m.TestAPInvoiceCaptureValidationGates))
   > print(r.testsRun, len(r.failures), len(r.errors))
@@ -84,7 +84,7 @@ The automated suite builds everything it needs and rolls back. For the **manual 
   (`test_ac_08_16b_promotion_recheck_after_clean_validation`) covers the AC-08-16 re-check.
 
 **A-2. Full-module regression (blast radius — AC-08-21).**
-- **Action:** same command without `--test` (whole `test_ap_invoice_capture` module).
+- **Action:** same command without `--test` (whole `test_document_capture` module).
 - **Expected:** `Ran 156 tests … OK` (skipped=1: the poppler/PDF perceptual test).
 - **Pass/fail:** PASS iff `OK` and count ≥ 156 with zero failures/errors — proves the gates add
   no false blocks to the pre-spec-08 happy paths.
@@ -94,7 +94,7 @@ The automated suite builds everything it needs and rolls back. For the **manual 
 **B-1. 3WM Exception blocks a Stream-I invoice (works + failure).**
 - **Precondition:** the §4 capture (invoiced 1100 vs PO ordered 1000, tolerances 0).
 - **Action:** open the capture in the desk, run **Validate** (or call
-  `erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture.validate_for_purchase_invoice`).
+  `erpnext.accounts.doctype.document_capture.document_capture.validate_for_purchase_invoice`).
 - **Expected:** Validation Gates section shows **Three-Way Match Status = Exception**;
   `validation_status = Blocked`; `action_required = 1`; `validation_result` contains
   "Three-way match exception".
@@ -136,7 +136,7 @@ The automated suite builds everything it needs and rolls back. For the **manual 
 ## 6. Cleanup / rollback
 
 - The automated suite rolls back in `tearDown` — nothing persists.
-- For manual cases, delete the created AP Invoice Capture, its draft Purchase Invoice (if
+- For manual cases, delete the created Document Capture, its draft Purchase Invoice (if
   promoted), the Purchase Order / Purchase Receipt, the Payment Entry, the Bank/Bank Account, and
   any `Supplier Master Change Request` and `AP Supplier Anomaly Baseline` rows you created. Verify
   with `bench --site <site> mariadb` that no stray rows remain.

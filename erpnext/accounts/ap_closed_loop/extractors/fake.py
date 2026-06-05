@@ -3,13 +3,13 @@
 
 """Deterministic fake OCR provider.
 
-Wraps the existing deterministic proposal logic in ``ap_invoice_capture.py``
+Wraps the existing deterministic proposal logic in ``document_capture.py``
 behind the ``OCRProvider`` interface. Produces exactly the same proposal,
 missing-field, and ambiguous-field results as the pre-Phase-1 inline code, so
 the test suite and cascade behaviour are byte-for-byte unchanged.
 
 The proposal helpers (``_detect_simulation_markers``, ``_propose_for_seed``,
-``_seed_for_capture``) still live in ``ap_invoice_capture.py`` and are imported
+``_seed_for_capture``) still live in ``document_capture.py`` and are imported
 lazily inside ``extract`` to avoid a circular import at module-load time.
 """
 
@@ -24,8 +24,8 @@ from erpnext.accounts.ap_closed_loop.extractors.base import (
 )
 
 if TYPE_CHECKING:
-	from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
-		APInvoiceCapture,
+	from erpnext.accounts.doctype.document_capture.document_capture import (
+		DocumentCapture,
 	)
 
 
@@ -40,7 +40,7 @@ class FakeExtractor(OCRProvider):
 	def name(self) -> str:
 		# Lazy import keeps module load cycle-free; the constant is the single
 		# source of truth for the provider id.
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			FAKE_OCR_PROVIDER,
 		)
 
@@ -48,12 +48,12 @@ class FakeExtractor(OCRProvider):
 
 	def extract(
 		self,
-		capture: "APInvoiceCapture",
+		capture: "DocumentCapture",
 		*,
 		simulate_missing: list[str] | tuple[str, ...] | None = None,
 		simulate_ambiguous: list[str] | tuple[str, ...] | None = None,
 	) -> ExtractionResult:
-		from erpnext.accounts.doctype.ap_invoice_capture.ap_invoice_capture import (
+		from erpnext.accounts.doctype.document_capture.document_capture import (
 			FAKE_OCR_PROVIDER,
 			_detect_simulation_markers,
 			_propose_for_seed,

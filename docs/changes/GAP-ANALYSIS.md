@@ -7,7 +7,7 @@
 > - 🟡 **PARTIAL** — exists in some form but needs extension to meet the proposed behavior
 > - 🔴 **NEW** — does not exist anywhere in the repo; requires fresh development
 >
-> Cross-references: `erpnext/hooks.py`, `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (fork), `erpnext/accounts/doctype/bank_reconciliation_tool/`, `erpnext/accounts/doctype/payment_entry/`, `erpnext/accounts/doctype/purchase_invoice/`, `erpnext/buying/doctype/supplier/`, `erpnext/stock/doctype/purchase_receipt/`.
+> Cross-references: `erpnext/hooks.py`, `erpnext/accounts/doctype/document_capture/document_capture.py` (fork), `erpnext/accounts/doctype/bank_reconciliation_tool/`, `erpnext/accounts/doctype/payment_entry/`, `erpnext/accounts/doctype/purchase_invoice/`, `erpnext/buying/doctype/supplier/`, `erpnext/stock/doctype/purchase_receipt/`.
 
 ---
 
@@ -27,8 +27,8 @@ Both paths are buildable on existing ERPNext primitives — `Journal Entry` and 
 
 | Sub-capability | Status | Where it lives |
 |---|---|---|
-| Manual upload → capture record | 🟢 EXISTS | `AP Invoice Capture` doctype + `create_capture_from_uploaded_file()` (this fork) |
-| Supported format gating (PDF/PNG/JPG/JPEG) | 🟢 EXISTS | `SUPPORTED_EXTENSIONS` + `is_supported_format` in `ap_invoice_capture.py` |
+| Manual upload → capture record | 🟢 EXISTS | `Document Capture` doctype + `create_capture_from_uploaded_file()` (this fork) |
+| Supported format gating (PDF/PNG/JPG/JPEG) | 🟢 EXISTS | `SUPPORTED_EXTENSIONS` + `is_supported_format` in `document_capture.py` |
 | Source file timestamp + traceability (filename, URL, received_at) | 🟢 EXISTS | `source_file` (Link → File), `source_file_url`, `source_filename`, `received_at` |
 | Email-in intake (drop into a mailbox → auto-create capture) | 🔴 NEW | Frappe `Email Account` + custom inbound hook required |
 | Vendor portal pull (push from a third-party portal) | 🔴 NEW | No integration today; would be a new ingestion adapter |
@@ -44,13 +44,13 @@ Both paths are buildable on existing ERPNext primitives — `Journal Entry` and 
 
 | Sub-capability | Status | Where it lives |
 |---|---|---|
-| Per-file SHA-256 of uploaded artifact | 🔴 NEW | Today the only `sha256` use is the deterministic OCR seed (`_hash_bytes` in `ap_invoice_capture.py:404`). The capture does **not** persist a hash of the actual file bytes. |
+| Per-file SHA-256 of uploaded artifact | 🔴 NEW | Today the only `sha256` use is the deterministic OCR seed (`_hash_bytes` in `document_capture.py:404`). The capture does **not** persist a hash of the actual file bytes. |
 | Frappe `File` hash field | 🟢 EXISTS | Frappe's core `File` doctype already stores `content_hash` — usable as the exact-match key |
 | 90-day lookback dedupe query | 🔴 NEW | No code today scans prior captures or files for matches |
 | Fuzzy near-duplicate (re-scans of the same physical receipt) | 🔴 NEW | No image-similarity / perceptual-hash logic anywhere in repo |
 | Short-circuit + surface original record | 🔴 NEW | The capture lifecycle has no "duplicate of X" state |
 
-**New dev:** the entire dedupe subsystem — content-hash index, fuzzy/perceptual-hash, a `Duplicate Of` link field on `AP Invoice Capture`, and a new `STATUS_DUPLICATE` in the lifecycle enum.
+**New dev:** the entire dedupe subsystem — content-hash index, fuzzy/perceptual-hash, a `Duplicate Of` link field on `Document Capture`, and a new `STATUS_DUPLICATE` in the lifecycle enum.
 
 ---
 
@@ -64,11 +64,11 @@ Both paths are buildable on existing ERPNext primitives — `Journal Entry` and 
 | Provider abstraction | 🟡 PARTIAL | `ocr_provider` and `FAKE_OCR_PROVIDER = "fake-deterministic-v1"` exist; only the fake is wired |
 | Real provider integration (Azure DI, AWS Textract, Google Doc AI, vendor-specific) | 🔴 NEW | No real OCR client in repo |
 | Per-field confidence | 🟡 PARTIAL | The fake returns `proposed_missing_fields` / `proposed_ambiguous_fields` as comma strings — sufficient as a binary "low-confidence flag" per field; a numeric per-field score field set does not exist |
-| Line-item extraction | 🔴 NEW | Today extraction is **header-only** — there is no `AP Invoice Capture Item` child table. The walking skeleton/capture both build a single header-line PI item with `qty=1, rate=final_total_amount`. |
+| Line-item extraction | 🔴 NEW | Today extraction is **header-only** — there is no `Document Capture Item` child table. The walking skeleton/capture both build a single header-line PI item with `qty=1, rate=final_total_amount`. |
 | Visible PO reference extraction | 🟡 PARTIAL | `purchase_order_reference` Link field exists, but nothing populates it from OCR — it's clerk-entered |
 | Async via `frappe.enqueue` so UI doesn't block | 🔴 NEW | `run_fake_extraction` is synchronous today |
 
-**New dev:** real OCR adapter, numeric per-field confidence scores (likely a new `AP Invoice Capture Confidence` child table or JSON column), line-item extraction → new `AP Invoice Capture Item` child doctype, async wrapper that enqueues `run_extraction(capture)` and writes back when done.
+**New dev:** real OCR adapter, numeric per-field confidence scores (likely a new `Document Capture Confidence` child table or JSON column), line-item extraction → new `Document Capture Item` child doctype, async wrapper that enqueues `run_extraction(capture)` and writes back when done.
 
 ---
 
@@ -78,7 +78,7 @@ Both paths are buildable on existing ERPNext primitives — `Journal Entry` and 
 
 | Sub-capability | Status | Where it lives |
 |---|---|---|
-| Exact name match | 🟢 EXISTS | `_match_supplier()` in `ap_invoice_capture.py` — checks `Supplier.name` then unique `supplier_name` |
+| Exact name match | 🟢 EXISTS | `_match_supplier()` in `document_capture.py` — checks `Supplier.name` then unique `supplier_name` |
 | Match status enum (Matched/Unknown/Ambiguous) | 🟢 EXISTS | `SUPPLIER_MATCH_*` constants + `supplier_match_status` field |
 | **Never auto-create supplier without a gate** | 🟢 EXISTS | Hard requirement encoded in `validate_for_purchase_invoice()` — Unknown emits `_("Supplier '{0}' is unknown — AP correction required (no auto-create).")` |
 | Deterministic alias table ("AMZN Mktp US*4Z9" → "Amazon") | 🔴 NEW | No alias table doctype exists |
@@ -119,7 +119,7 @@ Both paths are buildable on existing ERPNext primitives — `Journal Entry` and 
 | Classification logic / branching | 🔴 NEW | The capture's pipeline is single-doctype (only PI) — no classification stage between OCR review and promotion |
 | "Other → manual review" route | 🟡 PARTIAL | `STATUS_NEEDS_CORRECTION` exists but is field-level; no doctype-level "needs human classification" state |
 
-**New dev:** a classification stage (a `document_type` field on `AP Invoice Capture` with literal `"Unpaid Bill" | "Already Paid" | "Employee Reimbursement" | "Manual Review"`), three branching promotion functions (`promote_to_purchase_invoice` already exists; `promote_to_journal_entry` and `promote_to_expense_claim` are new), and an explicit dependency on `hrms` if Expense Claim is in scope.
+**New dev:** a classification stage (a `document_type` field on `Document Capture` with literal `"Unpaid Bill" | "Already Paid" | "Employee Reimbursement" | "Manual Review"`), three branching promotion functions (`promote_to_purchase_invoice` already exists; `promote_to_journal_entry` and `promote_to_expense_claim` are new), and an explicit dependency on `hrms` if Expense Claim is in scope.
 
 ---
 
@@ -312,7 +312,7 @@ The current fork enforces:
 4. Nothing silently progresses.
 
 **Step 12's bank-feed match directly conflicts with guardrail #1.** The proposed workflow *requires* `Bank Transaction` to be the closure signal. Either:
-- the guardrail is relaxed for Phase 2 (the docstring of `ap_invoice_capture.py` makes #1 a Phase-1 commitment), or
+- the guardrail is relaxed for Phase 2 (the docstring of `document_capture.py` makes #1 a Phase-1 commitment), or
 - the closure model splits into "settled" (today's derived state) and "bank-cleared" (new, off the matched `Bank Transaction`).
 
 Guardrails #2, #3, #4 are compatible with the proposed workflow without change. The MOCK labeling can simply move from the payment provider to a mock bank-feed source in step 12.

@@ -98,7 +98,7 @@ signal fed to the observability gate (spec 10).
 
 ## Current baseline (what's already built — don't re-build it)
 
-- **`AP Invoice Capture`** DocType: the full pilot spine — intake → OCR proposal → clerk confirm → validate
+- **`Document Capture`** DocType: the full pilot spine — intake → OCR proposal → clerk confirm → validate
   → promote to Purchase Invoice → request approval → manager decision → mock payment → derived closure.
   Header-only today (one invoice line at the total).
 - **Real OCR**: `extractors/anthropic.py` (Anthropic Claude) with hardening + cost audit. But
@@ -119,7 +119,7 @@ signal fed to the observability gate (spec 10).
 | 01 | [[01-foundations-settings-async-idempotency]] | The shared plumbing: one settings home, a safety latch so a retried job can't post twice, and a way to run slow work in the background. | `AP Posting Ledger` |
 | 02 | [[02-intake-stream-tagging]] | The front door: tag every arrival as Receipt or Invoice, start the 72h receipt clock, and accept docs by email/photo. | `AP Stream Rule` |
 | 03 | [[03-deduplication]] | "Have we seen this before?" — block exact re-uploads and look-alike re-scans before spending money on AI. | — |
-| 04 | [[04-extraction-confidence-line-items]] | Upgrade the AI reader to report how sure it is **per field** and to pull out **line items**, not just the total. | `AP Invoice Capture Confidence`, `AP Invoice Capture Item` |
+| 04 | [[04-extraction-confidence-line-items]] | Upgrade the AI reader to report how sure it is **per field** and to pull out **line items**, not just the total. | `Document Capture Confidence`, `Document Capture Item` |
 | 05 | [[05-supplier-resolution]] | Identify the vendor (alias table → fuzzy match → human-approved creation for new vendors); unknown blocks invoices, softer for receipts. | `AP Supplier Alias`, `Supplier Master Change Request` |
 | 06 | [[06-gl-coding-tax-costcenter]] | Auto-fill the accounting codes (expense account, cost center, tax) for routine vendors; ambiguous ones go to review. | `AP Supplier Coding Profile` |
 | 07 | [[07-classification-doctype-branching]] | The fork in the road: unpaid bill → Purchase Invoice; paid receipt → Journal Entry; employee expense → parked. | — |
@@ -139,12 +139,12 @@ signal fed to the observability gate (spec 10).
 `Supplier Master Change Request` (gated vendor changes).
 **Masters / config:** `AP Stream Rule`, `AP Supplier Alias`, `AP Supplier Coding Profile`,
 `AP Supplier Anomaly Baseline`, `AP Approval Matrix`.
-**Child tables (on `AP Invoice Capture`):** `AP Invoice Capture Confidence`, `AP Invoice Capture Item`,
+**Child tables (on `Document Capture`):** `Document Capture Confidence`, `Document Capture Item`,
 `AP Capture Rejection Log`.
 **Fixtures (native machinery, not new doctypes):** Workflows `AP Document Approval` +
 `Supplier Bank Change Approval`; Roles `AP Clerk`, `Treasury Approver`, `Auditor (Read Only)`.
 **Reports/formats:** `Accounts Payable Trial Balance Drift` (report), `AP Audit Trail` (print format).
-**Extended throughout:** `AP Closed Loop Settings` (the single settings backbone) and `AP Invoice Capture`.
+**Extended throughout:** `AP Closed Loop Settings` (the single settings backbone) and `Document Capture`.
 
 ---
 
@@ -186,7 +186,7 @@ These shape doctype fields or branching and should be decided early:
    **Recommended (review-updated): (a) `is_paid`** — least custom code, keeps Supplier visibility. *Single
    highest-leverage decision; if (a) wins, specs 13/14 simplify — no separate `journal_entry` link.*
 2. **Retire the "no Bank Transaction" guardrail** *(spec 13 D0)* — required for step 12. Needs a short ADR
-   and a same-PR docstring/test update on `walking_skeleton.py` + `ap_invoice_capture.py`. **Recommended:** retire, split closure into `settled` + `bank_cleared`.
+   and a same-PR docstring/test update on `walking_skeleton.py` + `document_capture.py`. **Recommended:** retire, split closure into `settled` + `bank_cleared`.
 3. **Approval scope — automate-first pilot vs company-wide native Workflow** *(spec 11)* — the real control is
    **"enterer ≠ approver,"** and it's delivered by an **app-code SoD guard** that never depends on one native
    setting. **Recommended (north-star aligned): the pilot keeps the existing approval engine** (which already
@@ -219,7 +219,7 @@ These shape doctype fields or branching and should be decided early:
   Spec 07's `provisional_stream` references should align to spec 02's name — 02 defines it first.
 - **`AP Closed Loop Settings`** is the *single* settings backbone. Spec 01 reserves placeholder sections so
   specs 02/08/13 fill their config blocks without `field_order` churn.
-- **The `journal_entry` link field** on `AP Invoice Capture` is owned by **spec 07** — but is **needed only if**
+- **The `journal_entry` link field** on `Document Capture` is owned by **spec 07** — but is **needed only if**
   Stream R posts as a direct Journal Entry (decision #1 option b). If `is_paid` (option a) wins, the Stream-R
   voucher is a Purchase Invoice and no `journal_entry` link is added; specs 13/14 are written to handle either.
 - **Idempotency, async, settings getters** are owned by **spec 01**; every document-creating step (05/07/12/13)

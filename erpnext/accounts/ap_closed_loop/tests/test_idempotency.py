@@ -17,7 +17,7 @@ class TestIdempotency(IntegrationTestCase):
         frappe.flags.skip_ap_auto_progress = True
         self.capture = frappe.get_doc(
             {
-                "doctype": "AP Invoice Capture",
+                "doctype": "Document Capture",
                 "source_file_url": "http://example.test/idemp.pdf",
                 "source_filename": "idemp.pdf",
             }

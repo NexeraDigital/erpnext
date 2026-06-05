@@ -4,9 +4,9 @@
 >
 > **Date drafted:** 2026-05-28.
 >
-> **Scope:** Replace the current `fake_extract` deterministic stand-in in the AP Invoice Capture pipeline with a real Anthropic Claude–based extractor, behind a provider-adapter interface that preserves the option to add Document AI / Mindee–class providers later. Add the settings, security, observability, test coverage, and documentation needed to ship this safely to a customer site.
+> **Scope:** Replace the current `fake_extract` deterministic stand-in in the Document Capture pipeline with a real Anthropic Claude–based extractor, behind a provider-adapter interface that preserves the option to add Document AI / Mindee–class providers later. Add the settings, security, observability, test coverage, and documentation needed to ship this safely to a customer site.
 >
-> **Inputs:** `docs/planning/ocr-provider-choice-claude.md` (the choice and why), `docs/architecture/FORK-CHANGES.md` §6.4 (current AP Invoice Capture pipeline), `docs/planning/v16-upgrade-business-case.md` (deployment context), the fork's existing `run_fake_extraction`/`fake_extract` integration points, Anthropic API docs.
+> **Inputs:** `docs/planning/ocr-provider-choice-claude.md` (the choice and why), `docs/architecture/FORK-CHANGES.md` §6.4 (current Document Capture pipeline), `docs/planning/v16-upgrade-business-case.md` (deployment context), the fork's existing `run_fake_extraction`/`fake_extract` integration points, Anthropic API docs.
 >
 > **Grounding rule (per `CLAUDE.md`):** every factual claim cites either an upstream Anthropic URL, an upstream Frappe URL, a path in this repo, or a commit on `upstream/version-16`. Where docs are silent, the upstream source file is cited.
 
@@ -24,9 +24,9 @@ Build an `OCRProvider` adapter in `erpnext/accounts/ap_closed_loop/extractors/`.
 
 The fork already has the right shape for this work:
 
-- **Function to replace:** `run_fake_extraction()` in `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (around line 650).
+- **Function to replace:** `run_fake_extraction()` in `erpnext/accounts/doctype/document_capture/document_capture.py` (around line 650).
 - **Underlying helper:** `fake_extract()` in `erpnext/accounts/ap_closed_loop/walking_skeleton.py` (around line 124).
-- **Target fields already exist on the DocType** (see `ap_invoice_capture.json`): `proposed_supplier`, `proposed_supplier_invoice_no`, `proposed_invoice_date`, `proposed_total_amount`, `proposed_currency`, `proposed_missing_fields`, `proposed_ambiguous_fields`, `ocr_provider`, `ocr_status`, `ocr_extracted_at`, `ocr_raw_response`.
+- **Target fields already exist on the DocType** (see `document_capture.json`): `proposed_supplier`, `proposed_supplier_invoice_no`, `proposed_invoice_date`, `proposed_total_amount`, `proposed_currency`, `proposed_missing_fields`, `proposed_ambiguous_fields`, `ocr_provider`, `ocr_status`, `ocr_extracted_at`, `ocr_raw_response`.
 - **Async cascade already in place:** `_enqueue_next` → `frappe.enqueue` with `deduplicate=True` and per-capture-per-step `job_id` (see `FORK-CHANGES.md` §6.6).
 - **Human-in-the-loop is enforced:** capture goes to `status = Proposed` after extraction; clerk must use the **Confirm Fields** dialog to merge `proposed_*` into `final_*` before the cascade continues.
 
@@ -49,12 +49,12 @@ These need to be agreed before slice 1 starts. Each is recorded with the reason 
 | L7 | **Fallback model** | `claude-sonnet-4-6` (pinned by current published id) | Higher reasoning, still 0 hallucinations in benchmarks. Invoked only when Haiku output triggers `proposed_ambiguous_fields` or fails required-field check. |
 | L8 | **Confidence threshold for fallback** | **0.70 per required field** (Default; overridable in `AP Closed Loop Settings`) | Conservative starting point. We can tune after collecting test-corpus data (§7.4). |
 | L9 | **API key storage** | **New shared `AI Provider Settings` Single DocType** (System Manager–only read/write) holds `anthropic_api_key` and `openai_api_key` as Frappe `Password` fields, plus default model preferences and org-level AI flags (e.g. `anthropic_zdr_enabled`). The AP feature reads `AP Closed Loop Settings.ocr_provider` to choose a provider, then calls a small server-side helper `get_ai_credentials("anthropic")` to fetch the decrypted key via `frappe.utils.password.get_decrypted_password`. Key is held in process memory only for the duration of one API call. Never logged; never exposed in `ocr_raw_response`. | Designed so a second AI feature (supplier matching, account / cost-center prediction, anomaly detection, summarization, etc.) reuses the same credentials and the same provider configuration without duplication. Cleanly separates infrastructure credentials (locked to System Manager) from feature settings (AP Manager–readable). Per-feature cost attribution is preserved via distinct `integration_request_service` values in audit logs (see §5). |
-| L10 | **Idempotency by content hash** | **No new caching DocType.** Reuse the `content_hash` field that Frappe's `File` DocType already populates on every uploaded file (`File.generate_content_hash()` at `apps/frappe/frappe/core/doctype/file/file.py:516`, using `get_content_hash()` from `apps/frappe/frappe/core/doctype/file/utils.py:186`). The cascade already prevents re-extraction at the capture level (won't re-run when `ocr_status != "Not Extracted"`). If cross-capture dedup is ever needed, query existing AP Invoice Capture records via the linked `tabFile.content_hash`. | The fork's `SourceCapture.content_hash` and Frappe's `File.content_hash` are the same SHA-256 by construction. Storing it twice and adding TTL logic would be reinventing what Frappe ships. |
+| L10 | **Idempotency by content hash** | **No new caching DocType.** Reuse the `content_hash` field that Frappe's `File` DocType already populates on every uploaded file (`File.generate_content_hash()` at `apps/frappe/frappe/core/doctype/file/file.py:516`, using `get_content_hash()` from `apps/frappe/frappe/core/doctype/file/utils.py:186`). The cascade already prevents re-extraction at the capture level (won't re-run when `ocr_status != "Not Extracted"`). If cross-capture dedup is ever needed, query existing Document Capture records via the linked `tabFile.content_hash`. | The fork's `SourceCapture.content_hash` and Frappe's `File.content_hash` are the same SHA-256 by construction. Storing it twice and adding TTL logic would be reinventing what Frappe ships. |
 | L11 | **PDF size handling** | Reject (set `action_required=1` with reason) any source larger than 25 MB (under Anthropic's 32 MB request budget, leaving headroom for the prompt and response). For PDFs over 50 pages, downsample images and warn. | Per [PDF Support](https://platform.claude.com/docs/en/build-with-claude/pdf-support#check-pdf-requirements): 32 MB request limit, 600 pages max (100 for 200k-token-context models). Hard fail upstream rather than silently truncate. |
 | L12 | **PNG/JPG support** | First-class. Sent via `image` content blocks (not `document`) per [Anthropic Vision](https://platform.claude.com/docs/en/build-with-claude/vision). Same `OCRProvider` interface; the adapter chooses the block type by `media_type`. | The fork's `SUPPORTED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}` already commits to these formats. |
 | L13 | **Prompt caching** | Not used in v1. Each invoice is different content; the prompt template is short. Caching has no economic payoff here. Revisit if we add multi-pass extraction. | Per [PDF Support — Prompt caching](https://platform.claude.com/docs/en/build-with-claude/pdf-support#use-prompt-caching), caching cuts cost up to 90% on **repeated** content. Not applicable here. |
 | L14 | **Test mode behavior** | When `frappe.flags.in_test` is set, `get_extractor()` returns the `FakeExtractor` regardless of settings. Real API calls only happen via an opt-in integration test (env var gated). | Tests stay fast, deterministic, and free. |
-| L15 | **Audit log** | **Reuse Frappe's `Integration Request` DocType** (`apps/frappe/frappe/integrations/doctype/integration_request/`) — the canonical pattern Frappe ships for outbound API call audit, already used by every payment gateway integration. Per call, write one row with `integration_request_service = "anthropic"`, `reference_doctype = "AP Invoice Capture"`, `reference_docname = capture.name`, `status = success/failed/queued`, `data` = sanitized request summary, `output` = JSON of `{latency_ms, input_tokens, output_tokens, cost_usd_estimate, model, outcome}` next to the raw response, `error` = sanitized error text on failure. Raw response also continues to be written to `ocr_raw_response` on the capture (already exists). | Building a new `AP Extraction Log` DocType would duplicate fields that already exist (`status`, `data`, `output`, `error`, `reference_doctype`, `reference_docname`, `url`, `request_headers`, `response_headers`) and split the audit story across two places. Operators expect outbound integration calls to appear in the standard Integration Request list view; we should not deviate. |
+| L15 | **Audit log** | **Reuse Frappe's `Integration Request` DocType** (`apps/frappe/frappe/integrations/doctype/integration_request/`) — the canonical pattern Frappe ships for outbound API call audit, already used by every payment gateway integration. Per call, write one row with `integration_request_service = "anthropic"`, `reference_doctype = "Document Capture"`, `reference_docname = capture.name`, `status = success/failed/queued`, `data` = sanitized request summary, `output` = JSON of `{latency_ms, input_tokens, output_tokens, cost_usd_estimate, model, outcome}` next to the raw response, `error` = sanitized error text on failure. Raw response also continues to be written to `ocr_raw_response` on the capture (already exists). | Building a new `AP Extraction Log` DocType would duplicate fields that already exist (`status`, `data`, `output`, `error`, `reference_doctype`, `reference_docname`, `url`, `request_headers`, `response_headers`) and split the audit story across two places. Operators expect outbound integration calls to appear in the standard Integration Request list view; we should not deviate. |
 | L16 | **Cost estimate source** | Hardcoded per-token rate table in code, keyed by model ID. Updated when Anthropic publishes new pricing. | The API doesn't return cost; only tokens. The estimate is for monitoring, not billing — exact pricing is in Anthropic's billing portal. |
 
 Any disagreement on L1–L16 above re-opens the plan. Do not silently change a locked value in implementation.
@@ -269,7 +269,7 @@ def _normalize_currency(raw):
     return (code, True) if frappe.db.exists("Currency", code) else (None, False)
 ```
 
-This is the **only** code change in `ap_invoice_capture.py` for OCR purposes. The existing state machine, cascade, and clerk-review flow are unchanged.
+This is the **only** code change in `document_capture.py` for OCR purposes. The existing state machine, cascade, and clerk-review flow are unchanged.
 
 ### 3.7 Idempotency by content hash
 
@@ -284,7 +284,7 @@ prior = frappe.db.sql("""
     SELECT cap.name, cap.ocr_raw_response,
            cap.proposed_supplier, cap.proposed_supplier_invoice_no,
            cap.proposed_invoice_date, cap.proposed_total_amount, cap.proposed_currency
-    FROM `tabAP Invoice Capture` cap
+    FROM `tabDocument Capture` cap
     INNER JOIN `tabFile` f ON f.name = cap.source_file
     WHERE f.content_hash = %s
       AND cap.ocr_status IN ('Proposed', 'Confirmed')
@@ -375,7 +375,7 @@ Validation hook on save:
 | Concept we need | Integration Request field | Value |
 |---|---|---|
 | Service name | `integration_request_service` | `"anthropic"` |
-| Link to source capture | `reference_doctype` + `reference_docname` | `"AP Invoice Capture"` + `capture.name` (Dynamic Link, indexed) |
+| Link to source capture | `reference_doctype` + `reference_docname` | `"Document Capture"` + `capture.name` (Dynamic Link, indexed) |
 | Outcome | `status` | `"Queued"` → `"Completed"` / `"Failed"` (Integration Request's existing vocabulary) |
 | Endpoint URL | `url` | `"https://api.anthropic.com/v1/messages"` |
 | Request payload summary | `data` | Sanitized JSON: `{model, media_type, page_count, content_hash, file_size_bytes}` — never the file bytes, never the API key |
@@ -399,7 +399,7 @@ When the cross-capture dedup path in §3.7 fires, write a row with `status = "Co
 Standard Frappe report-builder queries work out of the box:
 
 ```
-/app/integration-request/view/list?integration_request_service=anthropic&reference_doctype=AP Invoice Capture
+/app/integration-request/view/list?integration_request_service=anthropic&reference_doctype=Document Capture
 ```
 
 Operators can filter by status, group by date, drill into individual calls — all using the built-in Integration Request list view. No custom report module needed.
@@ -449,7 +449,7 @@ Run via existing `bench --site erpnext.localhost run-tests --app erpnext --modul
 
 ### 7.2 State-machine tests (unchanged behavior)
 
-The existing `test_ap_invoice_capture.py` suite uses `FakeExtractor` by default (via the L14 flag). These tests should keep passing untouched after the refactor.
+The existing `test_document_capture.py` suite uses `FakeExtractor` by default (via the L14 flag). These tests should keep passing untouched after the refactor.
 
 ### 7.3 Integration test (real Claude call, opt-in)
 
@@ -512,11 +512,11 @@ Each slice is independently shippable. Each ends green tests + a verifiable arti
 - `extractors/registry.py` — `get_extractor(name)` → `FakeExtractor` for now (only one provider)
 
 **Files modified:**
-- `ap_invoice_capture.py` — `run_fake_extraction` renamed to `run_extraction`, dispatches through `get_extractor("fake")`
+- `document_capture.py` — `run_fake_extraction` renamed to `run_extraction`, dispatches through `get_extractor("fake")`
 - `walking_skeleton.py` — `fake_extract` remains, internally consumed by `FakeExtractor`
 
 **Acceptance criteria:**
-- All existing tests in `test_walking_skeleton.py` and `test_ap_invoice_capture.py` pass without modification.
+- All existing tests in `test_walking_skeleton.py` and `test_document_capture.py` pass without modification.
 - `bench --site … console` → `from erpnext.accounts.ap_closed_loop.extractors.registry import get_extractor; get_extractor("fake").name()` returns `"fake"`.
 - No production data behavior changes; the cascade still calls into the same extraction flow, just one indirection deeper.
 
@@ -553,7 +553,7 @@ Each slice is independently shippable. Each ends green tests + a verifiable arti
 **Files modified:**
 - `ap_closed_loop_settings.json` — add the fields listed in §4.2 (no `anthropic_api_key` here — that's in `AI Provider Settings`)
 - `ap_closed_loop_settings.py` — `validate()` enforces "if `ocr_provider = Anthropic Claude`, `AI Provider Settings.anthropic_api_key` must be non-empty" via the helper. Validation message points the operator to the right form; does NOT echo the key.
-- `ap_invoice_capture.py` — `run_extraction` reads `ocr_provider`, `ocr_model`, `ocr_fallback_model`, `ocr_confidence_threshold` from `AP Closed Loop Settings`; reads the credential via `get_ai_credentials("anthropic")`.
+- `document_capture.py` — `run_extraction` reads `ocr_provider`, `ocr_model`, `ocr_fallback_model`, `ocr_confidence_threshold` from `AP Closed Loop Settings`; reads the credential via `get_ai_credentials("anthropic")`.
 
 **Acceptance criteria:**
 - Setting `ocr_provider = "Anthropic Claude"` in `AP Closed Loop Settings` and triggering an extraction uses Claude (key sourced from `AI Provider Settings`).
@@ -592,10 +592,10 @@ Each slice is independently shippable. Each ends green tests + a verifiable arti
 **Files modified:**
 - `extractors/base.py` — `ExtractionResult` includes `latency_ms`, `input_tokens`, `output_tokens` (as noted in §3.2)
 - `extractors/anthropic.py` — populates those fields from `response.usage`; calls `write_integration_request` after each call (success or failure)
-- `ap_invoice_capture.py` — `run_extraction` calls `write_integration_request` once per call, including the cache-hit path from §3.7
+- `document_capture.py` — `run_extraction` calls `write_integration_request` once per call, including the cache-hit path from §3.7
 
 **Acceptance criteria:**
-- One Anthropic call produces exactly one Integration Request row with `integration_request_service = "anthropic"`, `reference_doctype = "AP Invoice Capture"`, `reference_docname = capture.name`.
+- One Anthropic call produces exactly one Integration Request row with `integration_request_service = "anthropic"`, `reference_doctype = "Document Capture"`, `reference_docname = capture.name`.
 - Cross-capture cache hits produce a row with `status = "Completed"`, `output.outcome = "cache_hit"`, `output.source_capture` populated; no Anthropic call is made.
 - Cost estimate matches a manual hand-calculation for a known fixture (within rounding).
 - `request_headers` and `error` contain no `x-api-key` or `authorization` substring (sanitization test).
@@ -609,7 +609,7 @@ Each slice is independently shippable. Each ends green tests + a verifiable arti
 
 **Files modified:**
 - `extractors/anthropic.py` — retry + circuit breaker; reads `anthropic_zdr_enabled` from `AI Provider Settings` via the credentials helper and passes the appropriate header to the SDK when set
-- `ap_invoice_capture.py` — file-size guard before calling extractor (uses `ocr_max_file_mb` from `AP Closed Loop Settings`)
+- `document_capture.py` — file-size guard before calling extractor (uses `ocr_max_file_mb` from `AP Closed Loop Settings`)
 - (No new field on `AP Closed Loop Settings` — `anthropic_zdr_enabled` was already added on `AI Provider Settings` in Phase 0 since it's an org-level flag, not an AP-feature flag.)
 
 **Acceptance criteria:**
@@ -702,12 +702,12 @@ Each slice is independently shippable. Each ends green tests + a verifiable arti
 
 ### Repo-internal
 - `docs/planning/ocr-provider-choice-claude.md` — the WHY behind choosing Claude
-- `docs/architecture/FORK-CHANGES.md` §6.4 — current AP Invoice Capture pipeline
+- `docs/architecture/FORK-CHANGES.md` §6.4 — current Document Capture pipeline
 - `docs/architecture/FORK-CHANGES.md` §6.6 — auto-progression cascade mechanics
 - `docs/planning/v16-upgrade-business-case.md` — deployment context
 - `docs/planning/local-v17-to-v16-migration-plan.md` — confirms the fork is on v16 where this lands
 - `CLAUDE.md` — grounding + working rules
-- `erpnext/accounts/doctype/ap_invoice_capture/ap_invoice_capture.py` (lines ~650–720) — `run_fake_extraction` integration point
+- `erpnext/accounts/doctype/document_capture/document_capture.py` (lines ~650–720) — `run_fake_extraction` integration point
 - `erpnext/accounts/ap_closed_loop/walking_skeleton.py` (line ~124) — `fake_extract` underlying function
 - `erpnext/accounts/doctype/ap_closed_loop_settings/` — Single DocType extended by §4
 

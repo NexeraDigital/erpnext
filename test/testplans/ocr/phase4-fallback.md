@@ -114,7 +114,7 @@ PY
 bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.extractors.test_extractors
 bench --site <site> run-tests --module erpnext.accounts.ap_closed_loop.extractors.test_benchmark
 bench --site <site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings
-bench --site <site> run-tests --module erpnext.accounts.doctype.ap_invoice_capture.test_ap_invoice_capture
+bench --site <site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture
 ```
 **Expected:** 15, 9, 8, 66 — all `OK`.
 

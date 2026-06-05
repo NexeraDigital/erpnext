@@ -29,5 +29,5 @@ echo "=== fork markers ==="
 git log --oneline | grep -iE 'ap.closed.loop|nexeradigital|closure.evidence|walking.skeleton' | head -10
 echo "=== ap_closed_loop dir ==="
 ls erpnext/accounts/ap_closed_loop 2>/dev/null && echo OK || echo MISSING
-echo "=== ap_invoice_capture dir ==="
-ls erpnext/accounts/doctype/ap_invoice_capture 2>/dev/null && echo OK || echo MISSING
+echo "=== document_capture dir ==="
+ls erpnext/accounts/doctype/document_capture 2>/dev/null && echo OK || echo MISSING

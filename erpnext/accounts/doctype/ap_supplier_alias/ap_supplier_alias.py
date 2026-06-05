@@ -5,7 +5,7 @@
 
 Master data curated by Accounts Managers. Maps a vendor-string pattern
 (``exact`` / ``glob`` / ``regex``) to a canonical ``Supplier``. The resolver in
-``ap_invoice_capture._resolve_supplier`` reads only ``is_active=1`` rows and
+``document_capture._resolve_supplier`` reads only ``is_active=1`` rows and
 applies precedence ``exact > glob > regex``, then ``priority`` asc, then ``name``.
 
 A bad ``regex`` pattern must NEVER block validation: it is caught and skipped at

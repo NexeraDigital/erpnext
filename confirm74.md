@@ -177,7 +177,7 @@
               - link "/ Invoicing" [ref=e229] [cursor=pointer]:
                 - /url: /desk/invoicing
             - listitem [ref=e230]:
-              - link "/ AP Invoice Capture" [ref=e231] [cursor=pointer]:
+              - link "/ Document Capture" [ref=e231] [cursor=pointer]:
                 - /url: /desk/ap-invoice-capture
             - listitem [ref=e232]:
               - link "/ clean_doc_b.png":

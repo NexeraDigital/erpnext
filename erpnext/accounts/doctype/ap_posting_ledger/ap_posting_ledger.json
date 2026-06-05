@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "field:idempotency_key",
- "creation": "2026-05-31 00:00:00.000000",
+ "creation": "2026-05-31 00:00:00",
  "description": "Append-only idempotency ledger: one row per (capture, step) document-creating operation. The UNIQUE idempotency_key index guarantees a retried background job creates its downstream ERPNext document at most once. Rows are written server-side by erpnext.accounts.ap_closed_loop.idempotency.with_idempotency; never edited by hand.",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -18,7 +17,7 @@
  ],
  "fields": [
   {
-   "description": "sha256 hex of (capture, step). UNIQUE — this index is the double-post guard.",
+   "description": "sha256 hex of (capture, step). UNIQUE \u2014 this index is the double-post guard.",
    "fieldname": "idempotency_key",
    "fieldtype": "Data",
    "in_standard_filter": 1,
@@ -31,8 +30,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
-   "label": "AP Invoice Capture",
-   "options": "AP Invoice Capture",
+   "label": "Document Capture",
+   "options": "Document Capture",
    "reqd": 1
   },
   {
@@ -68,7 +67,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-05-31 00:00:00.000000",
+ "modified": "2026-06-05 21:36:42.288404",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "AP Posting Ledger",
@@ -100,6 +99,5 @@
  "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
- "states": [],
- "track_changes": 0
+ "states": []
 }
