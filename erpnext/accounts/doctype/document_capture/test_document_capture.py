@@ -4955,3 +4955,66 @@ class TestAPContentClassifierLLM(IntegrationTestCase):
 		self.assertEqual(cap.document_type, DOCUMENT_TYPE_ALREADY_PAID)
 		self.assertEqual(cap.classification_source, CLASSIFICATION_SOURCE_CONTENT_LLM)
 		self.assertIn("content[anthropic]", cap.classification_rationale)
+
+
+class TestAPLeanMode(IntegrationTestCase):
+	"""Lean Mode (the lean Document Capture plan) — config-gated reshape.
+
+	Verifies the cascade SKIPS the heavy-invoice steps when lean mode is on, and
+	runs them byte-for-byte as shipped when it is off (default). Form hiding is
+	client-only and browser-verified, not covered here.
+	"""
+
+	def tearDown(self):
+		frappe.db.rollback()
+
+	def _set_lean(self, on):
+		frappe.db.set_single_value("AP Closed Loop Settings", "lean_mode", 1 if on else 0)
+
+	def _confirmed_capture(self):
+		cap = frappe.new_doc("Document Capture")
+		cap.status = STATUS_CONFIRMED
+		cap.final_supplier = "ZZ Nonexistent Vendor Lean"
+		cap.final_supplier_invoice_no = "INV-LEAN-1"
+		cap.final_invoice_date = frappe.utils.today()
+		cap.final_total_amount = 100
+		cap.final_currency = "USD"
+		return cap
+
+	def test_lean_skips_approval_and_payment_routing(self):
+		"""A promoted Unpaid Bill routes approval when lean is OFF; in lean mode the
+		cascade stops after posting (no approval / payment hop) — payment is external."""
+		cap = frappe.new_doc("Document Capture")
+		cap.status = STATUS_CONFIRMED
+		cap.ocr_status = OCR_STATUS_CONFIRMED
+		cap.document_type = DOCUMENT_TYPE_UNPAID_BILL
+		cap.validation_status = VALIDATION_STATUS_VALIDATED
+		cap.promotion_status = PROMOTION_STATUS_PROMOTED
+		cap.purchase_invoice = "ACC-PINV-LEAN-0001"  # truthy; routing never loads it
+		cap.approval_status = None
+
+		self._set_lean(False)
+		step = cap._determine_next_step()
+		self.assertIsNotNone(step)
+		self.assertEqual(step[0], "request_approval_for")
+
+		self._set_lean(True)
+		self.assertIsNone(cap._determine_next_step())
+
+	def test_lean_skips_validation_gates(self):
+		"""validate_for_purchase_invoice runs the spec-08 gates when lean is OFF
+		(checked_at stamped); skips them in lean mode (checked_at stays None) while
+		still completing validation."""
+		self._set_lean(False)
+		cap = self._confirmed_capture()
+		validate_for_purchase_invoice(cap, save=False)
+		self.assertIsNotNone(cap.three_way_match_checked_at)
+		self.assertIsNotNone(cap.vendor_bank_change_checked_at)
+
+		self._set_lean(True)
+		cap2 = self._confirmed_capture()
+		validate_for_purchase_invoice(cap2, save=False)
+		self.assertIsNone(cap2.three_way_match_checked_at)
+		self.assertIsNone(cap2.vendor_bank_change_checked_at)
+		# Validation still ran to completion in lean mode.
+		self.assertIsNotNone(cap2.validated_at)

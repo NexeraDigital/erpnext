@@ -12,8 +12,58 @@ frappe.ui.form.on("Document Capture", {
 		render_inline_promote_button(frm);
 		render_inline_manager_buttons(frm);
 		render_inline_issue_payment_button(frm);
+		apply_lean_mode(frm);
 	},
 });
+
+// Lean Mode (the lean Document Capture plan). When AP Closed Loop Settings → Lean Mode is
+// ON (surfaced on frappe.boot.ap_lean_mode by erpnext/startup/boot.py), hide the heavy
+// invoice machinery so the form shows only the lean loop: capture → read → code → post →
+// reconcile. This is presentational; the behavioural guarantee (the cascade skipping those
+// steps) lives server-side in document_capture.py. Re-applied on every refresh.
+//
+// Whole sections hidden (reached via the DOM, since Section Breaks aren't in fields_dict):
+const LEAN_HIDE_SECTIONS = [
+	"intake_classification_section", // genre stream — de-emphasised
+	"validation_gates_section", // 3-way match / anomaly / vendor-bank-change
+	"approval_section", // approval & routing / SoD
+	"mock_payment_section", // payment is external + reconciled, not executed here
+];
+// Individual fields hidden (these ARE in fields_dict). Members of the hidden sections are
+// listed too so nothing strays; document_type is intentionally KEPT (it drives the posting
+// path: paid receipt → PI is_paid, unpaid → normal PI).
+const LEAN_HIDE_FIELDS = [
+	// intake classification members
+	"stream", "stream_provisional_source", "stream_revised_from", "sla_due_at",
+	// document-type classifier internals (document_type stays visible)
+	"classified_stream", "stream_tag_agreement", "classification_override",
+	"card_charge_marker", "detected_last4", "expense_claim", "classified_at",
+	"classified_by", "classification_source", "classification_confidence",
+	"classification_rationale",
+	// PO / PR reference (no POs in the lean scope)
+	"purchase_order_reference", "purchase_receipt_reference", "purchase_reference_status",
+	// validation gate members
+	"three_way_match_status", "three_way_match_result", "three_way_match_checked_at",
+	"three_way_match_override_by", "three_way_match_override_at", "three_way_match_override_notes",
+	"anomaly_status", "anomaly_result", "anomaly_checked_at",
+	"vendor_bank_change_detected", "vendor_bank_change_result", "vendor_bank_change_checked_at",
+	// approval members
+	"approval_status", "approval_threshold", "approval_threshold_source", "routing_reason",
+	"assigned_approver_role", "decision_by", "decision_at", "decision_notes", "payment_readiness",
+	// mock payment members
+	"payment_entry", "payment_lifecycle_status", "mock_payment_provider", "mock_payment_reference",
+	"mock_payment_status", "mock_payment_amount", "mock_payment_issued_at", "mock_payment_response",
+];
+
+function apply_lean_mode(frm) {
+	if (!(frappe.boot && frappe.boot.ap_lean_mode)) return;
+	LEAN_HIDE_FIELDS.forEach((fn) => {
+		if (frm.fields_dict[fn]) frm.set_df_property(fn, "hidden", 1);
+	});
+	LEAN_HIDE_SECTIONS.forEach((sec) => {
+		frm.$wrapper.find(`.form-section[data-fieldname="${sec}"]`).hide();
+	});
+}
 
 // State-based retry for the final cascade hop. Visible when a capture is
 // approved-and-ready but no Payment Entry exists — the exact "stuck after

@@ -347,6 +347,18 @@ We measured it on a set of **42 labelled test receipts/invoices** (built for exa
 
 ---
 
+## Update (2026-06-05): a "Lean Mode" switch that trims the screen to what this customer actually does
+
+The pilot customer is a small business: they pay with cards (via Ramp), have few invoices, no purchase orders, and just want receipts **read, coded, posted, and reconciled to the bank** — proven by a clean month-end close. A lot of the screen we built (multi-step approvals, three-way purchase-order matching, fraud/anomaly checks, in-app payment) is enterprise machinery they don't need.
+
+So we added one switch — **Lean Mode** (off by default). Flip it on and Document Capture:
+- **hides** the heavy sections — intake genre tagging, the validation gates (PO match / anomaly / bank-change), approval & routing, and the mock-payment section — leaving the lean path: capture → read → code → **post** → reconcile;
+- **skips** those same steps behind the scenes, so a posted bill simply waits for the bank feed to confirm it (no approval dance, no in-app payment — the card already paid it).
+
+Nothing is deleted — it's all still there for a bigger client, just turned off. Flip the switch back and the full workflow returns exactly as before. Built and tested (3 new automated tests; the full suite still passes unchanged with the switch off), with before/after screenshots of the trimmed form.
+
+---
+
 ## TL;DR
 
 Two new things. **(1)** One new ticket type (`Document Capture`), one prototype script (`walking_skeleton.py`), very strict guardrails about what it doesn't do, and a 1,400-line test suite proving it actually works. **(2)** A read-only, permission-respecting, audit-logged doorway (`erpnext/mcp/`) that lets an AI assistant *look up* AP data — five read tools, secure login, full audit trail, off by default. **No UI yet. No real OCR. No real payments. No write access for the AI. No changes to existing ERPNext accounting.**

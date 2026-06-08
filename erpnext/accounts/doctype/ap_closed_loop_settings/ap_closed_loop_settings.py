@@ -78,6 +78,7 @@ class APClosedLoopSettings(Document):
 		enable_classification_trust_content: DF.Check
 		enable_content_classifier: DF.Check
 		content_classifier_provider: DF.Literal["Rule", "Anthropic"]
+		lean_mode: DF.Check
 		credit_card_clearing_account: DF.Link | None
 		dedupe_enabled: DF.Check
 		dedupe_phash_max_distance: DF.Int
@@ -302,6 +303,25 @@ def get_content_classifier_provider() -> str:
 
 	raw = (_settings().get("content_classifier_provider") or "").strip().lower()
 	return "anthropic" if raw == "anthropic" else "rule"
+
+
+def is_lean_mode_enabled() -> bool:
+	"""Lean / receipt-focused pilot scope (the lean Document Capture plan). When ON, the
+	form hides — and the cascade skips — the heavy invoice machinery (intake genre
+	classification, content-classifier internals, the spec-08 validation gates, approval &
+	routing, and in-ERPNext payment execution), leaving the lean loop:
+	capture → read → code → post → reconcile.
+
+	Default OFF — a blank/unset value means the full cascade runs exactly as shipped, so
+	behaviour is byte-for-byte unchanged until a site opts in."""
+
+	raw = _settings().get("lean_mode")
+	if raw in (None, ""):
+		return False
+	try:
+		return bool(int(float(raw)))
+	except (TypeError, ValueError):
+		return False
 
 
 def get_routing_config() -> dict:

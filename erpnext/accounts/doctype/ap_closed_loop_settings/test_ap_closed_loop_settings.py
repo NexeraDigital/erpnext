@@ -210,6 +210,19 @@ class TestFoundationGetters(IntegrationTestCase):
 		self._set("auto_post_amount_threshold", 0)
 		self.assertEqual(get_auto_post_threshold(), 1000.0)  # non-positive → default
 
+	def test_lean_mode_getter(self):
+		"""Lean Mode switch (the lean Document Capture plan): default OFF; ON when set."""
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			is_lean_mode_enabled,
+		)
+
+		self._set("lean_mode", 0)
+		self.assertFalse(is_lean_mode_enabled())
+		self._set("lean_mode", None)
+		self.assertFalse(is_lean_mode_enabled())  # blank → OFF (shipped behaviour)
+		self._set("lean_mode", 1)
+		self.assertTrue(is_lean_mode_enabled())
+
 	# AC-01-12
 	def test_resolve_approval_threshold_uses_settings(self):
 		from erpnext.accounts.doctype.document_capture.document_capture import (

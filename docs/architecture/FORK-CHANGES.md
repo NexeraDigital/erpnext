@@ -1303,3 +1303,39 @@ Two orthogonal axes — **genre** (receipt / invoice / other) and **payment stat
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPContentClassifier      # 8
 bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPContentClassifierLLM   # 6 (mocked — no API cost)
 ```
+
+## 35. Lean Mode — config-gated receipt-focused scope (the lean Document Capture plan)
+
+A single **`lean_mode`** Check on `AP Closed Loop Settings` (default OFF) reshapes Document
+Capture to the lean loop the pilot customer needs — **capture → read → code → post →
+reconcile** — without deleting the heavier machinery (kept as a configurable superset).
+Default OFF means behaviour is byte-for-byte unchanged until a site opts in.
+
+**Two layers, one switch:**
+- **Form (UI):** `document_capture.js` reads `frappe.boot.ap_lean_mode` (exposed by
+  `erpnext/startup/boot.py → bootinfo`) and, when on, hides the **Intake Classification**,
+  **Validation Gates**, **Approval & Routing**, and **Mock Payment** sections plus the
+  document-type classifier internals and the PO/PR-reference fields. `document_type` stays
+  visible (it drives the posting path). Presentational only.
+- **Cascade (behaviour):** `document_capture.py`:
+  - `validate_for_purchase_invoice` **skips the spec-08 gates** (three-way match / amount
+    anomaly / vendor-bank-change) in lean mode — validation passes on supplier-match +
+    mandatory-field checks alone.
+  - `_determine_next_step` **skips Steps 3 & 4** (`request_approval_for` /
+    `issue_mock_payment_for`) in lean mode — a posted Purchase Invoice is the terminal
+    pre-close state ("posted, awaiting bank-feed match"); payment is external (Ramp /
+    autopay) and reconciled via the bank feed, not executed in ERPNext.
+
+**Section label:** "Purchase Invoice Promotion" → **"Posting (Purchase Invoice)"**.
+
+**Files:** `ap_closed_loop_settings.json` (+`.py` `is_lean_mode_enabled()`),
+`erpnext/startup/boot.py`, `document_capture.py` (two cascade guards), `document_capture.js`
+(form hiding), `document_capture.json` (section label). Flow-visible → AP-CAPTURE-SEQUENCE
+§35 branch + PNG regenerated.
+
+### 35.1 Running the tests
+```bash
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.document_capture.test_document_capture --test TestAPLeanMode                 # 2 (cascade skips)
+bench --site <test-site> run-tests --module erpnext.accounts.doctype.ap_closed_loop_settings.test_ap_closed_loop_settings --test test_lean_mode_getter  # 1 (getter)
+# Regression: document_capture 245 OK, ap_closed_loop_settings 21 OK (lean OFF byte-identical).
+```

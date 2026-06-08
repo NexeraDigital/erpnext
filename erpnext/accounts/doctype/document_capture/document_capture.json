@@ -949,7 +949,7 @@
    "description": "Promotion of the validated capture into the native Purchase Invoice lifecycle.",
    "fieldname": "promotion_section",
    "fieldtype": "Section Break",
-   "label": "Purchase Invoice Promotion"
+   "label": "Posting (Purchase Invoice)"
   },
   {
    "description": "Native ERPNext Purchase Invoice created from this capture (header-only Phase 1).",

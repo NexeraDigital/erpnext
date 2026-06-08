@@ -29,6 +29,8 @@
   "enable_classification_trust_content",
   "enable_content_classifier",
   "content_classifier_provider",
+  "lean_mode_section",
+  "lean_mode",
   "dedupe_section",
   "dedupe_enabled",
   "dedupe_window_days",
@@ -226,6 +228,18 @@
    "label": "Content Classifier Provider",
    "depends_on": "eval:doc.enable_content_classifier",
    "description": "Engine for the content classifier (Phase 2). 'Rule' = the deterministic phrase scorer (free, default). 'Anthropic' = an LLM reads the OCR text and judges receipt-vs-invoice + paid/unpaid (needs an Anthropic key in AI Provider Settings; degrades to the rule scorer on any failure). Only used when the classifier is enabled."
+  },
+  {
+   "fieldname": "lean_mode_section",
+   "fieldtype": "Section Break",
+   "label": "Lean Mode (Pilot Scope)"
+  },
+  {
+   "default": "0",
+   "description": "Lean / receipt-focused pilot scope. When ON, Document Capture hides and skips the heavy invoice machinery — intake genre classification, the content-classifier internals, validation gates (3-way match / anomaly / vendor-bank-change), approval & routing, and in-ERPNext payment execution — leaving the lean loop: capture → read → code → post → reconcile. OFF by default: behaviour is byte-for-byte unchanged until a site opts in. Affects both the form (sections hidden) and the cascade (steps skipped).",
+   "fieldname": "lean_mode",
+   "fieldtype": "Check",
+   "label": "Enable Lean Mode (Receipt-Focused Scope)"
   },
   {
    "collapsible": 1,

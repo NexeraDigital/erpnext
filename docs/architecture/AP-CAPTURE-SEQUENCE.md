@@ -3,7 +3,7 @@
 > Sequence of the **as-implemented** `Document Capture` cascade on `russ/migrateToV16`.
 > Source of truth: `erpnext/accounts/doctype/document_capture/document_capture.py`
 > (`_determine_next_step` is the routing table) + `erpnext/accounts/ap_closed_loop/`.
-> Last derived from code: 2026-06-04 (content-based receipt/invoice classifier §34 + default-coding reflection §33 + company-scoped mock payment §30).
+> Last derived from code: 2026-06-05 (Lean Mode §35 — config-gated cascade reshape: gates + approval + payment SKIPPED; content-based classifier §34 + default-coding reflection §33 + company-scoped mock payment §30).
 >
 > **Keep `AP-CAPTURE-SEQUENCE.png` in sync.** When the cascade changes, edit the
 > Mermaid block below, bump the date above, then regenerate the image with
@@ -82,7 +82,11 @@ sequenceDiagram
     Note over Q,Cap: Step 2 — validation + gates (specs 05 / 08)
     Q->>Cap: validate_for_purchase_invoice()
     Cap->>Cap: 3-tier supplier match (alias→exact→fuzzy) + PO/PR reference (spec 05)
-    Cap->>Cap: gates (spec 08): three-way match · amount anomaly · vendor bank-change
+    alt LEAN MODE (§35) — receipt-focus, no POs
+        Cap->>Cap: validation gates SKIPPED (no 3WM / anomaly / vendor bank-change)
+    else full mode
+        Cap->>Cap: gates (spec 08): three-way match · amount anomaly · vendor bank-change
+    end
     alt unknown/ambiguous supplier · 3WM Exception · Anomalous · bank change (Stream I)
         Cap-->>Clerk: validation_status=Blocked + action_required — STOPS
     else validated
@@ -123,6 +127,9 @@ sequenceDiagram
     end
     Cap->>Q: _kick_next_step()
 
+    alt LEAN MODE (§35) — payment external (Ramp / autopay), bank-reconciled
+        Note over Q,Cap: Steps 3 & 4 SKIPPED — a posted Purchase Invoice is the terminal<br/>pre-close state ("posted, awaiting bank-feed match"). No approval / payment in ERPNext.
+    else full mode
     Note over Q,Set: Step 3 — confidence-based routing (spec 09 · Already-Paid skips)
     Q->>Cap: request_approval()
     Cap->>Set: get_routing_config() (threshold + per-field confidence)
@@ -149,6 +156,7 @@ sequenceDiagram
     Cap->>PE: create mock Payment Entry<br/>(paid_from resolved company-scoped — never a wrong-company account, §30)
     PE-->>Cap: payment_lifecycle=Closed
     Cap-->>Clerk: Closed (mock paid)
+    end
 ```
 
 ## Notes on current state

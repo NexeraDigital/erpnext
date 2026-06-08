@@ -14,7 +14,7 @@ steps belong in the in-session todo scratchpad (see `CLAUDE.md` → "Todo manage
 **ID scheme.** Every task gets a stable, monotonic ID `T-NNN` (zero-padded to 3+ digits).
 The next free ID is tracked in the counter below — bump it whenever you add a task.
 
-- **Next ID:** `T-026`
+- **Next ID:** `T-029`
 
 **Priority labels.**
 
@@ -46,6 +46,16 @@ The next free ID is tracked in the counter below — bump it whenever you add a 
 _Nothing in progress._
 
 ## Backlog
+
+### Lean Mode (the lean Document Capture plan) — follow-on builds
+
+These are the substantive engineering the lean scope implies — beyond the §35 hide/skip switch
+(which is done). They deliver the customer's end goal (correct posting + month-end reconciliation)
+and were deferred pending the alignment answers (`docs/planning/customer-alignment-questions.md`).
+
+- [ ] **T-026** Real Plaid/SimpleFIN bank-feed reconciliation — build out spec 13/14 from the fixture/mock match to a live feed: ingest card/bank transactions, match each posted capture by amount + merchant + date window (the fuzzy matcher), surface unmatched receipts/transactions in a review queue, and drive the month-end close signal. **The actual "done = month-end close" engine — largest follow-on.** _(P1 · added 2026-06-05 · ref: docs/planning/lean-document-capture-plan.md §9.1; docs/spec/13, 14)_
+- [ ] **T-027** Cost-accounting coding simplification — replace the heavy profile/history GL-coding engine with a lean per-supplier default aligned to the customer's cost-accounting dimensions (cost centers / projects). Gated on alignment Q3 (what dimensions they track). _(P2 · added 2026-06-05 · ref: docs/planning/lean-document-capture-plan.md §9.2; docs/planning/customer-alignment-questions.md Q3)_
+- [ ] **T-028** BAML as the default OCR (Phase C) — consolidate read + genre/payment classification on the cheap vision model; have BAML's `kind` decide `document_type` and retire the standalone Anthropic extractor + the separate content classifier. _(P2 · added 2026-06-05 · ref: docs/planning/lean-document-capture-plan.md §9.3; erpnext/accounts/ap_closed_loop/extractors/baml_provider.py)_
 
 ### Content classifier (spec 07 §34) — next phases
 
@@ -103,6 +113,7 @@ _Nothing in progress._
 
 _Completed tasks are archived here newest-first, with their `done YYYY-MM-DD` date. Never delete — this is the audit trail._
 
+- [x] **Lean Mode — config-gated receipt-focused scope (the lean Document Capture plan).** Built: `lean_mode` Check on AP Closed Loop Settings (default OFF) + `is_lean_mode_enabled()`; `frappe.boot.ap_lean_mode` (startup/boot.py); `document_capture.js` hides Intake Classification / Validation Gates / Approval & Routing / Mock Payment + classifier internals + PO/PR refs (keeps document_type); `document_capture.py` skips the spec-08 gates (`validate_for_purchase_invoice`) and Steps 3 & 4 (`_determine_next_step`) in lean mode; "Promotion" section → "Posting (Purchase Invoice)". 3 tests (TestAPLeanMode ×2 + getter); capture suite 243→245 OK, settings 20→21 OK (lean OFF byte-identical); browser smoke + before/after screenshots committed; sequence diagram §35 + PNG regenerated. Follow-on builds tracked as T-026/027/028. · done 2026-06-05 _(ref: docs/architecture/FORK-CHANGES.md §35; docs/planning/lean-document-capture-plan.md)_
 - [x] **T-018** **Gated supplier auto-create defaults ON for high-confidence names (spec 05).** Built: `enable_gated_supplier_creation` default flipped OFF→ON (JSON + getter), scoped to high OCR confidence (guard already in `_maybe_queue_supplier_create`). A confident unknown auto-files a Draft create request (human only approves — SoD intact); low-confidence stays blocked. 3 tests (capture suite 202→205 OK), AC-05-24..26 green. Approval policy stays a customer decision (T-011). · done 2026-06-02 _(ref: docs/architecture/FORK-CHANGES.md §25)_
 - [x] **T-017** **Classification trusts confident content over the intake stream tag (spec 07 §5.3).** Built: `enable_classification_trust_content` (default OFF) + `is_classification_trust_content_enabled()`; `_content_classification_confident`; classify disagreement branch trusts confident content (records a `stream_mistag` AP Review Event, no halt) instead of unconditional Manual Review. 3 tests (capture suite 199→202 OK), AC-07-15/16 green; screenshots committed. · done 2026-06-02 _(ref: docs/architecture/FORK-CHANGES.md §24)_
 - [x] **T-016** **Coding bootstrap from history (spec 06 §5.3.1).** Built: `enable_coding_history_bootstrap` (default ON) + consensus/min_samples/lookback settings + `get_coding_history_config()`; `_derive_coding_from_history` (per-field consensus over the supplier's posted PIs → derived + ambiguous); Layer-1.5 in `apply_coding_profile_for` (below profile+caller, above Settings) + split-history → Coding Review escalation; `_coding_configured` fires the coding hop for a history-codable supplier with no profile. A routine vendor self-codes from its own history; split → Coding Review naming competing values; thin → fall through. 4 tests (capture suite 195→199 OK), AC-06-15..18 green; screenshots committed. · done 2026-06-02 _(ref: docs/architecture/FORK-CHANGES.md §23)_

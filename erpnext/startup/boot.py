@@ -90,3 +90,16 @@ def bootinfo(bootinfo):
 		if employee:
 			bootinfo["user"]["employee"] = employee
 			frappe.session.data.employee = employee
+
+	# Lean Mode (the lean Document Capture plan): expose the pilot-scope switch on the
+	# client boot so document_capture.js can hide the heavy-invoice sections without a
+	# server round-trip. Read defensively — a missing AP Closed Loop Settings singleton
+	# (fresh site) must never break the desk boot, which runs on every page load.
+	try:
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			is_lean_mode_enabled,
+		)
+
+		bootinfo["ap_lean_mode"] = is_lean_mode_enabled()
+	except Exception:
+		bootinfo["ap_lean_mode"] = False

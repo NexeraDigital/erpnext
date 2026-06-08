@@ -629,25 +629,36 @@ class DocumentCapture(Document):
 		# (defaults like company / item_code are required by the PI schema
 		# and have no source on the capture record itself).
 
-		# Step 3: Promoted with no approval yet → route approval. Already-Paid (Stream
-		# R) PIs skip approval/payment entirely — the money already moved (spec 07).
-		if (
-			self.promotion_status == PROMOTION_STATUS_PROMOTED
-			and self.purchase_invoice
-			and self.document_type != DOCUMENT_TYPE_ALREADY_PAID
-			and self.approval_status in (None, APPROVAL_STATUS_NOT_REQUIRED)
-		):
-			return ("request_approval_for", "auto: post-promotion approval routing")
+		# Lean Mode (the lean Document Capture plan): payment is external (Ramp / autopay)
+		# and reconciled via the bank feed — not executed in ERPNext — and approval / SoD
+		# is out of scope for this customer. So in lean mode the cascade stops after
+		# promotion: a posted Purchase Invoice is the terminal pre-close state ("posted,
+		# awaiting bank match"). Steps 3 & 4 (approval routing + payment issuance) are
+		# skipped. Already-Paid (Stream R) receipts already skip both regardless of mode.
+		from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+			is_lean_mode_enabled,
+		)
 
-		# Step 4: Approved (auto or by manager) and Ready → issue mock payment
-		if (
-			self.approval_status
-			in (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_MANAGER_APPROVED)
-			and self.payment_readiness == PAYMENT_READINESS_READY
-			and not self.payment_entry
-			and self._auto_pay_eligible()
-		):
-			return ("issue_mock_payment_for", "auto: post-approval payment issuance (auto-pay vendor)")
+		if not is_lean_mode_enabled():
+			# Step 3: Promoted with no approval yet → route approval. Already-Paid (Stream
+			# R) PIs skip approval/payment entirely — the money already moved (spec 07).
+			if (
+				self.promotion_status == PROMOTION_STATUS_PROMOTED
+				and self.purchase_invoice
+				and self.document_type != DOCUMENT_TYPE_ALREADY_PAID
+				and self.approval_status in (None, APPROVAL_STATUS_NOT_REQUIRED)
+			):
+				return ("request_approval_for", "auto: post-promotion approval routing")
+
+			# Step 4: Approved (auto or by manager) and Ready → issue mock payment
+			if (
+				self.approval_status
+				in (APPROVAL_STATUS_AUTO_APPROVED, APPROVAL_STATUS_MANAGER_APPROVED)
+				and self.payment_readiness == PAYMENT_READINESS_READY
+				and not self.payment_entry
+				and self._auto_pay_eligible()
+			):
+				return ("issue_mock_payment_for", "auto: post-approval payment issuance (auto-pay vendor)")
 
 		return None
 
@@ -2809,25 +2820,36 @@ def validate_for_purchase_invoice(
 	# (save=False — this function owns the single save below). On Stream I a failing
 	# gate is appended to ``issues`` and blocks; on Stream R the verdict is recorded
 	# but never blocks. The bank-change gate re-asserts at promotion time.
-	three_way_match_for(capture, save=False)
-	detect_amount_anomaly_for(capture, save=False)
-	detect_vendor_bank_change_for(capture, save=False)
+	#
+	# Lean Mode (the lean Document Capture plan): the customer has no POs (3-way match
+	# moot), few invoices (anomaly overkill), and treats fraud screening as out of scope —
+	# so when lean mode is on, the gates are SKIPPED entirely. The gate fields are left at
+	# their defaults (the section is hidden) and never block; validation passes on the
+	# supplier-match + mandatory-field checks above alone.
+	from erpnext.accounts.doctype.ap_closed_loop_settings.ap_closed_loop_settings import (
+		is_lean_mode_enabled,
+	)
 
-	if _is_stream_i(capture):
-		if capture.three_way_match_status == THREE_WAY_MATCH_EXCEPTION:
-			issues.append(
-				_("Three-way match exception — invoice does not reconcile to its Purchase Order (override required).")
-			)
-		if capture.anomaly_status == ANOMALY_ANOMALOUS:
-			# Keep the issue line short (action_required_reason is a 140-char field);
-			# the full mean/stddev/z evidence lives on the anomaly_result field.
-			issues.append(
-				_("Amount anomaly — total is an outlier vs this supplier's recent history.")
-			)
-		if capture.vendor_bank_change_detected and not has_approved_bank_change(capture.matched_supplier):
-			issues.append(
-				_("Vendor bank details changed since last payment — an approved Update-Bank-Details request is required.")
-			)
+	if not is_lean_mode_enabled():
+		three_way_match_for(capture, save=False)
+		detect_amount_anomaly_for(capture, save=False)
+		detect_vendor_bank_change_for(capture, save=False)
+
+		if _is_stream_i(capture):
+			if capture.three_way_match_status == THREE_WAY_MATCH_EXCEPTION:
+				issues.append(
+					_("Three-way match exception — invoice does not reconcile to its Purchase Order (override required).")
+				)
+			if capture.anomaly_status == ANOMALY_ANOMALOUS:
+				# Keep the issue line short (action_required_reason is a 140-char field);
+				# the full mean/stddev/z evidence lives on the anomaly_result field.
+				issues.append(
+					_("Amount anomaly — total is an outlier vs this supplier's recent history.")
+				)
+			if capture.vendor_bank_change_detected and not has_approved_bank_change(capture.matched_supplier):
+				issues.append(
+					_("Vendor bank details changed since last payment — an approved Update-Bank-Details request is required.")
+				)
 
 	capture.validated_by = actor or frappe.session.user
 	capture.validated_at = now_datetime()
